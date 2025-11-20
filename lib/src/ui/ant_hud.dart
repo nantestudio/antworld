@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -26,6 +28,7 @@ class _AntHudState extends State<AntHud> {
   late int _pendingCols;
   late int _pendingRows;
   bool _saving = false;
+  bool _generatingMap = false;
 
   @override
   void initState() {
@@ -166,13 +169,16 @@ class _AntHudState extends State<AntHud> {
 
   Widget _buildSettingsPanel(BuildContext context) {
     final theme = Theme.of(context);
+    final screenHeight = MediaQuery.of(context).size.height;
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
       top: 16,
+      bottom: 16,
       right: _showSettings ? 16 : -360,
       child: SizedBox(
         width: 320,
+        height: screenHeight - 32,
         child: Card(
           color: theme.colorScheme.surface.withValues(alpha: 0.95),
           child: Padding(
@@ -200,6 +206,10 @@ class _AntHudState extends State<AntHud> {
                   _buildPopulationControls(theme),
                   const Divider(),
                   _buildSpeedControls(theme),
+                  const Divider(),
+                  _buildViewControls(theme),
+                  const Divider(),
+                  _buildGenerationControls(theme),
                   const Divider(),
                   _buildFoodControls(),
                   const Divider(),
@@ -284,6 +294,30 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
+  Widget _buildGenerationControls(ThemeData theme) {
+    final seed = widget.simulation.lastSeed;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Map Generation', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 4),
+        Text(seed == null ? 'Seed: --' : 'Seed: $seed'),
+        const SizedBox(height: 8),
+        FilledButton.icon(
+          onPressed: _generatingMap ? null : _randomizeMap,
+          icon: _generatingMap
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.auto_awesome),
+          label: Text(_generatingMap ? 'Generating...' : 'Random Map'),
+        ),
+      ],
+    );
+  }
+
   Widget _buildPersistenceControls() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -340,6 +374,31 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
+  Widget _buildViewControls(ThemeData theme) {
+    final zoom = widget.game.zoomFactor;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('View', style: theme.textTheme.titleSmall),
+        Text('Zoom: ${zoom.toStringAsFixed(1)}x'),
+        Slider(
+          min: 0.5,
+          max: 3.0,
+          divisions: 25,
+          value: zoom,
+          onChanged: (value) {
+            widget.game.setZoom(value);
+            setState(() {});
+          },
+        ),
+        const Text(
+          'Use the slider to zoom the world view.',
+          style: TextStyle(fontSize: 12, color: Colors.white70),
+        ),
+      ],
+    );
+  }
+
   void _applyGridSize() {
     if (_pendingCols == widget.simulation.config.cols &&
         _pendingRows == widget.simulation.config.rows) {
@@ -362,6 +421,25 @@ class _AntHudState extends State<AntHud> {
       SnackBar(
         content: Text(success ? 'World saved' : 'Failed to save world'),
       ),
+    );
+  }
+
+  Future<void> _randomizeMap() async {
+    setState(() => _generatingMap = true);
+    final seed = math.Random().nextInt(0x7fffffff);
+    widget.simulation.generateRandomWorld(seed: seed);
+    widget.game.invalidateTerrainLayer();
+    widget.game.refreshViewport();
+    setState(() {
+      _generatingMap = false;
+      _pendingCols = widget.simulation.config.cols;
+      _pendingRows = widget.simulation.config.rows;
+    });
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Generated new world (seed $seed)')),
     );
   }
 }
