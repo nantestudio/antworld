@@ -179,7 +179,6 @@ class _AntHudState extends State<AntHud> {
       right: _showSettings ? 16 : -360,
       child: SizedBox(
         width: 320,
-        height: screenHeight - 32,
         child: Card(
           color: theme.colorScheme.surface.withValues(alpha: 0.95),
           child: Padding(

@@ -206,7 +206,21 @@ class Ant {
     }
 
     if (!steered && behavior == AntState.forage) {
-      if (_biasTowardFood(world, config, rng)) {
+      final foodTarget = _biasTowardFood(world, config, rng);
+      if (foodTarget != null) {
+        // Check if there's dirt ahead in the direction of food
+        final nextX = position.x + math.cos(angle) * 1.5;
+        final nextY = position.y + math.sin(angle) * 1.5;
+        final checkX = nextX.floor();
+        final checkY = nextY.floor();
+
+        // If there's dirt blocking the path and ant has energy, dig toward food
+        if (world.isInsideIndex(checkX, checkY) &&
+            world.cellTypeAt(checkX, checkY) == CellType.dirt &&
+            energy >= config.digEnergyCost) {
+          // Strategic digging toward sensed food
+          _dig(world, checkX, checkY, config);
+        }
         return;
       }
     }
@@ -250,20 +264,20 @@ class Ant {
     return value;
   }
 
-  bool _biasTowardFood(
+  Vector2? _biasTowardFood(
     WorldGrid world,
     SimulationConfig config,
     math.Random rng,
   ) {
     final target = world.nearestFood(position, config.foodSenseRange);
     if (target == null) {
-      return false;
+      return null;
     }
     final desired = math.atan2(target.y - position.y, target.x - position.x);
     final delta = _normalizeAngle(desired - angle);
     angle += delta.clamp(-0.3, 0.3) * 0.4;
     angle += (rng.nextDouble() - 0.5) * 0.05;
-    return true;
+    return target;
   }
 
   _PathCollision? _checkPathCollision(
