@@ -12,7 +12,9 @@ class Ant {
     required Vector2 startPosition,
     required this.angle,
     required this.energy,
-  }) : position = startPosition.clone();
+    required math.Random rng,
+  })  : position = startPosition.clone(),
+        _isExplorer = rng.nextDouble() < 0.05; // 5% are explorers
 
   Ant.rehydrated({
     required Vector2 position,
@@ -21,9 +23,11 @@ class Ant {
     required bool carryingFood,
     required this.energy,
     AntState? stateBeforeRest,
+    bool isExplorer = false,
   })  : position = position.clone(),
         _carryingFood = carryingFood,
-        _stateBeforeRest = stateBeforeRest;
+        _stateBeforeRest = stateBeforeRest,
+        _isExplorer = isExplorer;
 
   final Vector2 position;
   double angle;
@@ -34,6 +38,7 @@ class Ant {
   int _consecutiveRockHits = 0;
   int _collisionCooldown = 0;
   double _speedMultiplier = 1.0;
+  final bool _isExplorer; // 5% of ants are more random/exploratory
 
   bool get hasFood => _carryingFood;
 
@@ -164,8 +169,9 @@ class Ant {
         ? _stateBeforeRest!
         : state;
 
-    // Random exploration: occasionally ignore pheromones completely (4% chance)
-    if (rng.nextDouble() < 0.04) {
+    // Random exploration: explorers ignore pheromones more often (20% vs 1% chance)
+    final exploreChance = _isExplorer ? 0.20 : 0.01;
+    if (rng.nextDouble() < exploreChance) {
       angle += (rng.nextDouble() - 0.5) * 1.2; // Random turn ±0.6 rad
       return; // Skip normal pheromone following
     }
@@ -181,12 +187,14 @@ class Ant {
       angle += (rng.nextDouble() - 0.5) * 0.1;
       steered = true;
     } else if (sensorLeft > sensorRight) {
-      // 10% chance to make a "mistake" and turn less sharply
-      final mistakeFactor = rng.nextDouble() < 0.10 ? 0.4 : 1.0;
+      // Explorers make more mistakes (15% vs 3% chance)
+      final mistakeChance = _isExplorer ? 0.15 : 0.03;
+      final mistakeFactor = rng.nextDouble() < mistakeChance ? 0.4 : 1.0;
       angle -= (rng.nextDouble() * 0.2 + 0.1) * mistakeFactor;
       steered = true;
     } else if (sensorRight > sensorLeft) {
-      final mistakeFactor = rng.nextDouble() < 0.10 ? 0.4 : 1.0;
+      final mistakeChance = _isExplorer ? 0.15 : 0.03;
+      final mistakeFactor = rng.nextDouble() < mistakeChance ? 0.4 : 1.0;
       angle += (rng.nextDouble() * 0.2 + 0.1) * mistakeFactor;
       steered = true;
     }
@@ -361,6 +369,7 @@ class Ant {
       'carryingFood': _carryingFood,
       'energy': energy,
       'stateBeforeRest': _stateBeforeRest?.index,
+      'isExplorer': _isExplorer,
     };
   }
 
@@ -380,6 +389,7 @@ class Ant {
       energy: (json['energy'] as num?)?.toDouble() ?? 0,
       stateBeforeRest:
           clampedRest == null ? null : AntState.values[clampedRest],
+      isExplorer: json['isExplorer'] as bool? ?? false,
     );
   }
 }

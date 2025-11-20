@@ -193,6 +193,7 @@ class ColonySimulation {
         startPosition: world.nestPosition,
         angle: _rng.nextDouble() * math.pi * 2,
         energy: config.energyCapacity,
+        rng: _rng,
       ),
     );
     _updateAntCount();
