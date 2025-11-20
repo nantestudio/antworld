@@ -21,7 +21,10 @@ class AntWorldGame extends FlameGame
   final ValueNotifier<BrushMode> brushMode;
 
   double _worldScale = 1;
+  double _baseScale = 1;
+  double _zoomFactor = 1;
   final Vector2 _worldOffset = Vector2.zero();
+  Vector2 _canvasSize = Vector2.zero();
   bool _draggingDig = false;
   bool _draggingFood = false;
 
@@ -36,6 +39,8 @@ class AntWorldGame extends FlameGame
   final Paint _homePheromonePaint = Paint()..color = const Color(0xFF888888);
   Picture? _terrainPicture;
   int _cachedTerrainVersion = -1;
+  Picture? _pheromonePicture;
+  int _pheromoneFrame = 0;
 
   @override
   void update(double dt) {
@@ -57,16 +62,9 @@ class AntWorldGame extends FlameGame
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
-    final width = simulation.config.worldWidth;
-    final height = simulation.config.worldHeight;
-    final scaleX = size.x / width;
-    final scaleY = size.y / height;
-    _worldScale = math.min(scaleX, scaleY);
-    final scaledWidth = width * _worldScale;
-    final scaledHeight = height * _worldScale;
-    _worldOffset
-      ..x = (size.x - scaledWidth) / 2
-      ..y = (size.y - scaledHeight) / 2;
+    _canvasSize = size.clone();
+    _recalculateBaseScale();
+    _updateViewport();
   }
 
   @override
@@ -135,9 +133,21 @@ class AntWorldGame extends FlameGame
   }
 
   void refreshViewport() {
-    onGameResize(size);
+    _recalculateBaseScale();
+    _updateViewport();
     invalidateTerrainLayer();
   }
+
+  void setZoom(double zoom) {
+    final clamped = zoom.clamp(0.5, 3.0);
+    if ((_zoomFactor - clamped).abs() < 0.001) {
+      return;
+    }
+    _zoomFactor = clamped;
+    _updateViewport();
+  }
+
+  double get zoomFactor => _zoomFactor;
 
   void _renderWorld(Canvas canvas) {
     final world = simulation.world;
@@ -152,24 +162,27 @@ class AntWorldGame extends FlameGame
     }
 
     if (simulation.showPheromones) {
-      _drawPheromones(canvas, world, cellSize);
+      _renderPheromonesLayer(canvas, world, cellSize);
     }
 
     final nest = world.nestPosition;
     final nestOffset = Offset(nest.x * cellSize, nest.y * cellSize);
     canvas.drawCircle(nestOffset, cellSize * 0.75, _nestPaint);
 
-    for (final Ant ant in simulation.ants) {
-      final paint = ant.hasFood ? _antCarryingPaint : _antPaint;
-      final pos = Offset(ant.position.x * cellSize, ant.position.y * cellSize);
-      canvas.drawCircle(pos, cellSize * 0.35, paint);
-    }
+    _renderAnts(canvas, cellSize);
   }
 
   void invalidateTerrainLayer() {
     _cachedTerrainVersion = -1;
     _terrainPicture?.dispose();
     _terrainPicture = null;
+    invalidatePheromoneLayer();
+  }
+
+  void invalidatePheromoneLayer() {
+    _pheromonePicture?.dispose();
+    _pheromonePicture = null;
+    _pheromoneFrame = 0;
   }
 
   void _ensureTerrainPicture(WorldGrid world, double cellSize) {
@@ -209,6 +222,21 @@ class AntWorldGame extends FlameGame
     }
   }
 
+  void _renderPheromonesLayer(Canvas canvas, WorldGrid world, double cellSize) {
+    const cacheInterval = 3;
+    if (_pheromonePicture == null || _pheromoneFrame % cacheInterval == 0) {
+      _pheromonePicture?.dispose();
+      final recorder = PictureRecorder();
+      final pictureCanvas = Canvas(recorder);
+      _drawPheromones(pictureCanvas, world, cellSize);
+      _pheromonePicture = recorder.endRecording();
+    }
+    if (_pheromonePicture != null) {
+      canvas.drawPicture(_pheromonePicture!);
+    }
+    _pheromoneFrame++;
+  }
+
   void _drawPheromones(Canvas canvas, WorldGrid world, double cellSize) {
     final cols = world.cols;
     final rows = world.rows;
@@ -238,6 +266,33 @@ class AntWorldGame extends FlameGame
           canvas.drawRect(rect, _homePheromonePaint);
         }
       }
+    }
+  }
+
+  void _renderAnts(Canvas canvas, double cellSize) {
+    final normalPath = Path();
+    final carryingPath = Path();
+    var normalHasContent = false;
+    var carryingHasContent = false;
+    final radius = cellSize * 0.35;
+    for (final Ant ant in simulation.ants) {
+      final rect = Rect.fromCircle(
+        center: Offset(ant.position.x * cellSize, ant.position.y * cellSize),
+        radius: radius,
+      );
+      if (ant.hasFood) {
+        carryingPath.addOval(rect);
+        carryingHasContent = true;
+      } else {
+        normalPath.addOval(rect);
+        normalHasContent = true;
+      }
+    }
+    if (normalHasContent) {
+      canvas.drawPath(normalPath, _antPaint);
+    }
+    if (carryingHasContent) {
+      canvas.drawPath(carryingPath, _antCarryingPaint);
     }
   }
 
@@ -295,5 +350,31 @@ class AntWorldGame extends FlameGame
       return null;
     }
     return Vector2(px / simulation.config.cellSize, py / simulation.config.cellSize);
+  }
+
+  void _recalculateBaseScale() {
+    if (_canvasSize.x == 0 || _canvasSize.y == 0) {
+      _baseScale = 1;
+      return;
+    }
+    final width = simulation.config.worldWidth;
+    final height = simulation.config.worldHeight;
+    final scaleX = _canvasSize.x / width;
+    final scaleY = _canvasSize.y / height;
+    _baseScale = math.min(scaleX, scaleY);
+  }
+
+  void _updateViewport() {
+    if (_canvasSize.x == 0 || _canvasSize.y == 0) {
+      return;
+    }
+    final width = simulation.config.worldWidth;
+    final height = simulation.config.worldHeight;
+    _worldScale = _baseScale * _zoomFactor;
+    final scaledWidth = width * _worldScale;
+    final scaledHeight = height * _worldScale;
+    _worldOffset
+      ..x = (_canvasSize.x - scaledWidth) / 2
+      ..y = (_canvasSize.y - scaledHeight) / 2;
   }
 }

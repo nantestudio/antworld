@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import 'ant.dart';
 import 'simulation_config.dart';
+import 'world_generator.dart';
 import 'world_grid.dart';
 
 class ColonySimulation {
@@ -28,8 +29,10 @@ class ColonySimulation {
   final math.Random _rng = math.Random();
   int _storedFood = 0;
   int _queuedAnts = 0;
+  int? _lastSeed;
 
   bool get showPheromones => pheromonesVisible.value;
+  int? get lastSeed => _lastSeed;
 
   void initialize() {
     world.reset();
@@ -85,6 +88,23 @@ class ColonySimulation {
     world.placeRock(cellPosition, config.digBrushRadius);
   }
 
+  void generateRandomWorld({int? seed}) {
+    final generator = WorldGenerator();
+    final actualSeed = seed ?? _rng.nextInt(0x7fffffff);
+    final generated = generator.generate(baseConfig: config, seed: actualSeed);
+    config = generated.config;
+    world = generated.world;
+    _lastSeed = actualSeed;
+    _storedFood = 0;
+    _queuedAnts = 0;
+    foodCollected.value = 0;
+    ants.clear();
+    for (var i = 0; i < config.startingAnts; i++) {
+      _spawnAnt();
+    }
+    _updateAntCount();
+  }
+
   Map<String, dynamic> toSnapshot() {
     return {
       'config': _configToJson(),
@@ -93,15 +113,19 @@ class ColonySimulation {
       'foodCollected': _storedFood,
       'antSpeedMultiplier': antSpeedMultiplier.value,
       'pheromonesVisible': pheromonesVisible.value,
+      'seed': _lastSeed,
     };
   }
 
   void restoreFromSnapshot(Map<String, dynamic> snapshot) {
     final configData = (snapshot['config'] as Map<String, dynamic>?) ?? {};
     config = _configFromJson(configData, config);
-    world = WorldGrid(config);
 
     final worldData = snapshot['world'] as Map<String, dynamic>?;
+    final nestOverride = _vectorFromJson(
+      worldData?['nest'] as Map<String, dynamic>?,
+    );
+    world = WorldGrid(config, nestOverride: nestOverride);
     if (worldData != null) {
       world.loadState(
         cellsData: _decodeUint8(worldData['cells'] as String),
@@ -126,6 +150,7 @@ class ColonySimulation {
     antSpeedMultiplier.value =
         (snapshot['antSpeedMultiplier'] as num?)?.toDouble() ?? 1.0;
     pheromonesVisible.value = snapshot['pheromonesVisible'] as bool? ?? true;
+    _lastSeed = (snapshot['seed'] as num?)?.toInt();
   }
 
   void addAnts(int count) {
@@ -159,6 +184,7 @@ class ColonySimulation {
     config = config.copyWith(cols: cols, rows: rows);
     world = WorldGrid(config);
     initialize();
+    _lastSeed = null;
   }
 
   void _spawnAnt() {
@@ -220,6 +246,10 @@ class ColonySimulation {
       'dirtHealth': _encodeFloat32(world.dirtHealth),
       'foodPheromones': _encodeFloat32(world.foodPheromones),
       'homePheromones': _encodeFloat32(world.homePheromones),
+      'nest': {
+        'x': world.nestPosition.x,
+        'y': world.nestPosition.y,
+      },
     };
   }
 }
@@ -287,4 +317,16 @@ String _encodeFloat32(Float32List data) {
 Float32List _decodeFloat32(String data) {
   final bytes = base64Decode(data);
   return bytes.buffer.asFloat32List(bytes.offsetInBytes, bytes.lengthInBytes ~/ 4);
+}
+
+Vector2? _vectorFromJson(Map<String, dynamic>? data) {
+  if (data == null) {
+    return null;
+  }
+  final dx = data['x'];
+  final dy = data['y'];
+  if (dx is num && dy is num) {
+    return Vector2(dx.toDouble(), dy.toDouble());
+  }
+  return null;
 }

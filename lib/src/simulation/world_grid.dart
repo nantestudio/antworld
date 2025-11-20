@@ -8,12 +8,13 @@ import 'simulation_config.dart';
 enum CellType { air, dirt, food, rock }
 
 class WorldGrid {
-  WorldGrid(this.config)
+  WorldGrid(this.config, {Vector2? nestOverride})
       : cells = Uint8List(config.cols * config.rows),
         foodPheromones = Float32List(config.cols * config.rows),
         homePheromones = Float32List(config.cols * config.rows),
         dirtHealth = Float32List(config.cols * config.rows),
-        nestPosition = Vector2(config.cols / 2, config.rows / 2);
+        nestPosition =
+            (nestOverride ?? Vector2(config.cols / 2, config.rows / 2)).clone();
 
   final SimulationConfig config;
   final Uint8List cells;
@@ -22,6 +23,7 @@ class WorldGrid {
   final Vector2 nestPosition;
   final Float32List dirtHealth;
   final Set<int> _foodCells = <int>{};
+  final Set<int> _activePheromoneCells = <int>{};
   int _terrainVersion = 0;
 
   int get cols => config.cols;
@@ -36,6 +38,7 @@ class WorldGrid {
       homePheromones[i] = 0;
     }
     _foodCells.clear();
+    _activePheromoneCells.clear();
     _terrainVersion++;
   }
 
@@ -50,6 +53,7 @@ class WorldGrid {
         if (math.sqrt(dx * dx + dy * dy) <= config.nestRadius + 0.5) {
           setCell(nx, ny, CellType.air);
           homePheromones[index(nx, ny)] = 1.0;
+          _activePheromoneCells.add(index(nx, ny));
         }
       }
     }
@@ -87,30 +91,53 @@ class WorldGrid {
     } else {
       _foodCells.remove(idx);
     }
+
+    if (type != CellType.air) {
+      foodPheromones[idx] = 0;
+      homePheromones[idx] = 0;
+      _activePheromoneCells.remove(idx);
+    }
     _terrainVersion++;
   }
 
   void decay(double factor, double threshold) {
-    for (var i = 0; i < foodPheromones.length; i++) {
-      var f = foodPheromones[i];
+    if (_activePheromoneCells.isEmpty) {
+      final nestIdx = index(nestPosition.x.floor(), nestPosition.y.floor());
+      homePheromones[nestIdx] = 1.0;
+      _activePheromoneCells.add(nestIdx);
+      return;
+    }
+
+    final toRemove = <int>[];
+    for (final idx in _activePheromoneCells) {
+      var f = foodPheromones[idx];
       if (f > threshold) {
         f *= factor;
-        foodPheromones[i] = f > threshold ? f : 0;
+        foodPheromones[idx] = f > threshold ? f : 0;
       } else {
-        foodPheromones[i] = 0;
+        foodPheromones[idx] = 0;
       }
 
-      var h = homePheromones[i];
+      var h = homePheromones[idx];
       if (h > threshold) {
         h *= factor;
-        homePheromones[i] = h > threshold ? h : 0;
+        homePheromones[idx] = h > threshold ? h : 0;
       } else {
-        homePheromones[i] = 0;
+        homePheromones[idx] = 0;
       }
+
+      if (foodPheromones[idx] == 0 && homePheromones[idx] == 0) {
+        toRemove.add(idx);
+      }
+    }
+
+    for (final idx in toRemove) {
+      _activePheromoneCells.remove(idx);
     }
 
     final nestIdx = index(nestPosition.x.floor(), nestPosition.y.floor());
     homePheromones[nestIdx] = 1.0;
+    _activePheromoneCells.add(nestIdx);
   }
 
   void digCircle(Vector2 cellPos, int radius) {
@@ -181,6 +208,7 @@ class WorldGrid {
     foodPheromones.setAll(0, foodPheromoneData);
     homePheromones.setAll(0, homePheromoneData);
     _rebuildFoodCache();
+    _rebuildPheromoneCache();
     _terrainVersion++;
   }
 
@@ -202,11 +230,13 @@ class WorldGrid {
   void depositFoodPheromone(int x, int y, double amount) {
     final idx = index(x, y);
     foodPheromones[idx] = math.min(1.0, foodPheromones[idx] + amount);
+    _activePheromoneCells.add(idx);
   }
 
   void depositHomePheromone(int x, int y, double amount) {
     final idx = index(x, y);
     homePheromones[idx] = math.min(1.0, homePheromones[idx] + amount);
+    _activePheromoneCells.add(idx);
   }
 
   double foodPheromoneAt(int x, int y) => foodPheromones[index(x, y)];
@@ -218,6 +248,15 @@ class WorldGrid {
     for (var i = 0; i < cells.length; i++) {
       if (cells[i] == CellType.food.index) {
         _foodCells.add(i);
+      }
+    }
+  }
+
+  void _rebuildPheromoneCache() {
+    _activePheromoneCells.clear();
+    for (var i = 0; i < cells.length; i++) {
+      if (foodPheromones[i] > 0 || homePheromones[i] > 0) {
+        _activePheromoneCells.add(i);
       }
     }
   }
