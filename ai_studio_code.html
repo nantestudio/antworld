@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ant Colony Simulation - HTML5</title>
+    <style>
+        body {
+            background-color: #222;
+            color: #eee;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { margin: 0 0 10px 0; font-size: 24px; }
+        .controls { margin-bottom: 10px; font-size: 14px; color: #aaa; }
+        canvas {
+            background-color: #333;
+            border: 2px solid #555;
+            cursor: crosshair;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        .stats {
+            margin-top: 10px;
+            display: flex;
+            gap: 20px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .stat-box { background: #444; padding: 5px 15px; border-radius: 4px; }
+        span.highlight { color: #0f0; }
+    </style>
+</head>
+<body>
+
+    <h1>🐜 Ant Colony Simulation</h1>
+    <div class="controls">
+        Left Click: <b>Dig</b> | Right Click (or Shift+Click): <b>Place Food</b> | 'P' Key: <b>Toggle Pheromones</b>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div class="stats">
+        <div class="stat-box">Ants: <span id="antCount" class="highlight">20</span></div>
+        <div class="stat-box">Food Collected: <span id="foodCount" class="highlight">0</span></div>
+    </div>
+
+<script>
+/**
+ * CONFIGURATION
+ */
+const CELL_SIZE = 8;
+const COLS = 100;
+const ROWS = 75;
+const WIDTH = COLS * CELL_SIZE;
+const HEIGHT = ROWS * CELL_SIZE;
+
+const COLOR_BG = "#1e1e1e";
+const COLOR_DIRT = "#5d4037"; // Brown
+const COLOR_FOOD = "#76ff03"; // Bright Green
+const COLOR_ANT = "#eeeeee";
+const COLOR_ANT_CARRYING = "#76ff03";
+const COLOR_QUEEN = "#d500f9";
+
+const NUM_START_ANTS = 20;
+const PHEROMONE_DECAY = 0.985;
+const ANT_SPEED = 0.8;
+const SENSOR_DIST = 6;
+const SENSOR_ANGLE = 0.6; // Radians (~35 degrees)
+
+/**
+ * GAME STATE
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+canvas.width = WIDTH;
+canvas.height = HEIGHT;
+
+// 0=Air, 1=Dirt, 2=Food
+let grid = [];
+let pheroFood = []; // Smell of food
+let pheroHome = []; // Smell of home/nest
+let ants = [];
+let foodCollected = 0;
+let showPheromones = true;
+
+// Queen Position
+const NEST_X = Math.floor(COLS / 2);
+const NEST_Y = Math.floor(ROWS / 2);
+
+/**
+ * CLASSES
+ */
+class Ant {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.angle = Math.random() * Math.PI * 2;
+        this.hasFood = false;
+        this.state = "FORAGE"; // FORAGE, RETURN
+    }
+
+    update() {
+        // 1. Steer based on sensors
+        this.steer();
+
+        // 2. Calculate new position
+        const vx = Math.cos(this.angle) * ANT_SPEED;
+        const vy = Math.sin(this.angle) * ANT_SPEED;
+        const nextX = this.x + vx;
+        const nextY = this.y + vy;
+
+        // 3. Grid Interaction
+        const gx = Math.floor(nextX);
+        const gy = Math.floor(nextY);
+
+        // Check bounds
+        if (gx < 0 || gx >= COLS || gy < 0 || gy >= ROWS) {
+            this.angle += Math.PI; // Turn back from edge
+            return;
+        }
+
+        const block = grid[gx][gy];
+
+        if (block === 1) {
+            // Hit Dirt -> Bounce randomly
+            this.angle += (Math.random() - 0.5) * 2 + Math.PI;
+        } else {
+            // Air or Food -> Move
+            this.x = nextX;
+            this.y = nextY;
+
+            // Drop Pheromones
+            if (this.hasFood) {
+                // Drop food trail (intense)
+                pheroFood[gx][gy] = Math.min(1.0, pheroFood[gx][gy] + 0.5);
+            } else {
+                // Drop home trail (lighter)
+                pheroHome[gx][gy] = Math.min(1.0, pheroHome[gx][gy] + 0.2);
+            }
+
+            // Interaction: Pick up Food
+            if (block === 2 && !this.hasFood) {
+                this.hasFood = true;
+                this.state = "RETURN";
+                grid[gx][gy] = 0; // Remove food block
+                this.angle += Math.PI; // Turn around
+            }
+        }
+
+        // 4. Check Nest Arrival
+        const distToNest = Math.hypot(this.x - NEST_X, this.y - NEST_Y);
+        if (distToNest < 3 && this.hasFood) {
+            this.hasFood = false;
+            this.state = "FORAGE";
+            this.angle += Math.PI;
+            
+            // Game Logic: Spawn new ant every 3 food
+            foodCollected++;
+            document.getElementById('foodCount').innerText = foodCollected;
+            if (foodCollected % 3 === 0) {
+                spawnAnt();
+            }
+        }
+    }
+
+    steer() {
+        const sensorRight = this.sense(this.angle + SENSOR_ANGLE);
+        const sensorFront = this.sense(this.angle);
+        const sensorLeft  = this.sense(this.angle - SENSOR_ANGLE);
+
+        if (sensorFront > sensorLeft && sensorFront > sensorRight) {
+            // Keep straight, maybe wobble slightly
+            this.angle += (Math.random() - 0.5) * 0.1;
+        } else if (sensorFront < sensorLeft && sensorLeft > sensorRight) {
+            this.angle -= (Math.random() * 0.2 + 0.1); // Turn Left
+        } else if (sensorFront < sensorRight && sensorRight > sensorLeft) {
+            this.angle += (Math.random() * 0.2 + 0.1); // Turn Right
+        } else {
+            // No strong scent? Random wander
+            this.angle += (Math.random() - 0.5) * 0.2;
+        }
+    }
+
+    sense(angle) {
+        const sx = this.x + Math.cos(angle) * SENSOR_DIST;
+        const sy = this.y + Math.sin(angle) * SENSOR_DIST;
+        const gx = Math.floor(sx);
+        const gy = Math.floor(sy);
+
+        // Bounds check
+        if (gx < 0 || gx >= COLS || gy < 0 || gy >= ROWS) return -1;
+        
+        // Wall check
+        if (grid[gx][gy] === 1) return -1; // Wall is bad
+
+        // Pheromone check
+        if (this.state === "FORAGE") {
+            // Attractive to Food Smell + Actual Food
+            let val = pheroFood[gx][gy];
+            if (grid[gx][gy] === 2) val += 10; // Actual food is very attractive
+            return val;
+        } else {
+            // Attractive to Home Smell
+            return pheroHome[gx][gy];
+        }
+    }
+}
+
+/**
+ * INITIALIZATION
+ */
+function init() {
+    // Init Grids
+    for (let x = 0; x < COLS; x++) {
+        grid[x] = [];
+        pheroFood[x] = [];
+        pheroHome[x] = [];
+        for (let y = 0; y < ROWS; y++) {
+            grid[x][y] = 1; // Fill with dirt
+            pheroFood[x][y] = 0;
+            pheroHome[x][y] = 0;
+        }
+    }
+
+    // Carve Nest
+    for (let x = NEST_X - 3; x <= NEST_X + 3; x++) {
+        for (let y = NEST_Y - 3; y <= NEST_Y + 3; y++) {
+            grid[x][y] = 0;
+            pheroHome[x][y] = 1.0; // Permanent home smell
+        }
+    }
+
+    // Spawn Ants
+    for (let i = 0; i < NUM_START_ANTS; i++) {
+        spawnAnt();
+    }
+}
+
+function spawnAnt() {
+    ants.push(new Ant(NEST_X, NEST_Y));
+    document.getElementById('antCount').innerText = ants.length;
+}
+
+/**
+ * GAME LOOP
+ */
+function update() {
+    // 1. Decay Pheromones
+    for (let x = 0; x < COLS; x++) {
+        for (let y = 0; y < ROWS; y++) {
+            // Decay Food Trails
+            if (pheroFood[x][y] > 0.01) pheroFood[x][y] *= PHEROMONE_DECAY;
+            else pheroFood[x][y] = 0;
+            
+            // Decay Home Trails (except nest center)
+            if (pheroHome[x][y] > 0.01) pheroHome[x][y] *= PHEROMONE_DECAY;
+            else pheroHome[x][y] = 0;
+        }
+    }
+    // Keep nest center smelling like home
+    pheroHome[NEST_X][NEST_Y] = 1.0; 
+
+    // 2. Update Ants
+    for (let ant of ants) {
+        ant.update();
+    }
+}
+
+function draw() {
+    // Clear Screen
+    ctx.fillStyle = COLOR_BG;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    // Draw Grid
+    // Optimization: Drawing 7500 rects is heavy. In a real engine we'd use a texture or pixel buffer.
+    // Here we just draw Dirt and Food to keep code simple.
+    for (let x = 0; x < COLS; x++) {
+        for (let y = 0; y < ROWS; y++) {
+            const type = grid[x][y];
+            const px = x * CELL_SIZE;
+            const py = y * CELL_SIZE;
+
+            // Draw Pheromones (Overlay on empty space)
+            if (type === 0 && showPheromones) {
+                const pf = pheroFood[x][y];
+                const ph = pheroHome[x][y];
+                if (pf > 0.05) {
+                    ctx.fillStyle = `rgba(0, 100, 255, ${pf})`; // Blue for Food trail
+                    ctx.fillRect(px, py, CELL_SIZE, CELL_SIZE);
+                } else if (ph > 0.05) {
+                    ctx.fillStyle = `rgba(100, 100, 100, ${ph * 0.3})`; // Grey for Home trail
+                    ctx.fillRect(px, py, CELL_SIZE, CELL_SIZE);
+                }
+            }
+
+            if (type === 1) {
+                ctx.fillStyle = COLOR_DIRT;
+                ctx.fillRect(px, py, CELL_SIZE, CELL_SIZE);
+            } else if (type === 2) {
+                ctx.fillStyle = COLOR_FOOD;
+                ctx.fillRect(px, py, CELL_SIZE, CELL_SIZE);
+            }
+        }
+    }
+
+    // Draw Nest
+    ctx.fillStyle = COLOR_QUEEN;
+    ctx.beginPath();
+    ctx.arc(NEST_X * CELL_SIZE + CELL_SIZE/2, NEST_Y * CELL_SIZE + CELL_SIZE/2, 6, 0, Math.PI*2);
+    ctx.fill();
+
+    // Draw Ants
+    for (let ant of ants) {
+        ctx.fillStyle = ant.hasFood ? COLOR_ANT_CARRYING : COLOR_ANT;
+        ctx.beginPath();
+        ctx.arc(ant.x * CELL_SIZE, ant.y * CELL_SIZE, 2.5, 0, Math.PI*2);
+        ctx.fill();
+    }
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+/**
+ * INPUT HANDLING
+ */
+let isDraggingLeft = false;
+let isDraggingRight = false;
+
+function handleInput(e) {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const gx = Math.floor(mx / CELL_SIZE);
+    const gy = Math.floor(my / CELL_SIZE);
+
+    if (gx < 0 || gx >= COLS || gy < 0 || gy >= ROWS) return;
+
+    if (isDraggingLeft) {
+        // Dig tunnel (radius 1)
+        for(let dx=-1; dx<=1; dx++) {
+            for(let dy=-1; dy<=1; dy++) {
+                if (grid[gx+dx] && grid[gx+dx][gy+dy] !== undefined) {
+                    grid[gx+dx][gy+dy] = 0;
+                }
+            }
+        }
+    }
+    if (isDraggingRight) {
+        // Place Food (only in empty space)
+        // Brush size 2
+        for(let dx=-1; dx<=1; dx++) {
+            for(let dy=-1; dy<=1; dy++) {
+                if (grid[gx+dx] && grid[gx+dx][gy+dy] === 0) {
+                    grid[gx+dx][gy+dy] = 2;
+                }
+            }
+        }
+    }
+}
+
+canvas.addEventListener('mousedown', e => {
+    if (e.button === 0) isDraggingLeft = true;
+    if (e.button === 2 || e.shiftKey) isDraggingRight = true;
+    handleInput(e);
+});
+
+window.addEventListener('mouseup', () => {
+    isDraggingLeft = false;
+    isDraggingRight = false;
+});
+
+canvas.addEventListener('mousemove', e => {
+    if (isDraggingLeft || isDraggingRight) handleInput(e);
+});
+
+canvas.addEventListener('contextmenu', e => e.preventDefault()); // Stop right click menu
+
+window.addEventListener('keydown', e => {
+    if (e.key.toLowerCase() === 'p') {
+        showPheromones = !showPheromones;
+    }
+});
+
+// START
+init();
+loop();
+
+</script>
+</body>
+</html>
