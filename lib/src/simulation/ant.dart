@@ -31,6 +31,9 @@ class Ant {
   AntState? _stateBeforeRest;
   double energy;
   bool _carryingFood = false;
+  int _consecutiveRockHits = 0;
+  int _collisionCooldown = 0;
+  double _speedMultiplier = 1.0;
 
   bool get hasFood => _carryingFood;
 
@@ -55,9 +58,14 @@ class Ant {
       return false;
     }
 
+    // Occasionally adjust speed for natural variation (5% chance per frame)
+    if (rng.nextDouble() < 0.05) {
+      _speedMultiplier = 0.7 + rng.nextDouble() * 0.6; // 0.7 to 1.3x speed
+    }
+
     _steer(config, world, rng);
 
-    final distance = antSpeed * dt;
+    final distance = antSpeed * dt * _speedMultiplier;
     final vx = math.cos(angle) * distance;
     final vy = math.sin(angle) * distance;
 
@@ -82,8 +90,11 @@ class Ant {
       if (hitBlock == CellType.dirt) {
         _dig(world, hitX, hitY, config);
         angle += math.pi / 2 + (rng.nextDouble() - 0.5) * 0.6;
+        _consecutiveRockHits = 0; // Reset rock hit counter on dirt collision
       } else if (hitBlock == CellType.rock) {
-        angle += math.pi + (rng.nextDouble() - 0.5) * 0.6;
+        _consecutiveRockHits++;
+        _handleRockCollision(rng);
+        _collisionCooldown = 10; // Don't allow small steering adjustments for 10 frames
       }
       return false;
     }
@@ -98,13 +109,24 @@ class Ant {
 
     position.setValues(nextX, nextY);
 
+    // Successfully moved - reset collision tracking
+    if (_collisionCooldown > 0) {
+      _collisionCooldown--;
+    }
+    if (_consecutiveRockHits > 0) {
+      _consecutiveRockHits = 0; // Reset when moving freely
+    }
+
     final depositX = position.x.floor();
     final depositY = position.y.floor();
     if (world.isInsideIndex(depositX, depositY)) {
       if (hasFood) {
-        world.depositFoodPheromone(depositX, depositY, config.foodDepositStrength);
+        // Vary deposit strength ±20% for natural trail variation
+        final strength = config.foodDepositStrength * (0.8 + rng.nextDouble() * 0.4);
+        world.depositFoodPheromone(depositX, depositY, strength);
       } else {
-        world.depositHomePheromone(depositX, depositY, config.homeDepositStrength);
+        final strength = config.homeDepositStrength * (0.8 + rng.nextDouble() * 0.4);
+        world.depositHomePheromone(depositX, depositY, strength);
       }
     }
 
@@ -133,22 +155,39 @@ class Ant {
     WorldGrid world,
     math.Random rng,
   ) {
+    // Skip steering during collision cooldown to commit to avoidance direction
+    if (_collisionCooldown > 0) {
+      return;
+    }
+
     final behavior = state == AntState.rest && _stateBeforeRest != null
         ? _stateBeforeRest!
         : state;
-    final sensorRight = _sense(angle + config.sensorAngle, config, world);
-    final sensorFront = _sense(angle, config, world);
-    final sensorLeft = _sense(angle - config.sensorAngle, config, world);
+
+    // Random exploration: occasionally ignore pheromones completely (4% chance)
+    if (rng.nextDouble() < 0.04) {
+      angle += (rng.nextDouble() - 0.5) * 1.2; // Random turn ±0.6 rad
+      return; // Skip normal pheromone following
+    }
+
+    // Add small random variation to sensor angles (±5% jitter)
+    final angleJitter = config.sensorAngle * (rng.nextDouble() - 0.5) * 0.1;
+    final sensorRight = _sense(angle + config.sensorAngle + angleJitter, config, world, rng);
+    final sensorFront = _sense(angle + angleJitter * 0.5, config, world, rng);
+    final sensorLeft = _sense(angle - config.sensorAngle + angleJitter, config, world, rng);
 
     bool steered = false;
     if (sensorFront > sensorLeft && sensorFront > sensorRight) {
       angle += (rng.nextDouble() - 0.5) * 0.1;
       steered = true;
     } else if (sensorLeft > sensorRight) {
-      angle -= (rng.nextDouble() * 0.2 + 0.1);
+      // 10% chance to make a "mistake" and turn less sharply
+      final mistakeFactor = rng.nextDouble() < 0.10 ? 0.4 : 1.0;
+      angle -= (rng.nextDouble() * 0.2 + 0.1) * mistakeFactor;
       steered = true;
     } else if (sensorRight > sensorLeft) {
-      angle += (rng.nextDouble() * 0.2 + 0.1);
+      final mistakeFactor = rng.nextDouble() < 0.10 ? 0.4 : 1.0;
+      angle += (rng.nextDouble() * 0.2 + 0.1) * mistakeFactor;
       steered = true;
     }
 
@@ -163,7 +202,7 @@ class Ant {
     }
   }
 
-  double _sense(double direction, SimulationConfig config, WorldGrid world) {
+  double _sense(double direction, SimulationConfig config, WorldGrid world, math.Random rng) {
     final sx = position.x + math.cos(direction) * config.sensorDistance;
     final sy = position.y + math.sin(direction) * config.sensorDistance;
     final gx = sx.floor();
@@ -172,7 +211,8 @@ class Ant {
     if (!world.isInsideIndex(gx, gy)) {
       return -1;
     }
-    if (world.cellTypeAt(gx, gy) == CellType.dirt) {
+    final cellType = world.cellTypeAt(gx, gy);
+    if (cellType == CellType.dirt || cellType == CellType.rock) {
       return -1;
     }
 
@@ -185,10 +225,15 @@ class Ant {
       if (world.cellTypeAt(gx, gy) == CellType.food) {
         value += 10;
       }
+      // Add perceptual noise: ±15% variation
+      value *= (0.85 + rng.nextDouble() * 0.3);
       return value;
     }
 
-    return world.homePheromoneAt(gx, gy);
+    var value = world.homePheromoneAt(gx, gy);
+    // Add perceptual noise: ±15% variation
+    value *= (0.85 + rng.nextDouble() * 0.3);
+    return value;
   }
 
   bool _biasTowardFood(
@@ -260,6 +305,20 @@ class Ant {
       normalized += math.pi * 2;
     }
     return normalized;
+  }
+
+  void _handleRockCollision(math.Random rng) {
+    // Progressive rotation strategy based on consecutive hits
+    if (_consecutiveRockHits == 1) {
+      // First hit: try 90° turn with some variance
+      angle += (math.pi / 2) + (rng.nextDouble() - 0.5) * (math.pi / 3);
+    } else if (_consecutiveRockHits == 2) {
+      // Second hit: try 135° turn
+      angle += (math.pi * 3 / 4) + (rng.nextDouble() - 0.5) * (math.pi / 3);
+    } else {
+      // Third+ hit: random direction to escape
+      angle = rng.nextDouble() * math.pi * 2;
+    }
   }
 
   void _dig(WorldGrid world, int gx, int gy, SimulationConfig config) {
