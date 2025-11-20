@@ -64,22 +64,35 @@ class Ant {
     final nextX = position.x + vx;
     final nextY = position.y + vy;
 
+    // Check path for collisions using raycast
+    final collision = _checkPathCollision(
+      position.x,
+      position.y,
+      nextX,
+      nextY,
+      world,
+    );
+
+    if (collision != null) {
+      // Hit an obstacle along the path
+      final hitBlock = collision.cellType;
+      final hitX = collision.cellX;
+      final hitY = collision.cellY;
+
+      if (hitBlock == CellType.dirt) {
+        _dig(world, hitX, hitY, config);
+        angle += math.pi / 2 + (rng.nextDouble() - 0.5) * 0.6;
+      } else if (hitBlock == CellType.rock) {
+        angle += math.pi + (rng.nextDouble() - 0.5) * 0.6;
+      }
+      return false;
+    }
+
+    // Check if destination is out of bounds
     final gx = nextX.floor();
     final gy = nextY.floor();
-
     if (!world.isInsideIndex(gx, gy)) {
       angle += math.pi;
-      return false;
-    }
-
-    final block = world.cellTypeAt(gx, gy);
-    if (block == CellType.dirt) {
-      _dig(world, gx, gy, config);
-      angle += math.pi / 2 + (rng.nextDouble() - 0.5) * 0.6;
-      return false;
-    }
-    if (block == CellType.rock) {
-      angle += math.pi + (rng.nextDouble() - 0.5) * 0.6;
       return false;
     }
 
@@ -93,7 +106,9 @@ class Ant {
       world.depositHomePheromone(depositX, depositY, config.homeDepositStrength);
     }
 
-    if (block == CellType.food && !hasFood) {
+    // Check for food at destination
+    final destBlock = world.cellTypeAt(gx, gy);
+    if (destBlock == CellType.food && !hasFood) {
       _carryingFood = true;
       state = AntState.returnHome;
       world.removeFood(gx, gy);
@@ -190,6 +205,50 @@ class Ant {
     return true;
   }
 
+  _PathCollision? _checkPathCollision(
+    double x0,
+    double y0,
+    double x1,
+    double y1,
+    WorldGrid world,
+  ) {
+    // DDA-style raycast to check all cells along the movement path
+    final dx = x1 - x0;
+    final dy = y1 - y0;
+    final distance = math.sqrt(dx * dx + dy * dy);
+
+    if (distance < 0.01) {
+      return null; // Not moving
+    }
+
+    // Number of steps to check (at least check every 0.5 cells)
+    final steps = (distance * 2).ceil();
+    final stepX = dx / steps;
+    final stepY = dy / steps;
+
+    for (var i = 1; i <= steps; i++) {
+      final checkX = x0 + stepX * i;
+      final checkY = y0 + stepY * i;
+      final cellX = checkX.floor();
+      final cellY = checkY.floor();
+
+      if (!world.isInsideIndex(cellX, cellY)) {
+        continue; // Skip out of bounds checks
+      }
+
+      final cellType = world.cellTypeAt(cellX, cellY);
+      if (cellType == CellType.dirt || cellType == CellType.rock) {
+        return _PathCollision(
+          cellX: cellX,
+          cellY: cellY,
+          cellType: cellType,
+        );
+      }
+    }
+
+    return null; // No collision
+  }
+
   double _normalizeAngle(double value) {
     var normalized = value;
     while (normalized > math.pi) {
@@ -278,4 +337,16 @@ int? _clampStateIndex(num? value) {
     return maxIndex;
   }
   return clamped;
+}
+
+class _PathCollision {
+  final int cellX;
+  final int cellY;
+  final CellType cellType;
+
+  _PathCollision({
+    required this.cellX,
+    required this.cellY,
+    required this.cellType,
+  });
 }
