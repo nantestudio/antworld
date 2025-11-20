@@ -97,9 +97,15 @@ class Ant {
         angle += math.pi / 2 + (rng.nextDouble() - 0.5) * 0.6;
         _consecutiveRockHits = 0; // Reset rock hit counter on dirt collision
       } else if (hitBlock == CellType.rock) {
-        _consecutiveRockHits++;
-        _handleRockCollision(rng);
-        _collisionCooldown = 10; // Don't allow small steering adjustments for 10 frames
+        // Only 10% of ants try to navigate around obstacles intelligently
+        if (rng.nextDouble() < 0.10) {
+          _consecutiveRockHits++;
+          _handleRockCollision(rng);
+          _collisionCooldown = 10; // Don't allow small steering adjustments for 10 frames
+        } else {
+          // 90% just bounce back
+          angle += math.pi + (rng.nextDouble() - 0.5) * 0.3;
+        }
       }
       return false;
     }

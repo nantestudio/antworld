@@ -14,7 +14,8 @@ class ColonySimulation {
       : antCount = ValueNotifier<int>(0),
         foodCollected = ValueNotifier<int>(0),
         pheromonesVisible = ValueNotifier<bool>(true),
-        antSpeedMultiplier = ValueNotifier<double>(1.0) {
+        antSpeedMultiplier = ValueNotifier<double>(1.0),
+        daysPassed = ValueNotifier<int>(1) {
     world = WorldGrid(config);
   }
 
@@ -25,11 +26,13 @@ class ColonySimulation {
   final ValueNotifier<int> foodCollected;
   final ValueNotifier<bool> pheromonesVisible;
   final ValueNotifier<double> antSpeedMultiplier;
+  final ValueNotifier<int> daysPassed;
 
   final math.Random _rng = math.Random();
   int _storedFood = 0;
   int _queuedAnts = 0;
   int? _lastSeed;
+  double _elapsedTime = 0.0;
 
   bool get showPheromones => pheromonesVisible.value;
   int? get lastSeed => _lastSeed;
@@ -40,7 +43,9 @@ class ColonySimulation {
     ants.clear();
     _storedFood = 0;
     _queuedAnts = 0;
+    _elapsedTime = 0.0;
     foodCollected.value = 0;
+    daysPassed.value = 1;
 
     for (var i = 0; i < config.startingAnts; i++) {
       _spawnAnt();
@@ -53,6 +58,13 @@ class ColonySimulation {
     final decayFactor = math.pow(config.decayPerSecond, clampedDt).toDouble();
     final double antSpeed = config.antSpeed * antSpeedMultiplier.value;
     world.decay(decayFactor, config.decayThreshold);
+
+    // Track elapsed time and update days (1 minute = 1 day, affected by speed multiplier)
+    _elapsedTime += clampedDt * antSpeedMultiplier.value;
+    final newDays = (_elapsedTime / 60.0).floor() + 1;
+    if (newDays != daysPassed.value) {
+      daysPassed.value = newDays;
+    }
 
     for (final ant in ants) {
       final delivered = ant.update(clampedDt, config, world, _rng, antSpeed);
@@ -97,7 +109,9 @@ class ColonySimulation {
     _lastSeed = actualSeed;
     _storedFood = 0;
     _queuedAnts = 0;
+    _elapsedTime = 0.0;
     foodCollected.value = 0;
+    daysPassed.value = 1;
     ants.clear();
     for (var i = 0; i < config.startingAnts; i++) {
       _spawnAnt();
@@ -114,6 +128,8 @@ class ColonySimulation {
       'antSpeedMultiplier': antSpeedMultiplier.value,
       'pheromonesVisible': pheromonesVisible.value,
       'seed': _lastSeed,
+      'elapsedTime': _elapsedTime,
+      'daysPassed': daysPassed.value,
     };
   }
 
@@ -151,6 +167,8 @@ class ColonySimulation {
         (snapshot['antSpeedMultiplier'] as num?)?.toDouble() ?? 1.0;
     pheromonesVisible.value = snapshot['pheromonesVisible'] as bool? ?? true;
     _lastSeed = (snapshot['seed'] as num?)?.toInt();
+    _elapsedTime = (snapshot['elapsedTime'] as num?)?.toDouble() ?? 0.0;
+    daysPassed.value = (snapshot['daysPassed'] as num?)?.toInt() ?? 0;
   }
 
   void addAnts(int count) {

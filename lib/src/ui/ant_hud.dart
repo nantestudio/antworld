@@ -80,6 +80,7 @@ class _AntHudState extends State<AntHud> {
         spacing: 12,
         runSpacing: 12,
         children: [
+          _StatCard(label: 'Day', listenable: widget.simulation.daysPassed),
           _StatCard(label: 'Ants', listenable: widget.simulation.antCount),
           _StatCard(label: 'Food', listenable: widget.simulation.foodCollected),
         ],
