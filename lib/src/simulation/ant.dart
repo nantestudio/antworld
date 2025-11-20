@@ -100,10 +100,12 @@ class Ant {
 
     final depositX = position.x.floor();
     final depositY = position.y.floor();
-    if (hasFood) {
-      world.depositFoodPheromone(depositX, depositY, config.foodDepositStrength);
-    } else {
-      world.depositHomePheromone(depositX, depositY, config.homeDepositStrength);
+    if (world.isInsideIndex(depositX, depositY)) {
+      if (hasFood) {
+        world.depositFoodPheromone(depositX, depositY, config.foodDepositStrength);
+      } else {
+        world.depositHomePheromone(depositX, depositY, config.homeDepositStrength);
+      }
     }
 
     // Check for food at destination

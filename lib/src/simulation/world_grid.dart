@@ -228,20 +228,28 @@ class WorldGrid {
   }
 
   void depositFoodPheromone(int x, int y, double amount) {
+    if (!isInsideIndex(x, y)) return;
     final idx = index(x, y);
     foodPheromones[idx] = math.min(1.0, foodPheromones[idx] + amount);
     _activePheromoneCells.add(idx);
   }
 
   void depositHomePheromone(int x, int y, double amount) {
+    if (!isInsideIndex(x, y)) return;
     final idx = index(x, y);
     homePheromones[idx] = math.min(1.0, homePheromones[idx] + amount);
     _activePheromoneCells.add(idx);
   }
 
-  double foodPheromoneAt(int x, int y) => foodPheromones[index(x, y)];
+  double foodPheromoneAt(int x, int y) {
+    if (!isInsideIndex(x, y)) return 0;
+    return foodPheromones[index(x, y)];
+  }
 
-  double homePheromoneAt(int x, int y) => homePheromones[index(x, y)];
+  double homePheromoneAt(int x, int y) {
+    if (!isInsideIndex(x, y)) return 0;
+    return homePheromones[index(x, y)];
+  }
 
   void _rebuildFoodCache() {
     _foodCells.clear();
