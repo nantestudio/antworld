@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flame/components.dart';
@@ -80,6 +81,53 @@ class ColonySimulation {
     world.placeFood(cellPosition, config.foodBrushRadius);
   }
 
+  void placeRock(Vector2 cellPosition) {
+    world.placeRock(cellPosition, config.digBrushRadius);
+  }
+
+  Map<String, dynamic> toSnapshot() {
+    return {
+      'config': _configToJson(),
+      'world': _worldToJson(),
+      'ants': ants.map((ant) => ant.toJson()).toList(),
+      'foodCollected': _storedFood,
+      'antSpeedMultiplier': antSpeedMultiplier.value,
+      'pheromonesVisible': pheromonesVisible.value,
+    };
+  }
+
+  void restoreFromSnapshot(Map<String, dynamic> snapshot) {
+    final configData = (snapshot['config'] as Map<String, dynamic>?) ?? {};
+    config = _configFromJson(configData, config);
+    world = WorldGrid(config);
+
+    final worldData = snapshot['world'] as Map<String, dynamic>?;
+    if (worldData != null) {
+      world.loadState(
+        cellsData: _decodeUint8(worldData['cells'] as String),
+        dirtHealthData: _decodeFloat32(worldData['dirtHealth'] as String),
+        foodPheromoneData:
+            _decodeFloat32(worldData['foodPheromones'] as String),
+        homePheromoneData: _decodeFloat32(worldData['homePheromones'] as String),
+      );
+    }
+
+    ants
+      ..clear()
+      ..addAll(
+        ((snapshot['ants'] as List<dynamic>?) ?? [])
+            .map((raw) => Ant.fromJson(Map<String, dynamic>.from(raw))),
+      );
+    _updateAntCount();
+
+    _storedFood = (snapshot['foodCollected'] as num?)?.toInt() ?? 0;
+    foodCollected.value = _storedFood;
+    _queuedAnts = 0;
+    antSpeedMultiplier.value =
+        (snapshot['antSpeedMultiplier'] as num?)?.toDouble() ?? 1.0;
+    pheromonesVisible.value = snapshot['pheromonesVisible'] as bool? ?? true;
+  }
+
   void addAnts(int count) {
     if (count <= 0) return;
     for (var i = 0; i < count; i++) {
@@ -117,7 +165,8 @@ class ColonySimulation {
     ants.add(
       Ant(
         startPosition: world.nestPosition,
-        initialAngle: _rng.nextDouble() * math.pi * 2,
+        angle: _rng.nextDouble() * math.pi * 2,
+        energy: config.energyCapacity,
       ),
     );
     _updateAntCount();
@@ -136,4 +185,106 @@ class ColonySimulation {
   void _updateAntCount() {
     antCount.value = ants.length;
   }
+
+  Map<String, dynamic> _configToJson() {
+    return {
+      'cols': config.cols,
+      'rows': config.rows,
+      'cellSize': config.cellSize,
+      'startingAnts': config.startingAnts,
+      'antSpeed': config.antSpeed,
+      'sensorDistance': config.sensorDistance,
+      'sensorAngle': config.sensorAngle,
+      'foodDepositStrength': config.foodDepositStrength,
+      'homeDepositStrength': config.homeDepositStrength,
+      'foodPickupRotation': config.foodPickupRotation,
+      'foodPerNewAnt': config.foodPerNewAnt,
+      'nestRadius': config.nestRadius,
+      'decayPerFrame': config.decayPerFrame,
+      'decayThreshold': config.decayThreshold,
+      'digBrushRadius': config.digBrushRadius,
+      'foodBrushRadius': config.foodBrushRadius,
+      'dirtMaxHealth': config.dirtMaxHealth,
+      'digEnergyCost': config.digEnergyCost,
+      'digDamagePerEnergy': config.digDamagePerEnergy,
+      'foodSenseRange': config.foodSenseRange,
+      'energyCapacity': config.energyCapacity,
+      'energyDecayPerSecond': config.energyDecayPerSecond,
+      'energyRecoveryPerSecond': config.energyRecoveryPerSecond,
+    };
+  }
+
+  Map<String, dynamic> _worldToJson() {
+    return {
+      'cells': _encodeUint8(Uint8List.fromList(world.cells)),
+      'dirtHealth': _encodeFloat32(world.dirtHealth),
+      'foodPheromones': _encodeFloat32(world.foodPheromones),
+      'homePheromones': _encodeFloat32(world.homePheromones),
+    };
+  }
+}
+
+SimulationConfig _configFromJson(
+  Map<String, dynamic> data,
+  SimulationConfig fallback,
+) {
+  return SimulationConfig(
+    cols: (data['cols'] as num?)?.toInt() ?? fallback.cols,
+    rows: (data['rows'] as num?)?.toInt() ?? fallback.rows,
+    cellSize: (data['cellSize'] as num?)?.toDouble() ?? fallback.cellSize,
+    startingAnts: (data['startingAnts'] as num?)?.toInt() ?? fallback.startingAnts,
+    antSpeed: (data['antSpeed'] as num?)?.toDouble() ?? fallback.antSpeed,
+    sensorDistance:
+        (data['sensorDistance'] as num?)?.toDouble() ?? fallback.sensorDistance,
+    sensorAngle:
+        (data['sensorAngle'] as num?)?.toDouble() ?? fallback.sensorAngle,
+    foodDepositStrength: (data['foodDepositStrength'] as num?)?.toDouble() ??
+        fallback.foodDepositStrength,
+    homeDepositStrength: (data['homeDepositStrength'] as num?)?.toDouble() ??
+        fallback.homeDepositStrength,
+    foodPickupRotation:
+        (data['foodPickupRotation'] as num?)?.toDouble() ?? fallback.foodPickupRotation,
+    foodPerNewAnt:
+        (data['foodPerNewAnt'] as num?)?.toInt() ?? fallback.foodPerNewAnt,
+    nestRadius: (data['nestRadius'] as num?)?.toInt() ?? fallback.nestRadius,
+    decayPerFrame:
+        (data['decayPerFrame'] as num?)?.toDouble() ?? fallback.decayPerFrame,
+    decayThreshold:
+        (data['decayThreshold'] as num?)?.toDouble() ?? fallback.decayThreshold,
+    digBrushRadius:
+        (data['digBrushRadius'] as num?)?.toInt() ?? fallback.digBrushRadius,
+    foodBrushRadius:
+        (data['foodBrushRadius'] as num?)?.toInt() ?? fallback.foodBrushRadius,
+    dirtMaxHealth:
+        (data['dirtMaxHealth'] as num?)?.toDouble() ?? fallback.dirtMaxHealth,
+    digEnergyCost:
+        (data['digEnergyCost'] as num?)?.toDouble() ?? fallback.digEnergyCost,
+    digDamagePerEnergy: (data['digDamagePerEnergy'] as num?)?.toDouble() ??
+        fallback.digDamagePerEnergy,
+    foodSenseRange:
+        (data['foodSenseRange'] as num?)?.toDouble() ?? fallback.foodSenseRange,
+    energyCapacity:
+        (data['energyCapacity'] as num?)?.toDouble() ?? fallback.energyCapacity,
+    energyDecayPerSecond: (data['energyDecayPerSecond'] as num?)?.toDouble() ??
+        fallback.energyDecayPerSecond,
+    energyRecoveryPerSecond:
+        (data['energyRecoveryPerSecond'] as num?)?.toDouble() ?? fallback.energyRecoveryPerSecond,
+  );
+}
+
+String _encodeUint8(Uint8List data) => base64Encode(data);
+
+Uint8List _decodeUint8(String data) => base64Decode(data);
+
+String _encodeFloat32(Float32List data) {
+  final bytes = data.buffer.asUint8List(
+        data.offsetInBytes,
+        data.lengthInBytes,
+      );
+  return base64Encode(bytes);
+}
+
+Float32List _decodeFloat32(String data) {
+  final bytes = base64Decode(data);
+  return bytes.buffer.asFloat32List(bytes.offsetInBytes, bytes.lengthInBytes ~/ 4);
 }

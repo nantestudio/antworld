@@ -18,6 +18,13 @@ class SimulationConfig {
     this.decayThreshold = 0.01,
     this.digBrushRadius = 1,
     this.foodBrushRadius = 2,
+    this.dirtMaxHealth = 100,
+    this.digEnergyCost = 0.5,
+    this.digDamagePerEnergy = 1,
+    this.foodSenseRange = 30,
+    this.energyCapacity = 100,
+    this.energyDecayPerSecond = 1,
+    this.energyRecoveryPerSecond = 0.5,
   });
 
   final int cols;
@@ -36,6 +43,13 @@ class SimulationConfig {
   final double decayThreshold;
   final int digBrushRadius;
   final int foodBrushRadius;
+  final double dirtMaxHealth;
+  final double digEnergyCost;
+  final double digDamagePerEnergy;
+  final double foodSenseRange;
+  final double energyCapacity;
+  final double energyDecayPerSecond;
+  final double energyRecoveryPerSecond;
 
   double get decayPerSecond => math.pow(decayPerFrame, 60).toDouble();
   double get worldWidth => cols * cellSize;
@@ -58,6 +72,13 @@ class SimulationConfig {
     double? decayThreshold,
     int? digBrushRadius,
     int? foodBrushRadius,
+    double? dirtMaxHealth,
+    double? digEnergyCost,
+    double? digDamagePerEnergy,
+    double? foodSenseRange,
+    double? energyCapacity,
+    double? energyDecayPerSecond,
+    double? energyRecoveryPerSecond,
   }) {
     return SimulationConfig(
       cols: cols ?? this.cols,
@@ -76,6 +97,14 @@ class SimulationConfig {
       decayThreshold: decayThreshold ?? this.decayThreshold,
       digBrushRadius: digBrushRadius ?? this.digBrushRadius,
       foodBrushRadius: foodBrushRadius ?? this.foodBrushRadius,
+      dirtMaxHealth: dirtMaxHealth ?? this.dirtMaxHealth,
+      digEnergyCost: digEnergyCost ?? this.digEnergyCost,
+      digDamagePerEnergy: digDamagePerEnergy ?? this.digDamagePerEnergy,
+      foodSenseRange: foodSenseRange ?? this.foodSenseRange,
+      energyCapacity: energyCapacity ?? this.energyCapacity,
+      energyDecayPerSecond: energyDecayPerSecond ?? this.energyDecayPerSecond,
+      energyRecoveryPerSecond:
+          energyRecoveryPerSecond ?? this.energyRecoveryPerSecond,
     );
   }
 }
