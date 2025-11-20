@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'src/game/ant_world_game.dart';
 import 'src/simulation/colony_simulation.dart';
 import 'src/simulation/simulation_config.dart';
+import 'src/state/simulation_storage.dart';
 import 'src/ui/ant_hud.dart';
 
 void main() {
@@ -22,13 +23,16 @@ class _AntWorldAppState extends State<AntWorldApp> {
   late final ColonySimulation _simulation;
   late final AntWorldGame _game;
   late final FocusNode _focusNode;
+  late final SimulationStorage _storage;
 
   @override
   void initState() {
     super.initState();
+    _storage = SimulationStorage();
     _simulation = ColonySimulation(defaultSimulationConfig)..initialize();
     _game = AntWorldGame(_simulation);
     _focusNode = FocusNode();
+    _restoreWorld();
   }
 
   @override
@@ -61,11 +65,24 @@ class _AntWorldAppState extends State<AntWorldApp> {
                 focusNode: _focusNode,
                 autofocus: true,
               ),
-              AntHud(simulation: _simulation, game: _game),
+              AntHud(
+                simulation: _simulation,
+                game: _game,
+                storage: _storage,
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _restoreWorld() async {
+    final restored = await _storage.restore(_simulation);
+    if (!mounted || !restored) {
+      return;
+    }
+    _game.invalidateTerrainLayer();
+    setState(() {});
   }
 }

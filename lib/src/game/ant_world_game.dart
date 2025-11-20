@@ -10,7 +10,7 @@ import '../simulation/ant.dart';
 import '../simulation/colony_simulation.dart';
 import '../simulation/world_grid.dart';
 
-enum BrushMode { dig, food }
+enum BrushMode { dig, food, rock }
 
 class AntWorldGame extends FlameGame
     with TapCallbacks, SecondaryTapCallbacks, DragCallbacks, KeyboardEvents {
@@ -28,11 +28,14 @@ class AntWorldGame extends FlameGame
   final Paint _screenBgPaint = Paint()..color = const Color(0xFF0F0F0F);
   final Paint _dirtPaint = Paint()..color = const Color(0xFF5D4037);
   final Paint _foodPaint = Paint()..color = const Color(0xFF76FF03);
+  final Paint _rockPaint = Paint()..color = const Color(0xFF999999);
   final Paint _antPaint = Paint()..color = const Color(0xFFEEEEEE);
   final Paint _antCarryingPaint = Paint()..color = const Color(0xFF76FF03);
   final Paint _nestPaint = Paint()..color = const Color(0xFFD500F9);
   final Paint _foodPheromonePaint = Paint()..color = const Color(0xFF0064FF);
   final Paint _homePheromonePaint = Paint()..color = const Color(0xFF888888);
+  Picture? _terrainPicture;
+  int _cachedTerrainVersion = -1;
 
   @override
   void update(double dt) {
@@ -133,43 +136,23 @@ class AntWorldGame extends FlameGame
 
   void refreshViewport() {
     onGameResize(size);
+    invalidateTerrainLayer();
   }
 
   void _renderWorld(Canvas canvas) {
     final world = simulation.world;
     final config = simulation.config;
     final cellSize = config.cellSize;
-    final cols = world.cols;
-    final rows = world.rows;
 
-    for (var x = 0; x < cols; x++) {
-      for (var y = 0; y < rows; y++) {
-        final idx = world.index(x, y);
-        final cellValue = world.cells[idx];
-        final dx = x * cellSize;
-        final dy = y * cellSize;
-        final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
+    _ensureTerrainPicture(world, cellSize);
+    if (_terrainPicture != null) {
+      canvas.drawPicture(_terrainPicture!);
+    } else {
+      _drawTerrain(canvas, world, cellSize);
+    }
 
-        if (cellValue == CellType.dirt.index) {
-          canvas.drawRect(rect, _dirtPaint);
-        } else if (cellValue == CellType.food.index) {
-          canvas.drawRect(rect, _foodPaint);
-        } else if (simulation.showPheromones) {
-          final foodStrength = world.foodPheromones[idx];
-          final homeStrength = world.homePheromones[idx];
-          if (foodStrength > 0.05) {
-            final alpha = foodStrength.clamp(0, 1).toDouble();
-            _foodPheromonePaint.color =
-                const Color(0xFF0064FF).withValues(alpha: alpha);
-            canvas.drawRect(rect, _foodPheromonePaint);
-          } else if (homeStrength > 0.05) {
-            final alpha = homeStrength.clamp(0, 0.6).toDouble();
-            _homePheromonePaint.color =
-                const Color(0xFF888888).withValues(alpha: alpha);
-            canvas.drawRect(rect, _homePheromonePaint);
-          }
-        }
-      }
+    if (simulation.showPheromones) {
+      _drawPheromones(canvas, world, cellSize);
     }
 
     final nest = world.nestPosition;
@@ -183,13 +166,95 @@ class AntWorldGame extends FlameGame
     }
   }
 
-  void _applyBrush(Vector2 widgetPosition, bool placeFood) {
+  void invalidateTerrainLayer() {
+    _cachedTerrainVersion = -1;
+    _terrainPicture?.dispose();
+    _terrainPicture = null;
+  }
+
+  void _ensureTerrainPicture(WorldGrid world, double cellSize) {
+    if (world.terrainVersion == _cachedTerrainVersion &&
+        _terrainPicture != null) {
+      return;
+    }
+    _terrainPicture?.dispose();
+    final recorder = PictureRecorder();
+    final terrainCanvas = Canvas(recorder);
+    _drawTerrain(terrainCanvas, world, cellSize);
+    _terrainPicture = recorder.endRecording();
+    _cachedTerrainVersion = world.terrainVersion;
+  }
+
+  void _drawTerrain(Canvas canvas, WorldGrid world, double cellSize) {
+    final cols = world.cols;
+    final rows = world.rows;
+    for (var x = 0; x < cols; x++) {
+      final dx = x * cellSize;
+      for (var y = 0; y < rows; y++) {
+        final idx = world.index(x, y);
+        final cellValue = world.cells[idx];
+        if (cellValue == CellType.air.index) {
+          continue;
+        }
+        final dy = y * cellSize;
+        final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
+        if (cellValue == CellType.dirt.index) {
+          canvas.drawRect(rect, _dirtPaint);
+        } else if (cellValue == CellType.food.index) {
+          canvas.drawRect(rect, _foodPaint);
+        } else if (cellValue == CellType.rock.index) {
+          canvas.drawRect(rect, _rockPaint);
+        }
+      }
+    }
+  }
+
+  void _drawPheromones(Canvas canvas, WorldGrid world, double cellSize) {
+    final cols = world.cols;
+    final rows = world.rows;
+    for (var x = 0; x < cols; x++) {
+      final dx = x * cellSize;
+      for (var y = 0; y < rows; y++) {
+        final idx = world.index(x, y);
+        if (world.cells[idx] != CellType.air.index) {
+          continue;
+        }
+        final foodStrength = world.foodPheromones[idx];
+        final homeStrength = world.homePheromones[idx];
+        if (foodStrength <= 0.05 && homeStrength <= 0.05) {
+          continue;
+        }
+        final dy = y * cellSize;
+        final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
+        if (foodStrength >= homeStrength) {
+          final alpha = foodStrength.clamp(0, 1).toDouble();
+          _foodPheromonePaint.color =
+              const Color(0xFF0064FF).withValues(alpha: alpha);
+          canvas.drawRect(rect, _foodPheromonePaint);
+        } else {
+          final alpha = homeStrength.clamp(0, 0.6).toDouble();
+          _homePheromonePaint.color =
+              const Color(0xFF888888).withValues(alpha: alpha);
+          canvas.drawRect(rect, _homePheromonePaint);
+        }
+      }
+    }
+  }
+
+  void _applyBrush(Vector2 widgetPosition, bool placeFoodOverride) {
     final cellPosition = _widgetToCell(widgetPosition);
     if (cellPosition == null) return;
-    if (placeFood) {
-      simulation.placeFood(cellPosition);
-    } else {
-      simulation.dig(cellPosition);
+    final mode = placeFoodOverride ? BrushMode.food : brushMode.value;
+    switch (mode) {
+      case BrushMode.food:
+        simulation.placeFood(cellPosition);
+        break;
+      case BrushMode.rock:
+        simulation.placeRock(cellPosition);
+        break;
+      case BrushMode.dig:
+        simulation.dig(cellPosition);
+        break;
     }
   }
 

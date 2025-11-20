@@ -3,12 +3,19 @@ import 'package:flutter/material.dart';
 
 import '../game/ant_world_game.dart';
 import '../simulation/colony_simulation.dart';
+import '../state/simulation_storage.dart';
 
 class AntHud extends StatefulWidget {
-  const AntHud({super.key, required this.simulation, required this.game});
+  const AntHud({
+    super.key,
+    required this.simulation,
+    required this.game,
+    required this.storage,
+  });
 
   final ColonySimulation simulation;
   final AntWorldGame game;
+  final SimulationStorage storage;
 
   @override
   State<AntHud> createState() => _AntHudState();
@@ -18,6 +25,7 @@ class _AntHudState extends State<AntHud> {
   bool _showSettings = false;
   late int _pendingCols;
   late int _pendingRows;
+  bool _saving = false;
 
   @override
   void initState() {
@@ -110,6 +118,11 @@ class _AntHudState extends State<AntHud> {
                               label: Text('Food'),
                               icon: Icon(Icons.fastfood_outlined),
                             ),
+                            ButtonSegment(
+                              value: BrushMode.rock,
+                              label: Text('Rock'),
+                              icon: Icon(Icons.landscape_outlined),
+                            ),
                           ],
                           selected: {mode},
                           onSelectionChanged: (selection) {
@@ -134,7 +147,7 @@ class _AntHudState extends State<AntHud> {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Controls: Left Click = Dig | Right Click or Shift = Food | Press P to toggle pheromones.',
+                  'Controls: Left Click = active brush | Right Click/Shift = Food | Press P to toggle pheromones.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 4),
@@ -189,6 +202,8 @@ class _AntHudState extends State<AntHud> {
                   _buildSpeedControls(theme),
                   const Divider(),
                   _buildFoodControls(),
+                  const Divider(),
+                  _buildPersistenceControls(),
                   const Divider(),
                   _buildGridControls(theme),
                 ],
@@ -269,6 +284,27 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
+  Widget _buildPersistenceControls() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Persistence', style: TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        FilledButton.icon(
+          onPressed: _saving ? null : _saveWorld,
+          icon: _saving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.save),
+          label: Text(_saving ? 'Saving...' : 'Save World'),
+        ),
+      ],
+    );
+  }
+
   Widget _buildGridControls(ThemeData theme) {
     final current = widget.simulation.config;
     return Column(
@@ -315,6 +351,18 @@ class _AntHudState extends State<AntHud> {
       _pendingCols = widget.simulation.config.cols;
       _pendingRows = widget.simulation.config.rows;
     });
+  }
+
+  Future<void> _saveWorld() async {
+    setState(() => _saving = true);
+    final success = await widget.storage.save(widget.simulation);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(success ? 'World saved' : 'Failed to save world'),
+      ),
+    );
   }
 }
 
