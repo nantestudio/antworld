@@ -13,8 +13,8 @@ class Ant {
     required this.angle,
     required this.energy,
     required math.Random rng,
-  })  : position = startPosition.clone(),
-        _isExplorer = rng.nextDouble() < 0.05; // 5% are explorers
+  }) : position = startPosition.clone(),
+       _isExplorer = rng.nextDouble() < 0.05; // 5% are explorers
 
   Ant.rehydrated({
     required Vector2 position,
@@ -24,10 +24,10 @@ class Ant {
     required this.energy,
     AntState? stateBeforeRest,
     bool isExplorer = false,
-  })  : position = position.clone(),
-        _carryingFood = carryingFood,
-        _stateBeforeRest = stateBeforeRest,
-        _isExplorer = isExplorer;
+  }) : position = position.clone(),
+       _carryingFood = carryingFood,
+       _stateBeforeRest = stateBeforeRest,
+       _isExplorer = isExplorer;
 
   final Vector2 position;
   double angle;
@@ -51,16 +51,26 @@ class Ant {
   ) {
     if (dt == 0) return false;
 
-    if (state == AntState.rest) {
+    final restEnabled = config.restEnabled;
+
+    if (!restEnabled && state == AntState.rest) {
+      _wakeFromRest();
+    }
+
+    if (restEnabled && state == AntState.rest) {
       _recoverEnergy(dt, config);
       return false;
     }
 
-    energy -= config.energyDecayPerSecond * dt;
-    if (energy <= 0) {
-      energy = 0;
-      _enterRest();
-      return false;
+    if (restEnabled) {
+      energy -= config.energyDecayPerSecond * dt;
+      if (energy <= 0) {
+        energy = 0;
+        _enterRest();
+        return false;
+      }
+    } else {
+      energy = config.energyCapacity;
     }
 
     // Occasionally adjust speed for natural variation (5% chance per frame)
@@ -101,7 +111,8 @@ class Ant {
         if (rng.nextDouble() < 0.10) {
           _consecutiveRockHits++;
           _handleRockCollision(rng);
-          _collisionCooldown = 10; // Don't allow small steering adjustments for 10 frames
+          _collisionCooldown =
+              10; // Don't allow small steering adjustments for 10 frames
         } else {
           // 90% just bounce back
           angle += math.pi + (rng.nextDouble() - 0.5) * 0.3;
@@ -133,10 +144,12 @@ class Ant {
     if (world.isInsideIndex(depositX, depositY)) {
       if (hasFood) {
         // Vary deposit strength ±20% for natural trail variation
-        final strength = config.foodDepositStrength * (0.8 + rng.nextDouble() * 0.4);
+        final strength =
+            config.foodDepositStrength * (0.8 + rng.nextDouble() * 0.4);
         world.depositFoodPheromone(depositX, depositY, strength);
       } else {
-        final strength = config.homeDepositStrength * (0.8 + rng.nextDouble() * 0.4);
+        final strength =
+            config.homeDepositStrength * (0.8 + rng.nextDouble() * 0.4);
         world.depositHomePheromone(depositX, depositY, strength);
       }
     }
@@ -161,11 +174,7 @@ class Ant {
     return false;
   }
 
-  void _steer(
-    SimulationConfig config,
-    WorldGrid world,
-    math.Random rng,
-  ) {
+  void _steer(SimulationConfig config, WorldGrid world, math.Random rng) {
     // Skip steering during collision cooldown to commit to avoidance direction
     if (_collisionCooldown > 0) {
       return;
@@ -184,9 +193,19 @@ class Ant {
 
     // Add small random variation to sensor angles (±5% jitter)
     final angleJitter = config.sensorAngle * (rng.nextDouble() - 0.5) * 0.1;
-    final sensorRight = _sense(angle + config.sensorAngle + angleJitter, config, world, rng);
+    final sensorRight = _sense(
+      angle + config.sensorAngle + angleJitter,
+      config,
+      world,
+      rng,
+    );
     final sensorFront = _sense(angle + angleJitter * 0.5, config, world, rng);
-    final sensorLeft = _sense(angle - config.sensorAngle + angleJitter, config, world, rng);
+    final sensorLeft = _sense(
+      angle - config.sensorAngle + angleJitter,
+      config,
+      world,
+      rng,
+    );
 
     bool steered = false;
     if (sensorFront > sensorLeft && sensorFront > sensorRight) {
@@ -230,7 +249,12 @@ class Ant {
     }
   }
 
-  double _sense(double direction, SimulationConfig config, WorldGrid world, math.Random rng) {
+  double _sense(
+    double direction,
+    SimulationConfig config,
+    WorldGrid world,
+    math.Random rng,
+  ) {
     final sx = position.x + math.cos(direction) * config.sensorDistance;
     final sy = position.y + math.sin(direction) * config.sensorDistance;
     final gx = sx.floor();
@@ -287,41 +311,90 @@ class Ant {
     double y1,
     WorldGrid world,
   ) {
-    // DDA-style raycast to check all cells along the movement path
+    // Traverse the grid cells intersected by the movement ray (Amanatides & Woo).
     final dx = x1 - x0;
     final dy = y1 - y0;
-    final distance = math.sqrt(dx * dx + dy * dy);
+    final distanceSq = dx * dx + dy * dy;
 
-    if (distance < 0.01) {
-      return null; // Not moving
+    if (distanceSq < 0.0001) {
+      return null; // Not moving enough to matter
     }
 
-    // Number of steps to check (at least check every 0.5 cells)
-    final steps = (distance * 2).ceil();
-    final stepX = dx / steps;
-    final stepY = dy / steps;
+    var cellX = x0.floor();
+    var cellY = y0.floor();
+    final destX = x1.floor();
+    final destY = y1.floor();
 
-    for (var i = 1; i <= steps; i++) {
-      final checkX = x0 + stepX * i;
-      final checkY = y0 + stepY * i;
-      final cellX = checkX.floor();
-      final cellY = checkY.floor();
+    final stepX = dx > 0
+        ? 1
+        : dx < 0
+        ? -1
+        : 0;
+    final stepY = dy > 0
+        ? 1
+        : dy < 0
+        ? -1
+        : 0;
 
-      if (!world.isInsideIndex(cellX, cellY)) {
-        continue; // Skip out of bounds checks
+    double tMaxX;
+    double tMaxY;
+    double tDeltaX;
+    double tDeltaY;
+
+    if (stepX != 0) {
+      final nextBoundaryX = stepX > 0 ? cellX + 1.0 : cellX.toDouble();
+      tMaxX = (nextBoundaryX - x0) / dx;
+      tDeltaX = 1.0 / dx.abs();
+    } else {
+      tMaxX = double.infinity;
+      tDeltaX = double.infinity;
+    }
+
+    if (stepY != 0) {
+      final nextBoundaryY = stepY > 0 ? cellY + 1.0 : cellY.toDouble();
+      tMaxY = (nextBoundaryY - y0) / dy;
+      tDeltaY = 1.0 / dy.abs();
+    } else {
+      tMaxY = double.infinity;
+      tDeltaY = double.infinity;
+    }
+
+    _PathCollision? checkCell(int x, int y) {
+      if (!world.isInsideIndex(x, y)) {
+        return null;
       }
-
-      final cellType = world.cellTypeAt(cellX, cellY);
+      final cellType = world.cellTypeAt(x, y);
       if (cellType == CellType.dirt || cellType == CellType.rock) {
-        return _PathCollision(
-          cellX: cellX,
-          cellY: cellY,
-          cellType: cellType,
-        );
+        return _PathCollision(cellX: x, cellY: y, cellType: cellType);
+      }
+      return null;
+    }
+
+    while (cellX != destX || cellY != destY) {
+      if (tMaxX < tMaxY) {
+        cellX += stepX;
+        tMaxX += tDeltaX;
+      } else if (tMaxY < tMaxX) {
+        cellY += stepY;
+        tMaxY += tDeltaY;
+      } else {
+        cellX += stepX;
+        cellY += stepY;
+        tMaxX += tDeltaX;
+        tMaxY += tDeltaY;
+      }
+      final collision = checkCell(cellX, cellY);
+      if (collision != null) {
+        return collision;
       }
     }
 
-    return null; // No collision
+    final destinationCollision = checkCell(destX, destY);
+    if (destinationCollision != null) {
+      return destinationCollision;
+    }
+
+    return null;
   }
 
   double _normalizeAngle(double value) {
@@ -350,17 +423,17 @@ class Ant {
   }
 
   void _dig(WorldGrid world, int gx, int gy, SimulationConfig config) {
-    if (energy <= 0) {
-      _enterRest();
-      return;
-    }
-    final spend = math.min(config.digEnergyCost, energy);
+    final spend = config.restEnabled
+        ? math.min(config.digEnergyCost, energy)
+        : config.digEnergyCost;
     final damage = spend * config.digDamagePerEnergy;
     world.damageDirt(gx, gy, damage);
-    energy -= spend;
-    if (energy <= 0) {
-      energy = 0;
-      _enterRest();
+    if (config.restEnabled) {
+      energy -= spend;
+      if (energy <= 0) {
+        energy = 0;
+        _enterRest();
+      }
     }
   }
 
@@ -368,7 +441,8 @@ class Ant {
     energy += config.energyRecoveryPerSecond * dt;
     if (energy >= config.energyCapacity) {
       energy = config.energyCapacity;
-      state = _stateBeforeRest ?? (hasFood ? AntState.returnHome : AntState.forage);
+      state =
+          _stateBeforeRest ?? (hasFood ? AntState.returnHome : AntState.forage);
       _stateBeforeRest = null;
     }
   }
@@ -378,6 +452,18 @@ class Ant {
       _stateBeforeRest = state;
     }
     state = AntState.rest;
+  }
+
+  void exitRestState() {
+    _wakeFromRest();
+  }
+
+  void _wakeFromRest() {
+    if (state == AntState.rest) {
+      state =
+          _stateBeforeRest ?? (hasFood ? AntState.returnHome : AntState.forage);
+      _stateBeforeRest = null;
+    }
   }
 
   Map<String, dynamic> toJson() {
@@ -407,8 +493,9 @@ class Ant {
       state: AntState.values[clampedState],
       carryingFood: json['carryingFood'] as bool? ?? false,
       energy: (json['energy'] as num?)?.toDouble() ?? 0,
-      stateBeforeRest:
-          clampedRest == null ? null : AntState.values[clampedRest],
+      stateBeforeRest: clampedRest == null
+          ? null
+          : AntState.values[clampedRest],
       isExplorer: json['isExplorer'] as bool? ?? false,
     );
   }

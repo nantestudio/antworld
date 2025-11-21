@@ -11,11 +11,11 @@ import 'world_grid.dart';
 
 class ColonySimulation {
   ColonySimulation(this.config)
-      : antCount = ValueNotifier<int>(0),
-        foodCollected = ValueNotifier<int>(0),
-        pheromonesVisible = ValueNotifier<bool>(true),
-        antSpeedMultiplier = ValueNotifier<double>(1.0),
-        daysPassed = ValueNotifier<int>(1) {
+    : antCount = ValueNotifier<int>(0),
+      foodCollected = ValueNotifier<int>(0),
+      pheromonesVisible = ValueNotifier<bool>(true),
+      antSpeedMultiplier = ValueNotifier<double>(1.0),
+      daysPassed = ValueNotifier<int>(1) {
     world = WorldGrid(config);
   }
 
@@ -88,6 +88,18 @@ class ColonySimulation {
     pheromonesVisible.value = visible;
   }
 
+  void setRestingEnabled(bool enabled) {
+    if (config.restEnabled == enabled) {
+      return;
+    }
+    config = config.copyWith(restEnabled: enabled);
+    if (!enabled) {
+      for (final ant in ants) {
+        ant.exitRestState();
+      }
+    }
+  }
+
   void dig(Vector2 cellPosition) {
     world.digCircle(cellPosition, config.digBrushRadius);
   }
@@ -146,17 +158,21 @@ class ColonySimulation {
       world.loadState(
         cellsData: _decodeUint8(worldData['cells'] as String),
         dirtHealthData: _decodeFloat32(worldData['dirtHealth'] as String),
-        foodPheromoneData:
-            _decodeFloat32(worldData['foodPheromones'] as String),
-        homePheromoneData: _decodeFloat32(worldData['homePheromones'] as String),
+        foodPheromoneData: _decodeFloat32(
+          worldData['foodPheromones'] as String,
+        ),
+        homePheromoneData: _decodeFloat32(
+          worldData['homePheromones'] as String,
+        ),
       );
     }
 
     ants
       ..clear()
       ..addAll(
-        ((snapshot['ants'] as List<dynamic>?) ?? [])
-            .map((raw) => Ant.fromJson(Map<String, dynamic>.from(raw))),
+        ((snapshot['ants'] as List<dynamic>?) ?? []).map(
+          (raw) => Ant.fromJson(Map<String, dynamic>.from(raw)),
+        ),
       );
     _updateAntCount();
 
@@ -256,6 +272,7 @@ class ColonySimulation {
       'energyCapacity': config.energyCapacity,
       'energyDecayPerSecond': config.energyDecayPerSecond,
       'energyRecoveryPerSecond': config.energyRecoveryPerSecond,
+      'restEnabled': config.restEnabled,
     };
   }
 
@@ -265,10 +282,7 @@ class ColonySimulation {
       'dirtHealth': _encodeFloat32(world.dirtHealth),
       'foodPheromones': _encodeFloat32(world.foodPheromones),
       'homePheromones': _encodeFloat32(world.homePheromones),
-      'nest': {
-        'x': world.nestPosition.x,
-        'y': world.nestPosition.y,
-      },
+      'nest': {'x': world.nestPosition.x, 'y': world.nestPosition.y},
     };
   }
 }
@@ -281,18 +295,22 @@ SimulationConfig _configFromJson(
     cols: (data['cols'] as num?)?.toInt() ?? fallback.cols,
     rows: (data['rows'] as num?)?.toInt() ?? fallback.rows,
     cellSize: (data['cellSize'] as num?)?.toDouble() ?? fallback.cellSize,
-    startingAnts: (data['startingAnts'] as num?)?.toInt() ?? fallback.startingAnts,
+    startingAnts:
+        (data['startingAnts'] as num?)?.toInt() ?? fallback.startingAnts,
     antSpeed: (data['antSpeed'] as num?)?.toDouble() ?? fallback.antSpeed,
     sensorDistance:
         (data['sensorDistance'] as num?)?.toDouble() ?? fallback.sensorDistance,
     sensorAngle:
         (data['sensorAngle'] as num?)?.toDouble() ?? fallback.sensorAngle,
-    foodDepositStrength: (data['foodDepositStrength'] as num?)?.toDouble() ??
+    foodDepositStrength:
+        (data['foodDepositStrength'] as num?)?.toDouble() ??
         fallback.foodDepositStrength,
-    homeDepositStrength: (data['homeDepositStrength'] as num?)?.toDouble() ??
+    homeDepositStrength:
+        (data['homeDepositStrength'] as num?)?.toDouble() ??
         fallback.homeDepositStrength,
     foodPickupRotation:
-        (data['foodPickupRotation'] as num?)?.toDouble() ?? fallback.foodPickupRotation,
+        (data['foodPickupRotation'] as num?)?.toDouble() ??
+        fallback.foodPickupRotation,
     foodPerNewAnt:
         (data['foodPerNewAnt'] as num?)?.toInt() ?? fallback.foodPerNewAnt,
     nestRadius: (data['nestRadius'] as num?)?.toInt() ?? fallback.nestRadius,
@@ -308,16 +326,20 @@ SimulationConfig _configFromJson(
         (data['dirtMaxHealth'] as num?)?.toDouble() ?? fallback.dirtMaxHealth,
     digEnergyCost:
         (data['digEnergyCost'] as num?)?.toDouble() ?? fallback.digEnergyCost,
-    digDamagePerEnergy: (data['digDamagePerEnergy'] as num?)?.toDouble() ??
+    digDamagePerEnergy:
+        (data['digDamagePerEnergy'] as num?)?.toDouble() ??
         fallback.digDamagePerEnergy,
     foodSenseRange:
         (data['foodSenseRange'] as num?)?.toDouble() ?? fallback.foodSenseRange,
     energyCapacity:
         (data['energyCapacity'] as num?)?.toDouble() ?? fallback.energyCapacity,
-    energyDecayPerSecond: (data['energyDecayPerSecond'] as num?)?.toDouble() ??
+    energyDecayPerSecond:
+        (data['energyDecayPerSecond'] as num?)?.toDouble() ??
         fallback.energyDecayPerSecond,
     energyRecoveryPerSecond:
-        (data['energyRecoveryPerSecond'] as num?)?.toDouble() ?? fallback.energyRecoveryPerSecond,
+        (data['energyRecoveryPerSecond'] as num?)?.toDouble() ??
+        fallback.energyRecoveryPerSecond,
+    restEnabled: data['restEnabled'] as bool? ?? fallback.restEnabled,
   );
 }
 
@@ -326,16 +348,16 @@ String _encodeUint8(Uint8List data) => base64Encode(data);
 Uint8List _decodeUint8(String data) => base64Decode(data);
 
 String _encodeFloat32(Float32List data) {
-  final bytes = data.buffer.asUint8List(
-        data.offsetInBytes,
-        data.lengthInBytes,
-      );
+  final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
   return base64Encode(bytes);
 }
 
 Float32List _decodeFloat32(String data) {
   final bytes = base64Decode(data);
-  return bytes.buffer.asFloat32List(bytes.offsetInBytes, bytes.lengthInBytes ~/ 4);
+  return bytes.buffer.asFloat32List(
+    bytes.offsetInBytes,
+    bytes.lengthInBytes ~/ 4,
+  );
 }
 
 Vector2? _vectorFromJson(Map<String, dynamic>? data) {

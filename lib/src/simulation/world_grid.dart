@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -9,12 +10,12 @@ enum CellType { air, dirt, food, rock }
 
 class WorldGrid {
   WorldGrid(this.config, {Vector2? nestOverride})
-      : cells = Uint8List(config.cols * config.rows),
-        foodPheromones = Float32List(config.cols * config.rows),
-        homePheromones = Float32List(config.cols * config.rows),
-        dirtHealth = Float32List(config.cols * config.rows),
-        nestPosition =
-            (nestOverride ?? Vector2(config.cols / 2, config.rows / 2)).clone();
+    : cells = Uint8List(config.cols * config.rows),
+      foodPheromones = Float32List(config.cols * config.rows),
+      homePheromones = Float32List(config.cols * config.rows),
+      dirtHealth = Float32List(config.cols * config.rows),
+      nestPosition = (nestOverride ?? Vector2(config.cols / 2, config.rows / 2))
+          .clone();
 
   final SimulationConfig config;
   final Uint8List cells;
@@ -24,11 +25,14 @@ class WorldGrid {
   final Float32List dirtHealth;
   final Set<int> _foodCells = <int>{};
   final Set<int> _activePheromoneCells = <int>{};
+  late final UnmodifiableSetView<int> _activePheromoneCellsView =
+      UnmodifiableSetView(_activePheromoneCells);
   int _terrainVersion = 0;
 
   int get cols => config.cols;
   int get rows => config.rows;
   int get terrainVersion => _terrainVersion;
+  Iterable<int> get activePheromoneCells => _activePheromoneCellsView;
 
   void reset() {
     for (var i = 0; i < cells.length; i++) {

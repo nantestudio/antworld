@@ -142,8 +142,12 @@ class _AntHudState extends State<AntHud> {
                       builder: (context, visible, _) {
                         return FilledButton.icon(
                           onPressed: widget.simulation.togglePheromones,
-                          icon: Icon(visible ? Icons.visibility : Icons.visibility_off),
-                          label: Text(visible ? 'Hide Pheromones' : 'Show Pheromones'),
+                          icon: Icon(
+                            visible ? Icons.visibility : Icons.visibility_off,
+                          ),
+                          label: Text(
+                            visible ? 'Hide Pheromones' : 'Show Pheromones',
+                          ),
                         );
                       },
                     ),
@@ -193,7 +197,10 @@ class _AntHudState extends State<AntHud> {
                       const SizedBox(width: 8),
                       const Text(
                         'Settings',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const Spacer(),
                       IconButton(
@@ -206,6 +213,8 @@ class _AntHudState extends State<AntHud> {
                   _buildPopulationControls(theme),
                   const Divider(),
                   _buildSpeedControls(theme),
+                  const Divider(),
+                  _buildBehaviorControls(theme),
                   const Divider(),
                   _buildViewControls(theme),
                   const Divider(),
@@ -240,10 +249,22 @@ class _AntHudState extends State<AntHud> {
           spacing: 8,
           runSpacing: 8,
           children: [
-            _PopulationButton(label: '-10', onPressed: () => widget.simulation.removeAnts(10)),
-            _PopulationButton(label: '-1', onPressed: () => widget.simulation.removeAnts(1)),
-            _PopulationButton(label: '+1', onPressed: () => widget.simulation.addAnts(1)),
-            _PopulationButton(label: '+10', onPressed: () => widget.simulation.addAnts(10)),
+            _PopulationButton(
+              label: '-10',
+              onPressed: () => widget.simulation.removeAnts(10),
+            ),
+            _PopulationButton(
+              label: '-1',
+              onPressed: () => widget.simulation.removeAnts(1),
+            ),
+            _PopulationButton(
+              label: '+1',
+              onPressed: () => widget.simulation.addAnts(1),
+            ),
+            _PopulationButton(
+              label: '+10',
+              onPressed: () => widget.simulation.addAnts(10),
+            ),
           ],
         ),
       ],
@@ -279,14 +300,40 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
+  Widget _buildBehaviorControls(ThemeData theme) {
+    final allowResting = widget.simulation.config.restEnabled;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Behavior', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 4),
+        SwitchListTile.adaptive(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Allow Resting'),
+          subtitle: const Text('Disable to keep ants active at all times.'),
+          value: allowResting,
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setRestingEnabled(value);
+            });
+          },
+        ),
+      ],
+    );
+  }
+
   Widget _buildFoodControls() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Food Utilities', style: TextStyle(fontWeight: FontWeight.w600)),
+        const Text(
+          'Food Utilities',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 8),
         FilledButton.icon(
-          onPressed: () => widget.simulation.scatterFood(clusters: 8, radius: 3),
+          onPressed: () =>
+              widget.simulation.scatterFood(clusters: 8, radius: 3),
           icon: const Icon(Icons.local_florist_outlined),
           label: const Text('Scatter Random Food'),
         ),
@@ -322,7 +369,10 @@ class _AntHudState extends State<AntHud> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Persistence', style: TextStyle(fontWeight: FontWeight.w600)),
+        const Text(
+          'Persistence',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 8),
         FilledButton.icon(
           onPressed: _saving ? null : _saveWorld,
@@ -418,9 +468,7 @@ class _AntHudState extends State<AntHud> {
     if (!mounted) return;
     setState(() => _saving = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(success ? 'World saved' : 'Failed to save world'),
-      ),
+      SnackBar(content: Text(success ? 'World saved' : 'Failed to save world')),
     );
   }
 
@@ -438,9 +486,9 @@ class _AntHudState extends State<AntHud> {
     if (!mounted) {
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Generated new world (seed $seed)')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Generated new world (seed $seed)')));
   }
 }
 
@@ -452,10 +500,7 @@ class _PopulationButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton(
-      onPressed: onPressed,
-      child: Text(label),
-    );
+    return OutlinedButton(onPressed: onPressed, child: Text(label));
   }
 }
 

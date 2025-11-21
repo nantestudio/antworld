@@ -239,32 +239,34 @@ class AntWorldGame extends FlameGame
 
   void _drawPheromones(Canvas canvas, WorldGrid world, double cellSize) {
     final cols = world.cols;
-    final rows = world.rows;
-    for (var x = 0; x < cols; x++) {
+    // Only iterate over cells with active pheromones (~200 cells instead of 7,500)
+    for (final idx in world.activePheromoneCells) {
+      if (world.cells[idx] != CellType.air.index) {
+        continue;
+      }
+      final foodStrength = world.foodPheromones[idx];
+      final homeStrength = world.homePheromones[idx];
+      if (foodStrength <= 0.05 && homeStrength <= 0.05) {
+        continue;
+      }
+
+      // Convert index back to x, y coordinates
+      final x = idx % cols;
+      final y = idx ~/ cols;
       final dx = x * cellSize;
-      for (var y = 0; y < rows; y++) {
-        final idx = world.index(x, y);
-        if (world.cells[idx] != CellType.air.index) {
-          continue;
-        }
-        final foodStrength = world.foodPheromones[idx];
-        final homeStrength = world.homePheromones[idx];
-        if (foodStrength <= 0.05 && homeStrength <= 0.05) {
-          continue;
-        }
-        final dy = y * cellSize;
-        final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
-        if (foodStrength >= homeStrength) {
-          final alpha = foodStrength.clamp(0, 1).toDouble();
-          _foodPheromonePaint.color =
-              const Color(0xFF0064FF).withValues(alpha: alpha);
-          canvas.drawRect(rect, _foodPheromonePaint);
-        } else {
-          final alpha = homeStrength.clamp(0, 0.6).toDouble();
-          _homePheromonePaint.color =
-              const Color(0xFF888888).withValues(alpha: alpha);
-          canvas.drawRect(rect, _homePheromonePaint);
-        }
+      final dy = y * cellSize;
+
+      final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
+      if (foodStrength >= homeStrength) {
+        final alpha = foodStrength.clamp(0, 1).toDouble();
+        _foodPheromonePaint.color =
+            const Color(0xFF0064FF).withValues(alpha: alpha);
+        canvas.drawRect(rect, _foodPheromonePaint);
+      } else {
+        final alpha = homeStrength.clamp(0, 0.6).toDouble();
+        _homePheromonePaint.color =
+            const Color(0xFF888888).withValues(alpha: alpha);
+        canvas.drawRect(rect, _homePheromonePaint);
       }
     }
   }

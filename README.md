@@ -480,6 +480,7 @@ lib/
 **Settings Panel:**
 - **Ant Population** - Add/remove ants (±1, ±10)
 - **Ant Speed** - Adjust speed multiplier (0.2x - 3.0x)
+- **Allow Resting** - Toggle energy system (disable for infinite energy)
 - **Scatter Food** - Drop random food clusters
 - **Save World** - Persist current state to local storage
 - **Grid Size** - Resize world (40-160 cols, 30-140 rows)

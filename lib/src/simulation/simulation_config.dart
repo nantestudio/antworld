@@ -25,6 +25,7 @@ class SimulationConfig {
     this.energyCapacity = 100,
     this.energyDecayPerSecond = 1,
     this.energyRecoveryPerSecond = 0.5,
+    this.restEnabled = true,
   });
 
   final int cols;
@@ -50,6 +51,7 @@ class SimulationConfig {
   final double energyCapacity;
   final double energyDecayPerSecond;
   final double energyRecoveryPerSecond;
+  final bool restEnabled;
 
   double get decayPerSecond => math.pow(decayPerFrame, 60).toDouble();
   double get worldWidth => cols * cellSize;
@@ -79,6 +81,7 @@ class SimulationConfig {
     double? energyCapacity,
     double? energyDecayPerSecond,
     double? energyRecoveryPerSecond,
+    bool? restEnabled,
   }) {
     return SimulationConfig(
       cols: cols ?? this.cols,
@@ -105,6 +108,7 @@ class SimulationConfig {
       energyDecayPerSecond: energyDecayPerSecond ?? this.energyDecayPerSecond,
       energyRecoveryPerSecond:
           energyRecoveryPerSecond ?? this.energyRecoveryPerSecond,
+      restEnabled: restEnabled ?? this.restEnabled,
     );
   }
 }
