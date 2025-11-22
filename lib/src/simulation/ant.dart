@@ -225,13 +225,15 @@ class Ant {
         ? _stateBeforeRest!
         : state;
 
-    if (behavior == AntState.returnHome) {
-      final nestDir = world.nestPosition - position;
-      if (nestDir.length2 > 0) {
-        final desired = math.atan2(nestDir.y, nestDir.x);
-        final delta = _normalizeAngle(desired - angle);
-        angle += delta.clamp(-0.4, 0.4) * 0.7;
-        angle += (rng.nextDouble() - 0.5) * 0.1;
+    if (behavior == AntState.returnHome || _needsRest || hasFood) {
+      final dir = world.directionToNest(position);
+      if (dir != null && dir.length2 > 0.0001) {
+        angle = math.atan2(dir.y, dir.x);
+      } else {
+        final nestDir = world.nestPosition - position;
+        if (nestDir.length2 > 0) {
+          angle = math.atan2(nestDir.y, nestDir.x);
+        }
       }
       return;
     }

@@ -14,6 +14,7 @@ class WorldGrid {
       foodPheromones = Float32List(config.cols * config.rows),
       homePheromones = Float32List(config.cols * config.rows),
       dirtHealth = Float32List(config.cols * config.rows),
+      _homeDistances = Int32List(config.cols * config.rows),
       nestPosition = (nestOverride ?? Vector2(config.cols / 2, config.rows / 2))
           .clone();
 
@@ -27,6 +28,8 @@ class WorldGrid {
   final Set<int> _activePheromoneCells = <int>{};
   late final UnmodifiableSetView<int> _activePheromoneCellsView =
       UnmodifiableSetView(_activePheromoneCells);
+  final Int32List _homeDistances;
+  bool _homeDistanceDirty = true;
   int _terrainVersion = 0;
 
   int get cols => config.cols;
@@ -44,6 +47,7 @@ class WorldGrid {
     }
     _foodCells.clear();
     _activePheromoneCells.clear();
+    _homeDistanceDirty = true;
     _terrainVersion++;
   }
 
@@ -68,7 +72,13 @@ class WorldGrid {
     final gx = x.floor();
     final gy = y.floor();
     if (!isInsideIndex(gx, gy)) return false;
-    return cellTypeAt(gx, gy) != CellType.dirt;
+    return isWalkableCell(gx, gy);
+  }
+
+  bool isWalkableCell(int x, int y) {
+    if (!isInsideIndex(x, y)) return false;
+    final type = cellTypeAt(x, y);
+    return type == CellType.air || type == CellType.food;
   }
 
   bool isInsideIndex(int x, int y) => x >= 0 && x < cols && y >= 0 && y < rows;
@@ -103,6 +113,7 @@ class WorldGrid {
       _activePheromoneCells.remove(idx);
     }
     _terrainVersion++;
+    _homeDistanceDirty = true;
   }
 
   void decay(double factor, double threshold) {
@@ -295,5 +306,82 @@ class WorldGrid {
       }
     }
     return best;
+  }
+
+  Vector2? directionToNest(Vector2 from) {
+    _ensureHomeDistances();
+    final gx = from.x.floor();
+    final gy = from.y.floor();
+    if (!isInsideIndex(gx, gy)) {
+      return null;
+    }
+    final idx = index(gx, gy);
+    final current = _homeDistances[idx];
+    if (current <= 0) {
+      return null;
+    }
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    for (final dir in dirs) {
+      final nx = gx + dir[0];
+      final ny = gy + dir[1];
+      if (!isInsideIndex(nx, ny)) continue;
+      final neighborIdx = index(nx, ny);
+      final dist = _homeDistances[neighborIdx];
+      if (dist >= 0 && dist < current && isWalkableCell(nx, ny)) {
+        final center = Vector2(nx + 0.5, ny + 0.5);
+        return center - from;
+      }
+    }
+    return null;
+  }
+
+  void markHomeDistancesDirty() {
+    _homeDistanceDirty = true;
+  }
+
+  void _ensureHomeDistances() {
+    if (!_homeDistanceDirty) {
+      return;
+    }
+    _homeDistanceDirty = false;
+    for (var i = 0; i < _homeDistances.length; i++) {
+      _homeDistances[i] = -1;
+    }
+    final startX = nestPosition.x.floor().clamp(0, cols - 1);
+    final startY = nestPosition.y.floor().clamp(0, rows - 1);
+    if (!isInsideIndex(startX, startY) || !isWalkableCell(startX, startY)) {
+      return;
+    }
+    final queue = Queue<int>();
+    final startIdx = index(startX, startY);
+    _homeDistances[startIdx] = 0;
+    queue.add(startIdx);
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    while (queue.isNotEmpty) {
+      final current = queue.removeFirst();
+      final cx = current % cols;
+      final cy = current ~/ cols;
+      final nextDist = _homeDistances[current] + 1;
+      for (final dir in dirs) {
+        final nx = cx + dir[0];
+        final ny = cy + dir[1];
+        if (!isInsideIndex(nx, ny)) continue;
+        if (!isWalkableCell(nx, ny)) continue;
+        final idx = index(nx, ny);
+        if (_homeDistances[idx] != -1) continue;
+        _homeDistances[idx] = nextDist;
+        queue.add(idx);
+      }
+    }
   }
 }

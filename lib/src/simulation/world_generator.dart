@@ -187,7 +187,7 @@ class WorldGenerator {
       rng.nextInt(rows - 4).toDouble() + 2,
     );
   }
-}
+
   void _buildSurfaceLayer(WorldGrid grid) {
     final surfaceDepth = 6;
     for (var y = 0; y < surfaceDepth && y < grid.rows; y++) {
@@ -202,7 +202,10 @@ class WorldGenerator {
     final safeDepth = 8;
     final nestY = math.max(safeDepth, grid.rows - 12);
     final nest = Vector2(nestX.toDouble(), nestY.toDouble());
+    grid.nestPosition.setFrom(nest);
     grid.digCircle(nest, grid.config.nestRadius + 3);
     grid.carveNest();
+    grid.markHomeDistancesDirty();
     return nest;
   }
+}
