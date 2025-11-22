@@ -15,10 +15,12 @@ enum BrushMode { dig, food, rock }
 class AntWorldGame extends FlameGame
     with TapCallbacks, SecondaryTapCallbacks, DragCallbacks, KeyboardEvents {
   AntWorldGame(this.simulation)
-      : brushMode = ValueNotifier<BrushMode>(BrushMode.dig);
+      : brushMode = ValueNotifier<BrushMode>(BrushMode.dig),
+        selectedAnt = ValueNotifier<Ant?>(null);
 
   final ColonySimulation simulation;
   final ValueNotifier<BrushMode> brushMode;
+  final ValueNotifier<Ant?> selectedAnt;
 
   double _worldScale = 1;
   double _baseScale = 1;
@@ -27,6 +29,7 @@ class AntWorldGame extends FlameGame
   Vector2 _canvasSize = Vector2.zero();
   bool _draggingDig = false;
   bool _draggingFood = false;
+  static const double _antSelectRadius = 2.0; // cells
 
   final Paint _screenBgPaint = Paint()..color = const Color(0xFF0F0F0F);
   final Paint _dirtPaint = Paint()..color = const Color(0xFF5D4037);
@@ -38,6 +41,10 @@ class AntWorldGame extends FlameGame
   final Paint _nestPaint = Paint()..color = const Color(0xFFD500F9);
   final Paint _foodPheromonePaint = Paint()..color = const Color(0xFF0064FF);
   final Paint _homePheromonePaint = Paint()..color = const Color(0xFF888888);
+  final Paint _selectionPaint = Paint()
+    ..color = const Color(0xFFFFFF00)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
   Picture? _terrainPicture;
   int _cachedTerrainVersion = -1;
   Picture? _pheromonePicture;
@@ -79,6 +86,19 @@ class AntWorldGame extends FlameGame
 
   @override
   void onTapDown(TapDownEvent event) {
+    // Check if tapped on an ant first
+    final cellPos = _widgetToCell(event.canvasPosition);
+    if (cellPos != null) {
+      final tappedAnt = _findAntNear(cellPos);
+      if (tappedAnt != null) {
+        selectedAnt.value = tappedAnt;
+        return; // Don't apply brush when selecting ant
+      }
+    }
+
+    // Clear selection when tapping elsewhere
+    selectedAnt.value = null;
+
     final placeFood = _shouldPlaceFood(event.deviceKind);
     _setDragMode(placeFood);
     _applyBrush(event.canvasPosition, placeFood);
@@ -134,13 +154,14 @@ class AntWorldGame extends FlameGame
   }
 
   void refreshViewport() {
+    _zoomFactor = 1.0; // Reset zoom to fit whole map
     _recalculateBaseScale();
     _updateViewport();
     invalidateTerrainLayer();
   }
 
   void setZoom(double zoom) {
-    final clamped = zoom.clamp(0.5, 3.0);
+    final clamped = zoom.clamp(0.1, 5.0); // Allow more zoom range for large maps
     if ((_zoomFactor - clamped).abs() < 0.001) {
       return;
     }
@@ -325,6 +346,17 @@ class AntWorldGame extends FlameGame
     if (enemyHasContent) {
       canvas.drawPath(enemyPath, _enemyAntPaint);
     }
+
+    // Draw selection highlight
+    final selected = selectedAnt.value;
+    if (selected != null) {
+      final selectionRadius = cellSize * 0.6;
+      canvas.drawCircle(
+        Offset(selected.position.x * cellSize, selected.position.y * cellSize),
+        selectionRadius,
+        _selectionPaint,
+      );
+    }
   }
 
   void _applyBrush(Vector2 widgetPosition, bool placeFoodOverride) {
@@ -407,5 +439,34 @@ class AntWorldGame extends FlameGame
     _worldOffset
       ..x = (_canvasSize.x - scaledWidth) / 2
       ..y = (_canvasSize.y - scaledHeight) / 2;
+  }
+
+  Ant? _findAntNear(Vector2 cellPos) {
+    Ant? closest;
+    double closestDistSq = _antSelectRadius * _antSelectRadius;
+
+    // Check friendly ants
+    for (final ant in simulation.ants) {
+      final distSq = ant.position.distanceToSquared(cellPos);
+      if (distSq < closestDistSq) {
+        closestDistSq = distSq;
+        closest = ant;
+      }
+    }
+
+    // Check enemy ants
+    for (final ant in simulation.enemyAnts) {
+      final distSq = ant.position.distanceToSquared(cellPos);
+      if (distSq < closestDistSq) {
+        closestDistSq = distSq;
+        closest = ant;
+      }
+    }
+
+    return closest;
+  }
+
+  void clearSelection() {
+    selectedAnt.value = null;
   }
 }

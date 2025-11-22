@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../game/ant_world_game.dart';
+import '../simulation/ant.dart';
 import '../simulation/colony_simulation.dart';
 import '../state/simulation_storage.dart';
 
@@ -54,6 +55,7 @@ class _AntHudState extends State<AntHud> {
             ),
           ),
           _buildSettingsPanel(context),
+          _buildSelectedAntPanel(context),
         ],
       ),
     );
@@ -282,6 +284,25 @@ class _AntHudState extends State<AntHud> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSelectedAntPanel(BuildContext context) {
+    return ValueListenableBuilder<Ant?>(
+      valueListenable: widget.game.selectedAnt,
+      builder: (context, ant, _) {
+        if (ant == null) return const SizedBox.shrink();
+
+        return Positioned(
+          left: 16,
+          top: 80,
+          child: _AntDetailsPanel(
+            ant: ant,
+            simulation: widget.simulation,
+            onClose: widget.game.clearSelection,
+          ),
+        );
+      },
     );
   }
 
@@ -768,11 +789,11 @@ class _AntHudState extends State<AntHud> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('View', style: theme.textTheme.titleSmall),
-        Text('Zoom: ${zoom.toStringAsFixed(1)}x'),
+        Text('Zoom: ${zoom.toStringAsFixed(2)}x'),
         Slider(
-          min: 0.5,
-          max: 3.0,
-          divisions: 25,
+          min: 0.1,
+          max: 5.0,
+          divisions: 49,
           value: zoom,
           onChanged: (value) {
             widget.game.setZoom(value);
@@ -955,5 +976,116 @@ class _StatCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _AntDetailsPanel extends StatefulWidget {
+  const _AntDetailsPanel({
+    required this.ant,
+    required this.simulation,
+    required this.onClose,
+  });
+
+  final Ant ant;
+  final ColonySimulation simulation;
+  final VoidCallback onClose;
+
+  @override
+  State<_AntDetailsPanel> createState() => _AntDetailsPanelState();
+}
+
+class _AntDetailsPanelState extends State<_AntDetailsPanel> {
+  late final Stream<void> _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    // Update every 100ms for real-time stats
+    _ticker = Stream.periodic(const Duration(milliseconds: 100));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return StreamBuilder<void>(
+      stream: _ticker,
+      builder: (context, _) {
+        final ant = widget.ant;
+        return Card(
+          color: theme.colorScheme.surface.withValues(alpha: 0.95),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: SizedBox(
+              width: 220,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        ant.isEnemy ? Icons.warning : Icons.bug_report,
+                        color: ant.isEnemy ? Colors.red : Colors.white,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        ant.isEnemy ? 'Enemy Ant' : 'Ant',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: widget.onClose,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _buildProperty('State', _stateLabel(ant)),
+                  _buildProperty('Position', '(${ant.position.x.toStringAsFixed(1)}, ${ant.position.y.toStringAsFixed(1)})'),
+                  _buildProperty('Energy', '${ant.energy.toStringAsFixed(1)} / ${widget.simulation.config.energyCapacity}'),
+                  _buildProperty('HP', '${ant.hp.toStringAsFixed(1)} / ${ant.maxHp.toStringAsFixed(1)}'),
+                  _buildProperty('Attack', ant.attack.toStringAsFixed(1)),
+                  _buildProperty('Defense', ant.defense.toStringAsFixed(1)),
+                  _buildProperty('Carrying Food', ant.hasFood ? 'Yes' : 'No'),
+                  if (ant.isExplorer) _buildProperty('Type', 'Explorer'),
+                  if (ant.needsRest) _buildProperty('Needs Rest', 'Yes'),
+                  if (ant.stuckTime > 0)
+                    _buildProperty('Stuck Time', '${ant.stuckTime.toStringAsFixed(1)}s'),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProperty(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          Text(value, style: const TextStyle(fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  String _stateLabel(Ant ant) {
+    switch (ant.state) {
+      case AntState.forage:
+        return 'Foraging';
+      case AntState.returnHome:
+        return 'Returning Home';
+      case AntState.rest:
+        return 'Resting';
+    }
   }
 }

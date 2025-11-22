@@ -61,8 +61,19 @@ class Ant {
   double hp;
   bool _needsRest = false;
 
+  // Stuck detection
+  final Vector2 _lastPosition = Vector2.zero();
+  double _stuckTime = 0;
+  static const double _stuckThreshold = 30.0; // seconds before considered stuck
+  static const double _moveThreshold = 0.5; // minimum distance to count as moved
+
   bool get hasFood => _carryingFood;
   bool get isDead => hp <= 0;
+  bool get isStuck => _stuckTime >= _stuckThreshold;
+  double get stuckTime => _stuckTime;
+  bool get isExplorer => _isExplorer;
+  bool get needsRest => _needsRest;
+  AntState? get stateBeforeRest => _stateBeforeRest;
 
   void applyDamage(double amount) {
     hp = math.max(0, hp - amount);
@@ -77,6 +88,19 @@ class Ant {
     {Vector2? attackTarget}
   ) {
     if (dt == 0) return false;
+
+    // Stuck detection - track if ant has moved (skip for resting ants)
+    if (state != AntState.rest) {
+      final distMoved = position.distanceTo(_lastPosition);
+      if (distMoved < _moveThreshold) {
+        _stuckTime += dt;
+      } else {
+        _stuckTime = 0;
+        _lastPosition.setFrom(position);
+      }
+    } else {
+      _stuckTime = 0; // Reset when resting
+    }
 
     if (isEnemy) {
       _updateHostile(dt, config, world, rng, antSpeed, attackTarget);
@@ -281,45 +305,58 @@ class Ant {
       rng,
     );
 
+    // Check if any sensor detected pheromones (value > 0)
+    final hasPheromones = sensorFront > 0 || sensorLeft > 0 || sensorRight > 0;
+    final maxSignal = math.max(sensorFront, math.max(sensorLeft, sensorRight));
+
     bool steered = false;
-    if (sensorFront > sensorLeft && sensorFront > sensorRight) {
-      angle += (rng.nextDouble() - 0.5) * 0.1;
-      steered = true;
-    } else if (sensorLeft > sensorRight) {
-      // Explorers make more mistakes (15% vs 3% chance)
-      final mistakeChance = _isExplorer ? 0.15 : 0.03;
-      final mistakeFactor = rng.nextDouble() < mistakeChance ? 0.4 : 1.0;
-      angle -= (rng.nextDouble() * 0.2 + 0.1) * mistakeFactor;
-      steered = true;
-    } else if (sensorRight > sensorLeft) {
-      final mistakeChance = _isExplorer ? 0.15 : 0.03;
-      final mistakeFactor = rng.nextDouble() < mistakeChance ? 0.4 : 1.0;
-      angle += (rng.nextDouble() * 0.2 + 0.1) * mistakeFactor;
-      steered = true;
-    }
-
-    if (!steered && behavior == AntState.forage) {
-      final foodTarget = _biasTowardFood(world, config, rng);
-      if (foodTarget != null) {
-        // Check if there's dirt ahead in the direction of food
-        final nextX = position.x + math.cos(angle) * 1.5;
-        final nextY = position.y + math.sin(angle) * 1.5;
-        final checkX = nextX.floor();
-        final checkY = nextY.floor();
-
-        // If there's dirt blocking the path and ant has energy, dig toward food
-        if (world.isInsideIndex(checkX, checkY) &&
-            world.cellTypeAt(checkX, checkY) == CellType.dirt &&
-            energy >= config.digEnergyCost) {
-          // Strategic digging toward sensed food
-          _dig(world, checkX, checkY, config);
-        }
-        return;
+    if (hasPheromones && maxSignal > 0.01) {
+      // Follow pheromone gradient
+      if (sensorFront >= sensorLeft && sensorFront >= sensorRight) {
+        // Front is strongest or equal - go mostly straight with small noise
+        angle += (rng.nextDouble() - 0.5) * 0.08;
+        steered = true;
+      } else if (sensorLeft > sensorRight) {
+        // Left is strongest - turn left
+        final mistakeChance = _isExplorer ? 0.15 : 0.03;
+        final mistakeFactor = rng.nextDouble() < mistakeChance ? 0.4 : 1.0;
+        angle -= (rng.nextDouble() * 0.15 + 0.08) * mistakeFactor;
+        steered = true;
+      } else {
+        // Right is strongest - turn right
+        final mistakeChance = _isExplorer ? 0.15 : 0.03;
+        final mistakeFactor = rng.nextDouble() < mistakeChance ? 0.4 : 1.0;
+        angle += (rng.nextDouble() * 0.15 + 0.08) * mistakeFactor;
+        steered = true;
       }
     }
 
+    // Only use direct food sensing when NO pheromones detected and only occasionally
+    if (!steered && behavior == AntState.forage) {
+      // Only 15% chance per frame to check for direct food (don't override pheromones)
+      if (rng.nextDouble() < 0.15) {
+        final foodTarget = _biasTowardFood(world, config, rng);
+        if (foodTarget != null) {
+          // Check if there's dirt ahead in the direction of food
+          final nextX = position.x + math.cos(angle) * 1.5;
+          final nextY = position.y + math.sin(angle) * 1.5;
+          final checkX = nextX.floor();
+          final checkY = nextY.floor();
+
+          // If there's dirt blocking the path and ant has energy, dig toward food
+          if (world.isInsideIndex(checkX, checkY) &&
+              world.cellTypeAt(checkX, checkY) == CellType.dirt &&
+              energy >= config.digEnergyCost) {
+            _dig(world, checkX, checkY, config);
+          }
+          return;
+        }
+      }
+    }
+
+    // Small random wandering when no guidance at all
     if (!steered) {
-      angle += (rng.nextDouble() - 0.5) * 0.25;
+      angle += (rng.nextDouble() - 0.5) * 0.15;
     }
   }
 

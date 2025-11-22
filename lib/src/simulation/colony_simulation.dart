@@ -101,6 +101,7 @@ class ColonySimulation {
 
     _applySeparation();
     _resolveCombat();
+    _removeStuckAnts();
     _flushSpawnQueue();
 
     _raidTimer += clampedDt;
@@ -611,6 +612,19 @@ class ColonySimulation {
     }
     if (deadEnemies.isNotEmpty) {
       enemyAnts.removeWhere(deadEnemies.contains);
+    }
+  }
+
+  void _removeStuckAnts() {
+    final stuckFriendlies = ants.where((a) => a.isStuck).toList();
+    final stuckEnemies = enemyAnts.where((a) => a.isStuck).toList();
+
+    if (stuckFriendlies.isNotEmpty) {
+      ants.removeWhere(stuckFriendlies.contains);
+      _updateAntCount();
+    }
+    if (stuckEnemies.isNotEmpty) {
+      enemyAnts.removeWhere(stuckEnemies.contains);
     }
   }
 

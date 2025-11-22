@@ -29,23 +29,34 @@ class GeneratedWorld {
 }
 
 class WorldGenerator {
+  // 4x original size (original was ~100x100)
+  static const int defaultCols = 400;
+  static const int defaultRows = 400;
+
   GeneratedWorld generate({
     required SimulationConfig baseConfig,
     required int seed,
   }) {
     final rng = math.Random(seed);
-    final cols = rng.nextInt(60) + 70; // 70-129
-    final rows = rng.nextInt(50) + 70; // 70-119
+    final cols = defaultCols;
+    final rows = defaultRows;
     final config = baseConfig.copyWith(cols: cols, rows: rows);
     final grid = WorldGrid(config);
-    grid.reset();
-    _buildSurfaceLayer(grid);
+    grid.reset(); // Fills entire grid with dirt
+
+    // Carve the nest chamber first
     final nest = _carveNestChamber(grid, rng);
 
+    // Carve tunnels and caverns into the dirt
     _carveMainTunnels(grid, rng, nest, cols, rows);
     _carveCaverns(grid, rng, cols, rows);
+
+    // Add obstacles and food in carved areas
+    _createRockFormations(grid, rng, cols, rows);
     _scatterFood(grid, rng, cols, rows);
-    _scatterRocks(grid, rng, cols, rows);
+
+    // Ensure solid dirt border around entire map
+    _ensureDirtBorder(grid, 3);
 
     return GeneratedWorld(
       config: config,
@@ -62,14 +73,16 @@ class WorldGenerator {
     int cols,
     int rows,
   ) {
-    final tunnelCount = rng.nextInt(4) + 6;
+    // Reduced: 15-25 tunnels with smaller radius to preserve more dirt
+    final tunnelCount = rng.nextInt(10) + 15;
     for (var i = 0; i < tunnelCount; i++) {
       final start = nest + Vector2(
-        (rng.nextDouble() - 0.5) * 8,
-        (rng.nextDouble() - 0.5) * 8,
+        (rng.nextDouble() - 0.5) * 10,
+        (rng.nextDouble() - 0.5) * 10,
       );
+      // Shorter tunnels with smaller radius
       _randomWalk(grid, rng, start, cols, rows,
-          steps: rng.nextInt(200) + 160, radius: rng.nextInt(2) + 1);
+          steps: rng.nextInt(180) + 150, radius: rng.nextInt(2) + 1);
     }
   }
 
@@ -79,7 +92,8 @@ class WorldGenerator {
     int cols,
     int rows,
   ) {
-    final cavernCount = rng.nextInt(15) + 10;
+    // Reduced: 20-45 caverns with smaller radius
+    final cavernCount = rng.nextInt(25) + 20;
     for (var i = 0; i < cavernCount; i++) {
       final pos = _randomPoint(rng, cols, rows);
       final radius = rng.nextInt(4) + 2;
@@ -93,7 +107,8 @@ class WorldGenerator {
     int cols,
     int rows,
   ) {
-    final foodClusters = rng.nextInt(12) + 8;
+    // 32-80 food clusters
+    final foodClusters = rng.nextInt(48) + 32;
     for (var i = 0; i < foodClusters; i++) {
       final pos = _randomPoint(rng, cols, rows);
       final radius = rng.nextInt(3) + 2;
@@ -101,17 +116,220 @@ class WorldGenerator {
     }
   }
 
-  void _scatterRocks(
+  /// Creates varied organic rock formations: roots, boulder clusters, and veins
+  void _createRockFormations(
     WorldGrid grid,
     math.Random rng,
     int cols,
     int rows,
   ) {
-    final rockClusters = rng.nextInt(10) + 6;
-    for (var i = 0; i < rockClusters; i++) {
+    final formationCount = rng.nextInt(20) + 25; // 25-45 formations
+
+    for (var i = 0; i < formationCount; i++) {
       final pos = _randomPoint(rng, cols, rows);
+      final type = rng.nextInt(10);
+
+      if (type < 4) {
+        // 40% - Root-like formations (tree roots, organic tendrils)
+        _createRootFormation(grid, rng, pos, cols, rows);
+      } else if (type < 7) {
+        // 30% - Boulder clusters
+        _createBoulderCluster(grid, rng, pos);
+      } else {
+        // 30% - Vein formations (mineral veins, long obstacles)
+        _createVeinFormation(grid, rng, pos, cols, rows);
+      }
+    }
+  }
+
+  /// Creates a root-like rock formation with branches
+  void _createRootFormation(
+    WorldGrid grid,
+    math.Random rng,
+    Vector2 start,
+    int cols,
+    int rows,
+  ) {
+    var x = start.x;
+    var y = start.y;
+    var angle = rng.nextDouble() * math.pi * 2;
+    final length = rng.nextInt(50) + 30; // 30-80 cells long
+    final thickness = rng.nextInt(2) + 1; // 1-2 thickness
+
+    for (var i = 0; i < length; i++) {
+      final gx = x.round();
+      final gy = y.round();
+
+      if (grid.isInsideIndex(gx, gy)) {
+        // Place main root
+        grid.setCell(gx, gy, CellType.rock);
+
+        // Add thickness variation
+        if (thickness > 1 || rng.nextDouble() < 0.4) {
+          for (var t = 0; t < thickness; t++) {
+            final ox = (rng.nextDouble() - 0.5) * 2;
+            final oy = (rng.nextDouble() - 0.5) * 2;
+            final nx = (gx + ox).round();
+            final ny = (gy + oy).round();
+            if (grid.isInsideIndex(nx, ny)) {
+              grid.setCell(nx, ny, CellType.rock);
+            }
+          }
+        }
+      }
+
+      // Create branch occasionally
+      if (rng.nextDouble() < 0.08 && i > 5) {
+        _createRootBranch(
+          grid,
+          rng,
+          x,
+          y,
+          angle + (rng.nextBool() ? 0.7 : -0.7) + (rng.nextDouble() - 0.5) * 0.4,
+          cols,
+          rows,
+        );
+      }
+
+      // Curve the root organically
+      angle += (rng.nextDouble() - 0.5) * 0.35;
+      x += math.cos(angle);
+      y += math.sin(angle);
+
+      // Stay in bounds
+      x = x.clamp(2, cols - 3).toDouble();
+      y = y.clamp(2, rows - 3).toDouble();
+    }
+  }
+
+  /// Creates a branch off a root formation
+  void _createRootBranch(
+    WorldGrid grid,
+    math.Random rng,
+    double startX,
+    double startY,
+    double startAngle,
+    int cols,
+    int rows,
+  ) {
+    var x = startX;
+    var y = startY;
+    var angle = startAngle;
+    final length = rng.nextInt(20) + 8; // Shorter branches
+
+    for (var i = 0; i < length; i++) {
+      final gx = x.round();
+      final gy = y.round();
+
+      if (grid.isInsideIndex(gx, gy)) {
+        grid.setCell(gx, gy, CellType.rock);
+
+        // Occasional thickening
+        if (rng.nextDouble() < 0.25) {
+          final ox = (rng.nextDouble() - 0.5) * 1.5;
+          final oy = (rng.nextDouble() - 0.5) * 1.5;
+          final nx = (gx + ox).round();
+          final ny = (gy + oy).round();
+          if (grid.isInsideIndex(nx, ny)) {
+            grid.setCell(nx, ny, CellType.rock);
+          }
+        }
+      }
+
+      // Sub-branch rarely
+      if (rng.nextDouble() < 0.05 && i > 3) {
+        _createTinyBranch(grid, rng, x, y, angle + (rng.nextBool() ? 0.8 : -0.8), cols, rows);
+      }
+
+      angle += (rng.nextDouble() - 0.5) * 0.5;
+      x += math.cos(angle);
+      y += math.sin(angle);
+      x = x.clamp(2, cols - 3).toDouble();
+      y = y.clamp(2, rows - 3).toDouble();
+    }
+  }
+
+  /// Creates a tiny sub-branch
+  void _createTinyBranch(
+    WorldGrid grid,
+    math.Random rng,
+    double startX,
+    double startY,
+    double startAngle,
+    int cols,
+    int rows,
+  ) {
+    var x = startX;
+    var y = startY;
+    var angle = startAngle;
+    final length = rng.nextInt(8) + 3;
+
+    for (var i = 0; i < length; i++) {
+      final gx = x.round();
+      final gy = y.round();
+      if (grid.isInsideIndex(gx, gy)) {
+        grid.setCell(gx, gy, CellType.rock);
+      }
+      angle += (rng.nextDouble() - 0.5) * 0.6;
+      x += math.cos(angle);
+      y += math.sin(angle);
+    }
+  }
+
+  /// Creates a cluster of boulders
+  void _createBoulderCluster(WorldGrid grid, math.Random rng, Vector2 center) {
+    final count = rng.nextInt(5) + 3; // 3-7 boulders in cluster
+    for (var i = 0; i < count; i++) {
+      final offset = Vector2(
+        (rng.nextDouble() - 0.5) * 12,
+        (rng.nextDouble() - 0.5) * 12,
+      );
+      final pos = center + offset;
       final radius = rng.nextInt(3) + 1;
       grid.placeRock(pos, radius);
+    }
+  }
+
+  /// Creates a long vein-like rock formation
+  void _createVeinFormation(
+    WorldGrid grid,
+    math.Random rng,
+    Vector2 start,
+    int cols,
+    int rows,
+  ) {
+    var x = start.x;
+    var y = start.y;
+    var angle = rng.nextDouble() * math.pi * 2;
+    final length = rng.nextInt(80) + 40; // 40-120 cells long
+    final waviness = rng.nextDouble() * 0.15 + 0.05; // How much it curves
+
+    for (var i = 0; i < length; i++) {
+      final gx = x.round();
+      final gy = y.round();
+
+      if (grid.isInsideIndex(gx, gy)) {
+        grid.setCell(gx, gy, CellType.rock);
+
+        // Occasional widening
+        if (rng.nextDouble() < 0.3) {
+          // Perpendicular offset for width
+          final perpAngle = angle + math.pi / 2;
+          final side = rng.nextBool() ? 1 : -1;
+          final nx = (gx + math.cos(perpAngle) * side).round();
+          final ny = (gy + math.sin(perpAngle) * side).round();
+          if (grid.isInsideIndex(nx, ny)) {
+            grid.setCell(nx, ny, CellType.rock);
+          }
+        }
+      }
+
+      // Gentle curves
+      angle += (rng.nextDouble() - 0.5) * waviness;
+      x += math.cos(angle);
+      y += math.sin(angle);
+      x = x.clamp(2, cols - 3).toDouble();
+      y = y.clamp(2, rows - 3).toDouble();
     }
   }
 
@@ -135,8 +353,8 @@ class WorldGenerator {
       ),
     ];
     final carvePos = Vector2.zero();
-    final maxQueueSize = math.max(128, (cols * rows) ~/ 2);
-    final maxCarveOps = math.max(cols * rows * 4, 2000);
+    final maxQueueSize = math.max(64, (cols * rows) ~/ 4);
+    final maxCarveOps = math.max(cols * rows * 2, 2000);
     var carved = 0;
 
     while (workQueue.isNotEmpty && carved < maxCarveOps) {
@@ -160,11 +378,12 @@ class WorldGenerator {
         x = (x + math.cos(angle) * distance).clamp(2, cols - 3).toDouble();
         y = (y + math.sin(angle) * distance).clamp(2, rows - 3).toDouble();
 
+        // Reduced branching
         final shouldBranch = taskRadius > 1 &&
             workQueue.length < maxQueueSize &&
-            rng.nextDouble() < 0.08;
+            rng.nextDouble() < 0.06;
         if (shouldBranch) {
-          final sideSteps = rng.nextInt(30) + 20;
+          final sideSteps = rng.nextInt(40) + 25;
           final sideAngle =
               angle + (rng.nextBool() ? math.pi / 2 : -math.pi / 2);
           workQueue.add(
@@ -188,24 +407,42 @@ class WorldGenerator {
     );
   }
 
-  void _buildSurfaceLayer(WorldGrid grid) {
-    final surfaceDepth = 6;
-    for (var y = 0; y < surfaceDepth && y < grid.rows; y++) {
-      for (var x = 0; x < grid.cols; x++) {
-        grid.setCell(x, y, CellType.air);
-      }
-    }
-  }
-
   Vector2 _carveNestChamber(WorldGrid grid, math.Random rng) {
-    final nestX = rng.nextInt(grid.cols - 20) + 10;
-    final safeDepth = 8;
-    final nestY = math.max(safeDepth, grid.rows - 12);
+    // Position nest in the lower portion of the map
+    final nestX = rng.nextInt(grid.cols - 80) + 40;
+    final safeDepth = 20;
+    final nestY = math.max(safeDepth, grid.rows - 35);
     final nest = Vector2(nestX.toDouble(), nestY.toDouble());
     grid.nestPosition.setFrom(nest);
-    grid.digCircle(nest, grid.config.nestRadius + 3);
+    grid.digCircle(nest, grid.config.nestRadius + 4);
     grid.carveNest();
     grid.markHomeDistancesDirty();
     return nest;
+  }
+
+  /// Ensures a solid dirt border around the entire map edges
+  void _ensureDirtBorder(WorldGrid grid, int borderWidth) {
+    final cols = grid.cols;
+    final rows = grid.rows;
+
+    // Top and bottom borders
+    for (var x = 0; x < cols; x++) {
+      for (var y = 0; y < borderWidth; y++) {
+        grid.setCell(x, y, CellType.dirt);
+      }
+      for (var y = rows - borderWidth; y < rows; y++) {
+        grid.setCell(x, y, CellType.dirt);
+      }
+    }
+
+    // Left and right borders
+    for (var y = 0; y < rows; y++) {
+      for (var x = 0; x < borderWidth; x++) {
+        grid.setCell(x, y, CellType.dirt);
+      }
+      for (var x = cols - borderWidth; x < cols; x++) {
+        grid.setCell(x, y, CellType.dirt);
+      }
+    }
   }
 }
