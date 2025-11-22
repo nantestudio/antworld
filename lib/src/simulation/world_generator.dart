@@ -393,15 +393,15 @@ class WorldGenerator {
     }
   }
 
-  /// Places a 2-cell thick rock perpendicular to the given angle
+  /// Places a 2-cell thick hardite perpendicular to the given angle
   void _placeThickLine(WorldGrid grid, int gx, int gy, double angle) {
-    grid.setCell(gx, gy, CellType.rock);
+    grid.setCell(gx, gy, CellType.dirt, dirtType: DirtType.hardite);
     // Add perpendicular cell for 2-block thickness
     final perpAngle = angle + math.pi / 2;
     final nx = (gx + math.cos(perpAngle)).round();
     final ny = (gy + math.sin(perpAngle)).round();
     if (grid.isInsideIndex(nx, ny)) {
-      grid.setCell(nx, ny, CellType.rock);
+      grid.setCell(nx, ny, CellType.dirt, dirtType: DirtType.hardite);
     }
   }
 
@@ -470,7 +470,7 @@ class WorldGenerator {
     }
   }
 
-  /// Creates a cluster of boulders
+  /// Creates a cluster of hardite boulders (diggable but tough)
   void _createBoulderCluster(WorldGrid grid, math.Random rng, Vector2 center) {
     final count = rng.nextInt(3) + 2; // 2-4 boulders in cluster (was 3-7)
     for (var i = 0; i < count; i++) {
@@ -480,11 +480,11 @@ class WorldGenerator {
       );
       final pos = center + offset;
       final radius = rng.nextInt(2) + 1; // 1-2 radius (was 1-3)
-      grid.placeRock(pos, radius);
+      grid.placeHardite(pos, radius);
     }
   }
 
-  /// Creates a long vein-like rock formation
+  /// Creates a long vein-like hardite formation (diggable but tough)
   void _createVeinFormation(
     WorldGrid grid,
     math.Random rng,
@@ -513,7 +513,7 @@ class WorldGenerator {
           final nx = (gx + math.cos(perpAngle) * side).round();
           final ny = (gy + math.sin(perpAngle) * side).round();
           if (grid.isInsideIndex(nx, ny)) {
-            grid.setCell(nx, ny, CellType.rock);
+            grid.setCell(nx, ny, CellType.dirt, dirtType: DirtType.hardite);
           }
         }
       }

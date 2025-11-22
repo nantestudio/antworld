@@ -498,6 +498,21 @@ class WorldGrid {
     }
   }
 
+  void placeHardite(Vector2 cellPos, int radius) {
+    final cx = cellPos.x.floor();
+    final cy = cellPos.y.floor();
+    for (var dx = -radius; dx <= radius; dx++) {
+      for (var dy = -radius; dy <= radius; dy++) {
+        final nx = cx + dx;
+        final ny = cy + dy;
+        if (!isInsideIndex(nx, ny)) continue;
+        if (dx * dx + dy * dy <= radius * radius) {
+          setCell(nx, ny, CellType.dirt, dirtType: DirtType.hardite);
+        }
+      }
+    }
+  }
+
   /// Consume one unit of food from a cell. Returns true if food was consumed.
   /// When food amount reaches 0, the cell becomes air.
   bool consumeFood(int x, int y) {
