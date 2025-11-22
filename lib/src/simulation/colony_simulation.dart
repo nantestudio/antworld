@@ -338,6 +338,7 @@ class ColonySimulation {
     if (worldData != null) {
       final zonesStr = worldData['zones'] as String?;
       final blockedStr = worldData['blockedPheromones'] as String?;
+      final foodAmountStr = worldData['foodAmount'] as String?;
       world.loadState(
         cellsData: _decodeUint8(worldData['cells'] as String),
         dirtHealthData: _decodeFloat32(worldData['dirtHealth'] as String),
@@ -349,6 +350,7 @@ class ColonySimulation {
         ),
         zonesData: zonesStr != null ? _decodeUint8(zonesStr) : null,
         blockedPheromoneData: blockedStr != null ? _decodeFloat32(blockedStr) : null,
+        foodAmountData: foodAmountStr != null ? _decodeUint8(foodAmountStr) : null,
       );
     }
 
@@ -726,6 +728,7 @@ class ColonySimulation {
       'cells': _encodeUint8(Uint8List.fromList(world.cells)),
       'zones': _encodeUint8(Uint8List.fromList(world.zones)),
       'dirtHealth': _encodeFloat32(world.dirtHealth),
+      'foodAmount': _encodeUint8(Uint8List.fromList(world.foodAmount)),
       'foodPheromones': _encodeFloat32(world.foodPheromones),
       'homePheromones': _encodeFloat32(world.homePheromones),
       'blockedPheromones': _encodeFloat32(world.blockedPheromones),

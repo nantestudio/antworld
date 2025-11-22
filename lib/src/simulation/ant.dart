@@ -369,7 +369,7 @@ class Ant {
     if (destBlock == CellType.food && !hasFood) {
       _carryingFood = true;
       state = AntState.returnHome;
-      world.removeFood(gx, gy);
+      world.consumeFood(gx, gy); // Decrements food amount, removes cell when empty
       angle += config.foodPickupRotation + (rng.nextDouble() - 0.5) * 0.2;
     }
 

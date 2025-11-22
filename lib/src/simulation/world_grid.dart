@@ -25,11 +25,14 @@ class WorldGrid {
       homePheromones = Float32List(config.cols * config.rows),
       blockedPheromones = Float32List(config.cols * config.rows),
       dirtHealth = Float32List(config.cols * config.rows),
+      foodAmount = Uint8List(config.cols * config.rows),
       _homeDistances = Int32List(config.cols * config.rows),
       nestPosition = (nestOverride ?? Vector2(config.cols / 2, config.rows / 2))
           .clone(),
       nest1Position = (nest1Override ?? Vector2(config.cols / 2, config.rows * 0.2))
           .clone();
+
+  static const int defaultFoodPerCell = 100;
 
   final SimulationConfig config;
   final Uint8List cells;
@@ -40,6 +43,7 @@ class WorldGrid {
   final Vector2 nestPosition;  // Colony 0 nest
   final Vector2 nest1Position; // Colony 1 nest
   final Float32List dirtHealth;
+  final Uint8List foodAmount; // Amount of food in each food cell (0-255)
   final Set<int> _foodCells = <int>{};
   final Set<int> _activePheromoneCells = <int>{};
   late final UnmodifiableSetView<int> _activePheromoneCellsView =
@@ -59,6 +63,7 @@ class WorldGrid {
       cells[i] = CellType.dirt.index;
       zones[i] = NestZone.none.index;
       dirtHealth[i] = config.dirtMaxHealth;
+      foodAmount[i] = 0;
       foodPheromones[i] = 0;
       homePheromones[i] = 0;
       blockedPheromones[i] = 0;
@@ -242,9 +247,10 @@ class WorldGrid {
     }
   }
 
-  void placeFood(Vector2 cellPos, int radius) {
+  void placeFood(Vector2 cellPos, int radius, {int? amount}) {
     final cx = cellPos.x.floor();
     final cy = cellPos.y.floor();
+    final foodAmt = amount ?? defaultFoodPerCell;
     for (var dx = -radius; dx <= radius; dx++) {
       for (var dy = -radius; dy <= radius; dy++) {
         final nx = cx + dx;
@@ -254,6 +260,10 @@ class WorldGrid {
           final idx = index(nx, ny);
           if (cells[idx] == CellType.air.index) {
             setCell(nx, ny, CellType.food);
+            foodAmount[idx] = foodAmt.clamp(1, 255);
+          } else if (cells[idx] == CellType.food.index) {
+            // Refill existing food cell
+            foodAmount[idx] = math.min(255, foodAmount[idx] + foodAmt);
           }
         }
       }
@@ -275,11 +285,28 @@ class WorldGrid {
     }
   }
 
-  void removeFood(int x, int y) {
+  /// Consume one unit of food from a cell. Returns true if food was consumed.
+  /// When food amount reaches 0, the cell becomes air.
+  bool consumeFood(int x, int y) {
     final idx = index(x, y);
-    if (cells[idx] == CellType.food.index) {
-      setCell(x, y, CellType.air);
+    if (cells[idx] != CellType.food.index) {
+      return false;
     }
+    if (foodAmount[idx] > 1) {
+      foodAmount[idx]--;
+      return true;
+    }
+    // Last unit of food - remove the cell
+    foodAmount[idx] = 0;
+    setCell(x, y, CellType.air);
+    return true;
+  }
+
+  /// Get the amount of food in a cell (0 if not food)
+  int getFoodAmount(int x, int y) {
+    final idx = index(x, y);
+    if (cells[idx] != CellType.food.index) return 0;
+    return foodAmount[idx];
   }
 
   void loadState({
@@ -289,6 +316,7 @@ class WorldGrid {
     required Float32List homePheromoneData,
     Uint8List? zonesData,
     Float32List? blockedPheromoneData,
+    Uint8List? foodAmountData,
   }) {
     cells.setAll(0, cellsData);
     dirtHealth.setAll(0, dirtHealthData);
@@ -299,6 +327,9 @@ class WorldGrid {
     }
     if (blockedPheromoneData != null && blockedPheromoneData.length == blockedPheromones.length) {
       blockedPheromones.setAll(0, blockedPheromoneData);
+    }
+    if (foodAmountData != null && foodAmountData.length == foodAmount.length) {
+      foodAmount.setAll(0, foodAmountData);
     }
     _rebuildFoodCache();
     _rebuildPheromoneCache();
@@ -363,6 +394,10 @@ class WorldGrid {
     for (var i = 0; i < cells.length; i++) {
       if (cells[i] == CellType.food.index) {
         _foodCells.add(i);
+        // Initialize amount for old saves that didn't track it
+        if (foodAmount[i] == 0) {
+          foodAmount[i] = defaultFoodPerCell;
+        }
       }
     }
   }
