@@ -107,13 +107,19 @@ class WorldGenerator {
     int cols,
     int rows,
   ) {
-    // 32-80 food clusters
-    final foodClusters = rng.nextInt(48) + 32;
-    for (var i = 0; i < foodClusters; i++) {
-      final pos = _randomPoint(rng, cols, rows);
-      final radius = rng.nextInt(3) + 2;
-      grid.placeFood(pos, radius);
-    }
+    // Single large food source - forces ants to form clear pheromone highways
+    // Place it away from nest (upper half of map) for interesting pathing
+    final nestY = grid.nestPosition.y;
+    final minDistFromNest = rows * 0.3; // At least 30% of map away from nest
+
+    Vector2 pos;
+    do {
+      pos = _randomPoint(rng, cols, rows);
+    } while ((pos.y - nestY).abs() < minDistFromNest);
+
+    // Large radius (8-12) for a substantial food pile
+    final radius = rng.nextInt(5) + 8;
+    grid.placeFood(pos, radius);
   }
 
   /// Creates varied organic rock formations: roots, boulder clusters, and veins

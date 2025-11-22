@@ -39,7 +39,7 @@ class ColonySimulation {
   double _raidTimer = 0.0;
   double _nextRaidIn = 45.0;
   double _foodCheckTimer = 0.0;
-  double _nextFoodCheck = 20.0;
+  double _nextFoodCheck = 300.0; // ~5 minutes between food spawns
 
   bool get showPheromones => pheromonesVisible.value;
   int? get lastSeed => _lastSeed;
@@ -412,7 +412,8 @@ class ColonySimulation {
 
   void _scheduleNextFoodCheck() {
     _foodCheckTimer = 0;
-    _nextFoodCheck = 12 + _rng.nextDouble() * 10;
+    // Spawn new food every ~5 minutes (270-330 seconds)
+    _nextFoodCheck = 270 + _rng.nextDouble() * 60;
   }
 
   void _spawnEnemyRaid() {
