@@ -815,21 +815,24 @@ class _AntHudState extends State<AntHud> {
           children: [
             const Text('Size: '),
             const SizedBox(width: 8),
-            DropdownButton<String>(
-              value: _selectedMapSize,
-              isDense: true,
-              items: presets.keys.map((name) {
-                final size = presets[name]!;
-                return DropdownMenuItem(
-                  value: name,
-                  child: Text('$name (${size.$1}×${size.$2})'),
-                );
-              }).toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _selectedMapSize = value);
-                }
-              },
+            Flexible(
+              child: DropdownButton<String>(
+                value: _selectedMapSize,
+                isDense: true,
+                isExpanded: true,
+                items: presets.keys.map((name) {
+                  final size = presets[name]!;
+                  return DropdownMenuItem(
+                    value: name,
+                    child: Text('$name (${size.$1}×${size.$2})', overflow: TextOverflow.ellipsis),
+                  );
+                }).toList(),
+                onChanged: (value) {
+                  if (value != null) {
+                    setState(() => _selectedMapSize = value);
+                  }
+                },
+              ),
             ),
           ],
         ),

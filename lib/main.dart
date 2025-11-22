@@ -29,6 +29,7 @@ class _AntWorldAppState extends State<AntWorldApp> {
   _AppScreen _screen = _AppScreen.menu;
   bool _loading = false;
   String? _menuError;
+  int _selectedColonyCount = 2;
 
   @override
   void initState() {
@@ -115,6 +116,31 @@ class _AntWorldAppState extends State<AntWorldApp> {
               style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 24),
+            // Colony count selector
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Colonies: '),
+                const SizedBox(width: 8),
+                DropdownButton<int>(
+                  value: _selectedColonyCount,
+                  items: [1, 2, 3, 4].map((count) {
+                    return DropdownMenuItem(
+                      value: count,
+                      child: Text('$count'),
+                    );
+                  }).toList(),
+                  onChanged: _loading
+                      ? null
+                      : (value) {
+                          if (value != null) {
+                            setState(() => _selectedColonyCount = value);
+                          }
+                        },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
             FilledButton(
               onPressed: _loading ? null : _startNewGame,
               child: _loading
@@ -123,7 +149,7 @@ class _AntWorldAppState extends State<AntWorldApp> {
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Start New Colony'),
+                  : Text('Start New Colony ($_selectedColonyCount ${_selectedColonyCount == 1 ? "colony" : "colonies"})'),
             ),
             const SizedBox(height: 12),
             OutlinedButton(
@@ -149,7 +175,10 @@ class _AntWorldAppState extends State<AntWorldApp> {
       _menuError = null;
     });
 
-    final simulation = ColonySimulation(defaultSimulationConfig);
+    final config = defaultSimulationConfig.copyWith(
+      colonyCount: _selectedColonyCount,
+    );
+    final simulation = ColonySimulation(config);
     simulation.initialize();
     simulation.generateRandomWorld();
     final game = AntWorldGame(simulation);

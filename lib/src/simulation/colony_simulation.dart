@@ -16,6 +16,7 @@ class ColonySimulation {
       colony0Food = ValueNotifier<int>(0),
       colony1Food = ValueNotifier<int>(0),
       pheromonesVisible = ValueNotifier<bool>(true),
+      foodScentVisible = ValueNotifier<bool>(true),
       antSpeedMultiplier = ValueNotifier<double>(0.2),
       daysPassed = ValueNotifier<int>(1),
       elapsedTime = ValueNotifier<double>(0.0),
@@ -31,6 +32,7 @@ class ColonySimulation {
   final ValueNotifier<int> colony0Food;
   final ValueNotifier<int> colony1Food;
   final ValueNotifier<bool> pheromonesVisible;
+  final ValueNotifier<bool> foodScentVisible;
   final ValueNotifier<double> antSpeedMultiplier;
   final ValueNotifier<int> daysPassed;
   final ValueNotifier<double> elapsedTime;
@@ -39,8 +41,8 @@ class ColonySimulation {
   final math.Random _rng = math.Random();
   int _storedFood = 0;
   // Per-colony food tracking for reproduction
-  final List<int> _colonyFood = [0, 0];
-  final List<int> _colonyQueuedAnts = [0, 0];
+  final List<int> _colonyFood = [0, 0, 0, 0]; // Supports up to 4 colonies
+  final List<int> _colonyQueuedAnts = [0, 0, 0, 0]; // Supports up to 4 colonies
   int _physicsFrame = 0;
   int? _lastSeed;
   double _elapsedTime = 0.0;
@@ -71,6 +73,7 @@ class ColonySimulation {
   int _enemy1QueenCount = 0;
 
   bool get showPheromones => pheromonesVisible.value;
+  bool get showFoodScent => foodScentVisible.value;
   int? get lastSeed => _lastSeed;
 
   // Stats getters for UI - use cached values (O(1) instead of O(n))
@@ -99,10 +102,10 @@ class ColonySimulation {
     ants.clear();
     Ant.resetIdCounter();
     _storedFood = 0;
-    _colonyFood[0] = 0;
-    _colonyFood[1] = 0;
-    _colonyQueuedAnts[0] = 0;
-    _colonyQueuedAnts[1] = 0;
+    for (var i = 0; i < 4; i++) {
+      _colonyFood[i] = 0;
+      _colonyQueuedAnts[i] = 0;
+    }
     _elapsedTime = 0.0;
     elapsedTime.value = 0.0;
     _scheduleNextFoodCheck();
@@ -121,9 +124,9 @@ class ColonySimulation {
       // Always spawn one queen
       _spawnAnt(caste: AntCaste.queen, colonyId: colonyId);
 
-      // Calculate base counts with ±20% variance
-      final baseNurse = config.startingAnts * 0.15; // ~15% nurses
-      final baseSoldier = config.startingAnts * 0.20; // ~20% soldiers
+      // Calculate base counts: 80% workers, 10% nurses, 10% soldiers
+      final baseNurse = config.startingAnts * 0.10; // ~10% nurses
+      final baseSoldier = config.startingAnts * 0.10; // ~10% soldiers
 
       // Add randomness: base * (0.8 to 1.2)
       final nurseCount = math.max(2, (baseNurse * (0.8 + _rng.nextDouble() * 0.4)).round());
@@ -139,7 +142,7 @@ class ColonySimulation {
         _spawnAnt(caste: AntCaste.soldier, colonyId: colonyId);
       }
 
-      // Rest are workers (~65%)
+      // Rest are workers (~80%)
       final workerCount = config.startingAnts - 1 - nurseCount - soldierCount;
       for (var i = 0; i < workerCount; i++) {
         _spawnAnt(caste: AntCaste.worker, colonyId: colonyId);
@@ -154,6 +157,13 @@ class ColonySimulation {
     final decayFactor = math.pow(config.decayPerSecond, clampedDt).toDouble();
     final double antSpeed = config.antSpeed * antSpeedMultiplier.value;
     world.decay(decayFactor, config.decayThreshold);
+
+    // Diffuse food scent through air cells (spreads like gas through tunnels)
+    // Run multiple iterations for faster spreading at low simulation speeds
+    final diffuseIterations = antSpeedMultiplier.value < 1.0 ? 3 : 2;
+    for (var i = 0; i < diffuseIterations; i++) {
+      world.diffuseFoodScent();
+    }
 
     // Track elapsed time and update days (1 minute = 1 day, affected by speed multiplier)
     _elapsedTime += clampedDt * antSpeedMultiplier.value;
@@ -240,6 +250,10 @@ class ColonySimulation {
     if (_physicsFrame % 3 == 0) {
       _resolveCombat();
     }
+    if (_physicsFrame % 10 == 0) {
+      // Queens emit strong pheromones towards food to guide ants
+      _queenFoodGuidance();
+    }
     if (_physicsFrame % 60 == 0) {
       _removeStuckAnts();
       _removeOldAnts();
@@ -255,6 +269,10 @@ class ColonySimulation {
 
   void togglePheromones() {
     pheromonesVisible.value = !pheromonesVisible.value;
+  }
+
+  void toggleFoodScent() {
+    foodScentVisible.value = !foodScentVisible.value;
   }
 
   void togglePause() {
@@ -365,10 +383,10 @@ class ColonySimulation {
     Ant.resetIdCounter();
     _updateAntCount();
     _storedFood = 0;
-    _colonyFood[0] = 0;
-    _colonyFood[1] = 0;
-    _colonyQueuedAnts[0] = 0;
-    _colonyQueuedAnts[1] = 0;
+    for (var i = 0; i < 4; i++) {
+      _colonyFood[i] = 0;
+      _colonyQueuedAnts[i] = 0;
+    }
     _elapsedTime = 0.0;
     _scheduleNextFoodCheck();
     foodCollected.value = 0;
@@ -488,10 +506,10 @@ class ColonySimulation {
 
     _storedFood = (snapshot['foodCollected'] as num?)?.toInt() ?? 0;
     foodCollected.value = _storedFood;
-    _colonyFood[0] = 0;
-    _colonyFood[1] = 0;
-    _colonyQueuedAnts[0] = 0;
-    _colonyQueuedAnts[1] = 0;
+    for (var i = 0; i < 4; i++) {
+      _colonyFood[i] = 0;
+      _colonyQueuedAnts[i] = 0;
+    }
     colony0Food.value = 0;
     colony1Food.value = 0;
     antSpeedMultiplier.value =
@@ -505,9 +523,9 @@ class ColonySimulation {
     _ensureQueensExist();
   }
 
-  /// Ensures both colonies have at least one queen
+  /// Ensures all colonies have at least one queen
   void _ensureQueensExist() {
-    for (var colonyId = 0; colonyId < 2; colonyId++) {
+    for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
       final hasQueen = ants.any((a) => a.colonyId == colonyId && a.caste == AntCaste.queen);
       if (!hasQueen) {
         _spawnAnt(caste: AntCaste.queen, colonyId: colonyId);
@@ -517,10 +535,11 @@ class ColonySimulation {
 
   void addAnts(int count) {
     if (count <= 0) return;
-    // Add ants to both colonies equally
+    // Add ants to all colonies equally
     for (var i = 0; i < count; i++) {
-      _spawnAnt(colonyId: 0);
-      _spawnAnt(colonyId: 1);
+      for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
+        _spawnAnt(colonyId: colonyId);
+      }
     }
   }
 
@@ -761,7 +780,7 @@ class ColonySimulation {
   void _flushSpawnQueue() {
     // Spawn queued eggs for each colony based on their food deliveries
     // Food enables reproduction through the proper lifecycle: egg -> larva -> adult
-    for (var colonyId = 0; colonyId < 2; colonyId++) {
+    for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
       final queued = _colonyQueuedAnts[colonyId];
       if (queued > 0) {
         // Find the queen to spawn eggs near her
@@ -1101,13 +1120,31 @@ class ColonySimulation {
                   // Winner picks up dead enemy as food
                   if (a.isDead && !b.isDead && !b.hasFood) {
                     deadAnts.add(a);
+                    // COLONY TAKEOVER: If a queen dies, attacker's colony takes over
+                    if (a.caste == AntCaste.queen) {
+                      _handleColonyTakeover(a.colonyId, b.colonyId);
+                    }
                     b.pickUpFood(); // Eat the enemy!
                   } else if (b.isDead && !a.isDead && !a.hasFood) {
                     deadAnts.add(b);
+                    // COLONY TAKEOVER: If a queen dies, attacker's colony takes over
+                    if (b.caste == AntCaste.queen) {
+                      _handleColonyTakeover(b.colonyId, a.colonyId);
+                    }
                     a.pickUpFood(); // Eat the enemy!
                   } else {
-                    if (a.isDead) deadAnts.add(a);
-                    if (b.isDead) deadAnts.add(b);
+                    if (a.isDead) {
+                      deadAnts.add(a);
+                      if (a.caste == AntCaste.queen && !b.isDead) {
+                        _handleColonyTakeover(a.colonyId, b.colonyId);
+                      }
+                    }
+                    if (b.isDead) {
+                      deadAnts.add(b);
+                      if (b.caste == AntCaste.queen && !a.isDead) {
+                        _handleColonyTakeover(b.colonyId, a.colonyId);
+                      }
+                    }
                   }
                 }
               }
@@ -1144,6 +1181,92 @@ class ColonySimulation {
     if (oldAnts.isNotEmpty) {
       ants.removeWhere(oldAnts.contains);
       _updateAntCount();
+    }
+  }
+
+  /// Handle colony takeover when a queen dies in combat.
+  /// All ants from the defeated colony join the conquering colony.
+  /// The defeated colony's nest becomes a secondary base for the conqueror.
+  void _handleColonyTakeover(int defeatedColonyId, int conquerorColonyId) {
+    // Count ants being converted
+    var convertedCount = 0;
+
+    // Convert all living ants from defeated colony to conqueror's colony
+    for (final ant in ants) {
+      if (ant.colonyId == defeatedColonyId && !ant.isDead) {
+        ant.colonyId = conquerorColonyId;
+        // Reset their state to forage for the new colony
+        if (ant.caste == AntCaste.worker || ant.caste == AntCaste.soldier) {
+          ant.state = AntState.forage;
+        }
+        convertedCount++;
+      }
+    }
+
+    // Transfer food reserves from defeated colony to conqueror
+    if (defeatedColonyId < _colonyFood.length && conquerorColonyId < _colonyFood.length) {
+      _colonyFood[conquerorColonyId] += _colonyFood[defeatedColonyId];
+      _colonyFood[defeatedColonyId] = 0;
+    }
+
+    // Transfer queued ants from defeated colony to conqueror
+    if (defeatedColonyId < _colonyQueuedAnts.length && conquerorColonyId < _colonyQueuedAnts.length) {
+      _colonyQueuedAnts[conquerorColonyId] += _colonyQueuedAnts[defeatedColonyId];
+      _colonyQueuedAnts[defeatedColonyId] = 0;
+    }
+
+    // Update displays
+    _updateAntCount();
+
+    // Log the takeover (could add a notification system later)
+    // ignore: avoid_print
+    print('COLONY TAKEOVER: Colony $conquerorColonyId conquered Colony $defeatedColonyId! ($convertedCount ants converted)');
+  }
+
+  /// Queens emit strong pheromones towards the nearest food to guide foraging ants.
+  /// The queen knows the absolute position of food and creates a pheromone path.
+  void _queenFoodGuidance() {
+    if (world.foodCells.isEmpty) return;
+
+    // For each queen, emit pheromones pointing towards nearest food
+    for (final ant in ants) {
+      if (ant.caste != AntCaste.queen || ant.isDead) continue;
+
+      final queenPos = ant.position;
+      final qx = queenPos.x.floor();
+      final qy = queenPos.y.floor();
+
+      // Find nearest food cell
+      Vector2? nearestFood;
+      var nearestDistSq = double.infinity;
+      for (final foodIdx in world.foodCells) {
+        final fx = foodIdx % world.cols;
+        final fy = foodIdx ~/ world.cols;
+        final distSq = ((fx - qx) * (fx - qx) + (fy - qy) * (fy - qy)).toDouble();
+        if (distSq < nearestDistSq) {
+          nearestDistSq = distSq;
+          nearestFood = Vector2(fx.toDouble(), fy.toDouble());
+        }
+      }
+
+      if (nearestFood == null) continue;
+
+      // Emit strong food pheromones in a trail from nest towards food
+      // This creates a "royal decree" path that ants will follow
+      final direction = (nearestFood - queenPos).normalized();
+      const trailLength = 30; // How far the queen's guidance reaches
+      const pheromoneStrength = 0.8; // Strong guidance
+
+      for (var i = 0; i < trailLength; i++) {
+        final tx = (qx + direction.x * i).floor();
+        final ty = (qy + direction.y * i).floor();
+
+        if (!world.isInsideIndex(tx, ty)) break;
+        if (world.cellTypeAt(tx, ty) != CellType.air) break; // Stop at walls
+
+        // Deposit food pheromone (colony-specific)
+        world.depositFoodPheromone(tx, ty, pheromoneStrength, ant.colonyId);
+      }
     }
   }
 

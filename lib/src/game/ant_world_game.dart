@@ -47,14 +47,25 @@ class AntWorldGame extends FlameGame
   final Paint _bedrockPaint = Paint()..color = const Color(0xFF616161);   // Dark gray (replaces rock)
   final Paint _foodPaint = Paint()..color = const Color(0xFF76FF03);
   final Paint _rockPaint = Paint()..color = const Color(0xFF999999);
-  // Colony 0 paints (cyan tones)
-  final Paint _antPaint = Paint()..color = const Color(0xFF4DD0E1); // Cyan
-  final Paint _antCarryingPaint = Paint()..color = const Color(0xFF00E676); // Green (carrying food)
-  // Colony 1 paints (orange/red tones)
-  final Paint _enemyAntPaint = Paint()..color = const Color(0xFFFF7043); // Orange
-  final Paint _colony1CarryingPaint = Paint()..color = const Color(0xFFFFEB3B); // Yellow (carrying food)
-  final Paint _nestPaint = Paint()..color = const Color(0xFF4DD0E1); // Cyan (matches colony 0)
-  final Paint _nest1Paint = Paint()..color = const Color(0xFFFF7043); // Orange (matches colony 1)
+  // Colony 0 paints (BLUE tones)
+  final Paint _antPaint = Paint()..color = const Color(0xFF2196F3); // Blue
+  final Paint _antCarryingPaint = Paint()..color = const Color(0xFF64B5F6); // Light blue (carrying food)
+  // Colony 1 paints (RED tones)
+  final Paint _enemyAntPaint = Paint()..color = const Color(0xFFF44336); // Red
+  final Paint _colony1CarryingPaint = Paint()..color = const Color(0xFFEF9A9A); // Light red (carrying food)
+  // Colony 2 paints (YELLOW tones)
+  final Paint _colony2AntPaint = Paint()..color = const Color(0xFFFFEB3B); // Yellow
+  final Paint _colony2CarryingPaint = Paint()..color = const Color(0xFFFFF59D); // Light yellow (carrying)
+  // Colony 3 paints (MAGENTA/PINK tones)
+  final Paint _colony3AntPaint = Paint()..color = const Color(0xFFE91E63); // Magenta/Pink
+  final Paint _colony3CarryingPaint = Paint()..color = const Color(0xFFF48FB1); // Light pink (carrying)
+  // Nest paints for all 4 colonies (match ant colors)
+  final Paint _nestPaint = Paint()..color = const Color(0xFF2196F3); // Blue (matches colony 0)
+  final Paint _nest1Paint = Paint()..color = const Color(0xFFF44336); // Red (matches colony 1)
+  final Paint _nest2Paint = Paint()..color = const Color(0xFFFFEB3B); // Yellow (matches colony 2)
+  final Paint _nest3Paint = Paint()..color = const Color(0xFFE91E63); // Magenta (matches colony 3)
+  // Food scent visualization paint
+  final Paint _foodScentPaint = Paint()..color = const Color(0xFF00FF00); // Green for food smell
   // Colony 0 pheromone paints (blue/gray)
   final Paint _foodPheromone0Paint = Paint()..color = const Color(0xFF0064FF);
   final Paint _homePheromone0Paint = Paint()..color = const Color(0xFF888888);
@@ -65,17 +76,25 @@ class AntWorldGame extends FlameGame
     ..color = const Color(0xFFFFFF00)
     ..style = PaintingStyle.stroke
     ..strokeWidth = 2.0;
-  // Queen paints (larger, with aura)
-  final Paint _queen0Paint = Paint()..color = const Color(0xFF00BCD4); // Darker cyan
-  final Paint _queen1Paint = Paint()..color = const Color(0xFFFF5722); // Darker orange
-  final Paint _queenAura0Paint = Paint()..color = const Color(0x3300BCD4); // Transparent cyan
-  final Paint _queenAura1Paint = Paint()..color = const Color(0x33FF5722); // Transparent orange
+  // Queen paints (larger, with aura) - match colony colors
+  final Paint _queen0Paint = Paint()..color = const Color(0xFF1976D2); // Darker blue
+  final Paint _queen1Paint = Paint()..color = const Color(0xFFD32F2F); // Darker red
+  final Paint _queen2Paint = Paint()..color = const Color(0xFFFBC02D); // Darker yellow
+  final Paint _queen3Paint = Paint()..color = const Color(0xFFC2185B); // Darker magenta
+  final Paint _queenAura0Paint = Paint()..color = const Color(0x332196F3); // Transparent blue
+  final Paint _queenAura1Paint = Paint()..color = const Color(0x33F44336); // Transparent red
+  final Paint _queenAura2Paint = Paint()..color = const Color(0x33FFEB3B); // Transparent yellow
+  final Paint _queenAura3Paint = Paint()..color = const Color(0x33E91E63); // Transparent magenta
   // Larva paint (smaller, lighter)
-  final Paint _larva0Paint = Paint()..color = const Color(0x99B2EBF2); // Light cyan, semi-transparent
-  final Paint _larva1Paint = Paint()..color = const Color(0x99FFCCBC); // Light orange, semi-transparent
-  // Egg paint (tiny, yellowish)
-  final Paint _egg0Paint = Paint()..color = const Color(0xCCFFF9C4); // Pale yellow, semi-transparent
-  final Paint _egg1Paint = Paint()..color = const Color(0xCCFFE082); // Light amber, semi-transparent
+  final Paint _larva0Paint = Paint()..color = const Color(0x9990CAF9); // Light blue, semi-transparent
+  final Paint _larva1Paint = Paint()..color = const Color(0x99EF9A9A); // Light red, semi-transparent
+  final Paint _larva2Paint = Paint()..color = const Color(0x99FFF59D); // Light yellow, semi-transparent
+  final Paint _larva3Paint = Paint()..color = const Color(0x99F48FB1); // Light pink, semi-transparent
+  // Egg paint (tiny, colony-colored)
+  final Paint _egg0Paint = Paint()..color = const Color(0xCCBBDEFB); // Pale blue, semi-transparent
+  final Paint _egg1Paint = Paint()..color = const Color(0xCCFFCDD2); // Pale red, semi-transparent
+  final Paint _egg2Paint = Paint()..color = const Color(0xCCFFF9C4); // Pale yellow, semi-transparent
+  final Paint _egg3Paint = Paint()..color = const Color(0xCCF8BBD9); // Pale pink, semi-transparent
 
   // Room overlay paints (semi-transparent)
   final Paint _homeRoom0Paint = Paint()..color = const Color(0x1A4DD0E1); // Cyan 10%
@@ -177,6 +196,10 @@ class AntWorldGame extends FlameGame
   KeyEventResult onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
     if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.keyP) {
       simulation.togglePheromones();
+      return KeyEventResult.handled;
+    }
+    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.keyF) {
+      simulation.toggleFoodScent();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -554,135 +577,114 @@ class AntWorldGame extends FlameGame
         }
       }
     }
+
+    // Draw food scent visualization (bright lime green showing smell spreading through tunnels)
+    if (simulation.showFoodScent) {
+      final worldRows = world.rows;
+      for (var y = 0; y < worldRows; y++) {
+        for (var x = 0; x < cols; x++) {
+          final idx = world.index(x, y);
+          if (world.cells[idx] != CellType.air.index) continue;
+
+          final scent = world.foodScent[idx];
+          if (scent < 0.005) continue; // Lower threshold to show more diffusion
+
+          final dx = x * cellSize;
+          final dy = y * cellSize;
+          final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
+
+          // Bright lime green for food scent, highly visible alpha
+          final alpha = (scent * 1.2).clamp(0.1, 0.8); // Much more visible
+          _foodScentPaint.color = const Color(0xFF00FF00).withValues(alpha: alpha);
+          canvas.drawRect(rect, _foodScentPaint);
+        }
+      }
+    }
   }
 
   void _renderAnts(Canvas canvas, double cellSize) {
-    // Colony 0 paths (cyan/green tones)
-    final colony0Path = Path();
-    final colony0CarryingPath = Path();
-    final larva0Path = Path();
-    final egg0Path = Path();
-    // Colony 1 paths (orange/red tones)
-    final colony1Path = Path();
-    final colony1CarryingPath = Path();
-    final larva1Path = Path();
-    final egg1Path = Path();
+    // Paths for all 4 colonies
+    final colonyPaths = List.generate(4, (_) => Path());
+    final colonyCarryingPaths = List.generate(4, (_) => Path());
+    final larvaPaths = List.generate(4, (_) => Path());
+    final eggPaths = List.generate(4, (_) => Path());
 
-    var colony0HasContent = false;
-    var colony0CarryingHasContent = false;
-    var larva0HasContent = false;
-    var egg0HasContent = false;
-    var colony1HasContent = false;
-    var colony1CarryingHasContent = false;
-    var larva1HasContent = false;
-    var egg1HasContent = false;
+    final colonyHasContent = List.filled(4, false);
+    final colonyCarryingHasContent = List.filled(4, false);
+    final larvaHasContent = List.filled(4, false);
+    final eggHasContent = List.filled(4, false);
 
     // Collect queens to draw separately (on top, with aura)
     final queens = <Ant>[];
 
     final radius = cellSize * 0.35;
-    final larvaRadius = cellSize * 0.2; // Smaller for larvae
-    final eggRadius = cellSize * 0.12; // Tiny for eggs
+    final larvaRadius = cellSize * 0.2;
+    final eggRadius = cellSize * 0.12;
+
     for (final Ant ant in simulation.ants) {
       final center = Offset(ant.position.x * cellSize, ant.position.y * cellSize);
+      final cid = ant.colonyId.clamp(0, 3);
 
-      // Queens drawn separately with aura
       if (ant.caste == AntCaste.queen) {
         queens.add(ant);
         continue;
       }
 
-      // Eggs are tiny
       if (ant.caste == AntCaste.egg) {
-        final rect = Rect.fromCircle(center: center, radius: eggRadius);
-        if (ant.colonyId == 0) {
-          egg0Path.addOval(rect);
-          egg0HasContent = true;
-        } else {
-          egg1Path.addOval(rect);
-          egg1HasContent = true;
-        }
+        eggPaths[cid].addOval(Rect.fromCircle(center: center, radius: eggRadius));
+        eggHasContent[cid] = true;
         continue;
       }
 
-      // Larvae are smaller
       if (ant.caste == AntCaste.larva) {
-        final rect = Rect.fromCircle(center: center, radius: larvaRadius);
-        if (ant.colonyId == 0) {
-          larva0Path.addOval(rect);
-          larva0HasContent = true;
-        } else {
-          larva1Path.addOval(rect);
-          larva1HasContent = true;
-        }
+        larvaPaths[cid].addOval(Rect.fromCircle(center: center, radius: larvaRadius));
+        larvaHasContent[cid] = true;
         continue;
       }
 
-      // Regular ants
       final rect = Rect.fromCircle(center: center, radius: radius);
-      if (ant.colonyId == 0) {
-        if (ant.hasFood) {
-          colony0CarryingPath.addOval(rect);
-          colony0CarryingHasContent = true;
-        } else {
-          colony0Path.addOval(rect);
-          colony0HasContent = true;
-        }
+      if (ant.hasFood) {
+        colonyCarryingPaths[cid].addOval(rect);
+        colonyCarryingHasContent[cid] = true;
       } else {
-        if (ant.hasFood) {
-          colony1CarryingPath.addOval(rect);
-          colony1CarryingHasContent = true;
-        } else {
-          colony1Path.addOval(rect);
-          colony1HasContent = true;
-        }
+        colonyPaths[cid].addOval(rect);
+        colonyHasContent[cid] = true;
       }
     }
 
-    // Draw eggs first (background, smallest)
-    if (egg0HasContent) {
-      canvas.drawPath(egg0Path, _egg0Paint);
-    }
-    if (egg1HasContent) {
-      canvas.drawPath(egg1Path, _egg1Paint);
+    // Paints for each colony (Blue, Red, Yellow, Magenta)
+    final antPaints = [_antPaint, _enemyAntPaint, _colony2AntPaint, _colony3AntPaint];
+    final carryingPaints = [_antCarryingPaint, _colony1CarryingPaint, _colony2CarryingPaint, _colony3CarryingPaint];
+    final larvaPaints = [_larva0Paint, _larva1Paint, _larva2Paint, _larva3Paint];
+    final eggPaints = [_egg0Paint, _egg1Paint, _egg2Paint, _egg3Paint];
+
+    // Draw eggs (background)
+    for (var i = 0; i < 4; i++) {
+      if (eggHasContent[i]) canvas.drawPath(eggPaths[i], eggPaints[i]);
     }
 
-    // Draw larvae (background, small)
-    if (larva0HasContent) {
-      canvas.drawPath(larva0Path, _larva0Paint);
-    }
-    if (larva1HasContent) {
-      canvas.drawPath(larva1Path, _larva1Paint);
+    // Draw larvae
+    for (var i = 0; i < 4; i++) {
+      if (larvaHasContent[i]) canvas.drawPath(larvaPaths[i], larvaPaints[i]);
     }
 
-    // Draw colony 0 ants (cyan/green)
-    if (colony0HasContent) {
-      canvas.drawPath(colony0Path, _antPaint); // Cyan
-    }
-    if (colony0CarryingHasContent) {
-      canvas.drawPath(colony0CarryingPath, _antCarryingPaint); // Bright green
-    }
-    // Draw colony 1 ants (orange/red)
-    if (colony1HasContent) {
-      canvas.drawPath(colony1Path, _enemyAntPaint); // Orange/red
-    }
-    if (colony1CarryingHasContent) {
-      canvas.drawPath(colony1CarryingPath, _colony1CarryingPaint); // Yellow
+    // Draw ants
+    for (var i = 0; i < 4; i++) {
+      if (colonyHasContent[i]) canvas.drawPath(colonyPaths[i], antPaints[i]);
+      if (colonyCarryingHasContent[i]) canvas.drawPath(colonyCarryingPaths[i], carryingPaints[i]);
     }
 
-    // Draw queens last (on top) with aura and 2x size
-    final queenRadius = cellSize * 0.7; // 2x normal size
-    final auraRadius = cellSize * 2.5;  // Large transparent aura
+    // Draw queens with aura (Blue, Red, Yellow, Magenta)
+    final queenRadius = cellSize * 0.7;
+    final auraRadius = cellSize * 2.5;
+    final queenPaints = [_queen0Paint, _queen1Paint, _queen2Paint, _queen3Paint];
+    final queenAuraPaints = [_queenAura0Paint, _queenAura1Paint, _queenAura2Paint, _queenAura3Paint];
+
     for (final queen in queens) {
       final center = Offset(queen.position.x * cellSize, queen.position.y * cellSize);
-      // Draw aura first (behind queen)
-      if (queen.colonyId == 0) {
-        canvas.drawCircle(center, auraRadius, _queenAura0Paint);
-        canvas.drawCircle(center, queenRadius, _queen0Paint);
-      } else {
-        canvas.drawCircle(center, auraRadius, _queenAura1Paint);
-        canvas.drawCircle(center, queenRadius, _queen1Paint);
-      }
+      final cid = queen.colonyId.clamp(0, 3);
+      canvas.drawCircle(center, auraRadius, queenAuraPaints[cid]);
+      canvas.drawCircle(center, queenRadius, queenPaints[cid]);
     }
 
     // Draw selection highlight

@@ -177,7 +177,7 @@ class Ant {
   double _speedMultiplier = 1.0;
   final double _explorerTendency; // 0.0-1.0, personality trait for exploration
   final AntCaste caste;
-  final int colonyId; // 0 or 1 - which colony this ant belongs to
+  int colonyId; // 0-3 - which colony this ant belongs to (can change on takeover)
   final double aggression; // 0.0-1.0, likelihood to initiate combat
   final double attack;
   final double defense;
@@ -634,6 +634,12 @@ class Ant {
     if (behavior == AntState.forage) {
       // Sense own colony's food pheromones (trails to food sources)
       var value = world.foodPheromoneAt(gx, gy, colonyId);
+
+      // Add food scent (diffusing smell from food sources)
+      // This strongly guides ants through existing tunnels toward food
+      final foodScentValue = world.foodScentAt(gx, gy);
+      value += foodScentValue * 5.0; // Food scent is very attractive
+
       if (world.cellTypeAt(gx, gy) == CellType.food) {
         value += 10;
       }
@@ -658,17 +664,68 @@ class Ant {
     SimulationConfig config,
     math.Random rng,
   ) {
-    final target = world.nearestFood(position, config.foodSenseRange);
-    if (target == null) {
+    // Follow food scent gradient - smell spreads through tunnels like gas
+    // Sample scent in 3 directions (like pheromone sensors)
+    final sensorDist = config.sensorDistance;
+    final gx = position.x.floor();
+    final gy = position.y.floor();
+
+    // Check if we're standing on or very close to food scent
+    final currentScent = world.foodScentAt(gx, gy);
+    if (currentScent < 0.001) {
+      // No scent here at all - fall back to direct food sensing for very close food
+      final target = world.nearestFood(position, 15.0); // Short range fallback
+      if (target != null) {
+        final desired = math.atan2(target.y - position.y, target.x - position.x);
+        final delta = _normalizeAngle(desired - angle);
+        angle += delta.clamp(-0.5, 0.5) * 0.7;
+        angle += (rng.nextDouble() - 0.5) * 0.02;
+        return target;
+      }
       return null;
     }
-    final desired = math.atan2(target.y - position.y, target.x - position.x);
-    final delta = _normalizeAngle(desired - angle);
-    // Turn more decisively toward food (was 0.12 max, now 0.35 max)
-    angle += delta.clamp(-0.5, 0.5) * 0.7;
-    // Minimal noise when targeting food
-    angle += (rng.nextDouble() - 0.5) * 0.02;
-    return target;
+
+    // Sample scent in left, front, right directions
+    final leftAngle = angle - config.sensorAngle;
+    final frontAngle = angle;
+    final rightAngle = angle + config.sensorAngle;
+
+    double sampleScent(double dir) {
+      final sx = (position.x + math.cos(dir) * sensorDist).floor();
+      final sy = (position.y + math.sin(dir) * sensorDist).floor();
+      if (!world.isInsideIndex(sx, sy)) return 0;
+      if (!world.isWalkableCell(sx, sy)) return -1; // Blocked
+      return world.foodScentAt(sx, sy);
+    }
+
+    final leftScent = sampleScent(leftAngle);
+    final frontScent = sampleScent(frontAngle);
+    final rightScent = sampleScent(rightAngle);
+
+    // Find max scent direction (ignore blocked directions)
+    final maxScent = [leftScent, frontScent, rightScent]
+        .where((s) => s >= 0)
+        .fold(0.0, (a, b) => a > b ? a : b);
+
+    if (maxScent < 0.001) {
+      // No scent detected in any direction - wander
+      return null;
+    }
+
+    // Turn toward strongest scent
+    if (frontScent >= leftScent && frontScent >= rightScent && frontScent >= 0) {
+      // Front strongest - go mostly straight
+      angle += (rng.nextDouble() - 0.5) * 0.05;
+    } else if (leftScent > rightScent && leftScent >= 0) {
+      // Turn left
+      angle -= (rng.nextDouble() * 0.15 + 0.1);
+    } else if (rightScent >= 0) {
+      // Turn right
+      angle += (rng.nextDouble() * 0.15 + 0.1);
+    }
+
+    // Return a dummy target to indicate we're following scent
+    return Vector2(position.x + math.cos(angle), position.y + math.sin(angle));
   }
 
   _PathCollision? _checkPathCollision(

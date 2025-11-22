@@ -18,14 +18,14 @@ enum DirtType {
   bedrock,     // 200 HP - extremely hard (replaces rock)
 }
 
-/// HP values for each dirt type (halved for easier digging)
+/// HP values for each dirt type (halved again for easier digging)
 const Map<DirtType, double> dirtTypeHealth = {
-  DirtType.softSand: 5.0,
-  DirtType.looseSoil: 12.0,
-  DirtType.packedEarth: 25.0,
-  DirtType.clay: 50.0,
-  DirtType.hardite: 100.0,
-  DirtType.bedrock: 200.0,
+  DirtType.softSand: 2.5,
+  DirtType.looseSoil: 6.0,
+  DirtType.packedEarth: 12.5,
+  DirtType.clay: 25.0,
+  DirtType.hardite: 50.0,
+  DirtType.bedrock: 100.0,
 };
 
 /// Nest zone types for spatial organization
@@ -94,14 +94,17 @@ class WorldGrid {
       homePheromones0 = Float32List(config.cols * config.rows),
       homePheromones1 = Float32List(config.cols * config.rows),
       blockedPheromones = Float32List(config.cols * config.rows),
+      foodScent = Float32List(config.cols * config.rows),
+      _foodScentBuffer = Float32List(config.cols * config.rows),
       dirtHealth = Float32List(config.cols * config.rows),
       foodAmount = Uint8List(config.cols * config.rows),
       _homeDistances0 = Int32List(config.cols * config.rows),
       _homeDistances1 = Int32List(config.cols * config.rows),
-      nestPosition = (nestOverride ?? Vector2(config.cols / 2, config.rows / 2))
-          .clone(),
-      nest1Position = (nest1Override ?? Vector2(config.cols / 2, config.rows * 0.2))
-          .clone();
+      nestPositions = List.generate(4, (i) {
+        if (i == 0) return (nestOverride ?? Vector2(config.cols / 2, config.rows / 2)).clone();
+        if (i == 1) return (nest1Override ?? Vector2(config.cols / 2, config.rows * 0.2)).clone();
+        return Vector2.zero(); // Positions 2,3 set by world generator
+      });
 
   static const int defaultFoodPerCell = 100;
 
@@ -115,9 +118,14 @@ class WorldGrid {
   final Float32List homePheromones0; // Colony 0 home trails
   final Float32List homePheromones1; // Colony 1 home trails
   final Float32List blockedPheromones; // Warning pheromone for dead ends/obstacles (shared)
-  final Vector2 nestPosition;  // Colony 0 nest
-  final Vector2 nest1Position; // Colony 1 nest
+  final Float32List foodScent; // Diffusing scent from food sources (flows through air like gas)
+  final Float32List _foodScentBuffer; // Double buffer for diffusion
+  final List<Vector2> nestPositions; // All colony nest positions (up to 4)
   final Float32List dirtHealth;
+
+  // Legacy getters for backwards compatibility
+  Vector2 get nestPosition => nestPositions[0];
+  Vector2 get nest1Position => nestPositions[1];
   final Uint8List foodAmount; // Amount of food in each food cell (0-255)
   final Set<int> _foodCells = <int>{};
   final Set<int> _activePheromoneCells = <int>{};
@@ -134,6 +142,7 @@ class WorldGrid {
   int get rows => config.rows;
   int get terrainVersion => _terrainVersion;
   Iterable<int> get activePheromoneCells => _activePheromoneCellsView;
+  Iterable<int> get foodCells => _foodCells; // Public access for queen food guidance
   int get foodCount => _foodCells.length;
 
   void reset() {
@@ -148,6 +157,8 @@ class WorldGrid {
       homePheromones0[i] = 0;
       homePheromones1[i] = 0;
       blockedPheromones[i] = 0;
+      foodScent[i] = 0;
+      _foodScentBuffer[i] = 0;
     }
     _foodCells.clear();
     _activePheromoneCells.clear();
@@ -157,9 +168,9 @@ class WorldGrid {
     _terrainVersion++;
   }
 
-  /// Get nest position for a specific colony
+  /// Get nest position for a specific colony (0-3)
   Vector2 getNestPosition(int colonyId) {
-    return colonyId == 0 ? nestPosition : nest1Position;
+    return nestPositions[colonyId.clamp(0, 3)];
   }
 
   /// Carve both colony nests
@@ -346,6 +357,88 @@ class WorldGrid {
     homePheromones1[nest1Idx] = 1.0;
     _activePheromoneCells.add(nest0Idx);
     _activePheromoneCells.add(nest1Idx);
+  }
+
+  /// Spread food scent through all connected tunnels using BFS flood-fill.
+  /// Scent strength decays based on distance from food source.
+  /// This runs periodically (not every frame) for performance.
+  int _scentUpdateCounter = 0;
+
+  void diffuseFoodScent() {
+    if (_foodCells.isEmpty) return;
+
+    // Only do full recalculation every 10 frames for performance
+    _scentUpdateCounter++;
+    if (_scentUpdateCounter < 10) return;
+    _scentUpdateCounter = 0;
+
+    // Clear all scent
+    for (var i = 0; i < foodScent.length; i++) {
+      foodScent[i] = 0;
+    }
+
+    // BFS from each food cell to flood-fill connected air with scent
+    const decayPerStep = 0.97; // Scent decay per cell distance
+    const maxDistance = 150; // Maximum spread distance
+
+    final visited = List<bool>.filled(cells.length, false);
+    final queue = <(int, double)>[]; // (index, scent strength)
+
+    // Start BFS from all food cells
+    for (final foodIdx in _foodCells) {
+      foodScent[foodIdx] = 1.0;
+      visited[foodIdx] = true;
+      queue.add((foodIdx, 1.0));
+    }
+
+    // Cardinal directions
+    const offsets = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+    var iterations = 0;
+    while (queue.isNotEmpty && iterations < cells.length) {
+      iterations++;
+      final (idx, strength) = queue.removeAt(0);
+
+      // Stop spreading if scent is too weak
+      if (strength < 0.01) continue;
+
+      final x = idx % cols;
+      final y = idx ~/ cols;
+
+      // Check neighbors
+      for (final offset in offsets) {
+        final nx = x + offset[0];
+        final ny = y + offset[1];
+
+        if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+
+        final nidx = index(nx, ny);
+        if (visited[nidx]) continue;
+
+        final cellType = cells[nidx];
+        // Only spread through air and food cells
+        if (cellType != CellType.air.index && cellType != CellType.food.index) continue;
+
+        visited[nidx] = true;
+        final newStrength = cellType == CellType.food.index ? 1.0 : strength * decayPerStep;
+
+        // Keep the stronger scent if already set
+        if (newStrength > foodScent[nidx]) {
+          foodScent[nidx] = newStrength;
+        }
+
+        // Continue spreading if not at max distance
+        if (iterations < maxDistance * _foodCells.length) {
+          queue.add((nidx, newStrength));
+        }
+      }
+    }
+  }
+
+  /// Get food scent at a position (0.0-1.0)
+  double foodScentAt(int x, int y) {
+    if (!isInsideIndex(x, y)) return 0;
+    return foodScent[index(x, y)];
   }
 
   void digCircle(Vector2 cellPos, int radius) {

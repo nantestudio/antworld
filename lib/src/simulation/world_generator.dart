@@ -46,7 +46,7 @@ class WorldGenerator {
     final rng = math.Random(seed);
     final actualCols = cols ?? defaultCols;
     final actualRows = rows ?? defaultRows;
-    final actualColonyCount = (colonyCount ?? 2).clamp(1, 4);
+    final actualColonyCount = (colonyCount ?? baseConfig.colonyCount).clamp(1, 4);
     final config = baseConfig.copyWith(
       cols: actualCols,
       rows: actualRows,
@@ -204,14 +204,23 @@ class WorldGenerator {
     final nest1 = grid.nest1Position;
     final minDistFromNest = rows * 0.2; // At least 20% of map away from nests
 
-    // Place 1 food cluster initially
-    for (var i = 0; i < 1; i++) {
+    // Place 3 food clusters initially - spread across the map
+    for (var i = 0; i < 3; i++) {
       Vector2 pos;
       var attempts = 0;
       do {
         pos = _randomPoint(rng, cols, rows);
         attempts++;
-      } while (attempts < 50 &&
+        // Also check distance from other food positions
+        var tooCloseToOtherFood = false;
+        for (final otherFood in foodPositions) {
+          if (pos.distanceTo(otherFood) < cols * 0.2) {
+            tooCloseToOtherFood = true;
+            break;
+          }
+        }
+        if (tooCloseToOtherFood) continue;
+      } while (attempts < 100 &&
                (pos.distanceTo(nest0) < minDistFromNest ||
                 pos.distanceTo(nest1) < minDistFromNest));
 
@@ -556,9 +565,8 @@ class WorldGenerator {
       final nest = cornerPositions[i];
       nestPositions.add(nest);
 
-      // Set position in grid (legacy support for first 2)
-      if (i == 0) grid.nestPosition.setFrom(nest);
-      if (i == 1) grid.nest1Position.setFrom(nest);
+      // Set position in grid's nestPositions list
+      grid.nestPositions[i].setFrom(nest);
 
       // Create rooms for each colony
       _createColonyRooms(grid, nest, i, rng);
