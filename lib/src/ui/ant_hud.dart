@@ -351,9 +351,10 @@ class _AntHudState extends State<AntHud> {
                   SizedBox(height: 8),
                   Text(
                     'Each ant runs a simple state machine: forage, return home, or rest. '
-                    'When resting is enabled, energy drains over time. Ants head back to the nest to rest '
-                    'once energy hits zero; otherwise they stay in forage/return loops. '
-                    'Click any ant to see its real-time stats (energy, HP, state, position).',
+                    'When resting is enabled, energy drains over time. Ants head back to the nest when '
+                    'energy runs out, take a quick micro-nap (waking at 70% energy), then resume work. '
+                    'This mirrors real ants who take ~250 short naps daily while 80% of the colony stays active. '
+                    'Click any ant to see its real-time stats.',
                   ),
                   SizedBox(height: 16),
                   _DocHeading(title: 'Explorers & Movement'),
@@ -686,12 +687,12 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Energy Recovery / sec',
-          tooltip: 'Energy gained per second while resting at the nest.',
+          tooltip: 'Energy gained per second while resting. Ants wake at 70% capacity (micro-naps like real ants).',
           value: config.energyRecoveryPerSecond,
-          min: 0,
-          max: 5,
-          divisions: 25,
-          displayValue: (v) => v.toStringAsFixed(2),
+          min: 0.5,
+          max: 10,
+          divisions: 19,
+          displayValue: (v) => v.toStringAsFixed(1),
           onChanged: (value) {
             setState(() {
               widget.simulation.setEnergyRecoveryRate(value);

@@ -600,8 +600,11 @@ class Ant {
 
   void _recoverEnergy(double dt, SimulationConfig config) {
     energy += config.energyRecoveryPerSecond * dt;
-    if (energy >= config.energyCapacity) {
-      energy = config.energyCapacity;
+    // Ants wake up after reaching 70% energy (micro-nap style, like real ants)
+    // Real worker ants take ~250 short naps per day, not long sleep periods
+    final wakeThreshold = config.energyCapacity * 0.7;
+    if (energy >= wakeThreshold) {
+      energy = math.min(energy, config.energyCapacity);
       state =
           _stateBeforeRest ?? (hasFood ? AntState.returnHome : AntState.forage);
       _stateBeforeRest = null;
