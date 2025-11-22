@@ -169,8 +169,23 @@ class AntWorldGame extends FlameGame
     final nest = world.nestPosition;
     final nestOffset = Offset(nest.x * cellSize, nest.y * cellSize);
     canvas.drawCircle(nestOffset, cellSize * 0.75, _nestPaint);
+    _drawHomeLabel(canvas, nestOffset);
 
     _renderAnts(canvas, cellSize);
+  }
+
+  void _drawHomeLabel(Canvas canvas, Offset nestOffset) {
+    const labelStyle = TextStyle(
+      color: Color(0xFFE0FFB3),
+      fontSize: 12,
+      fontWeight: FontWeight.bold,
+    );
+    final painter = TextPainter(
+      text: const TextSpan(text: 'Home', style: labelStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final offset = nestOffset - Offset(painter.width / 2, painter.height + 6);
+    painter.paint(canvas, offset);
   }
 
   void invalidateTerrainLayer() {

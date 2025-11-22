@@ -215,6 +215,17 @@ class Ant {
         ? _stateBeforeRest!
         : state;
 
+    if (behavior == AntState.returnHome) {
+      final nestDir = world.nestPosition - position;
+      if (nestDir.length2 > 0) {
+        final desired = math.atan2(nestDir.y, nestDir.x);
+        final delta = _normalizeAngle(desired - angle);
+        angle += delta.clamp(-0.4, 0.4) * 0.7;
+        angle += (rng.nextDouble() - 0.5) * 0.1;
+      }
+      return;
+    }
+
     // Random exploration: explorers ignore pheromones more often (20% vs 1% chance)
     final exploreChance = _isExplorer ? 0.20 : 0.01;
     if (rng.nextDouble() < exploreChance) {
