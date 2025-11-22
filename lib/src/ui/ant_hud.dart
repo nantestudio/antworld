@@ -261,6 +261,22 @@ class _AntHudState extends State<AntHud> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Pause/Play Button
+        ValueListenableBuilder<bool>(
+          valueListenable: widget.simulation.paused,
+          builder: (context, isPaused, _) {
+            return FilledButton.icon(
+              onPressed: widget.simulation.togglePause,
+              icon: Icon(isPaused ? Icons.play_arrow : Icons.pause),
+              label: Text(isPaused ? 'Resume' : 'Pause'),
+              style: FilledButton.styleFrom(
+                backgroundColor: isPaused ? Colors.green : Colors.orange,
+                minimumSize: const Size(double.infinity, 48),
+              ),
+            );
+          },
+        ),
+        const Divider(height: 24),
         // Edit Mode Toggle
         ValueListenableBuilder<bool>(
           valueListenable: widget.game.editMode,

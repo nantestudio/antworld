@@ -18,7 +18,8 @@ class ColonySimulation {
       pheromonesVisible = ValueNotifier<bool>(true),
       antSpeedMultiplier = ValueNotifier<double>(0.2),
       daysPassed = ValueNotifier<int>(1),
-      elapsedTime = ValueNotifier<double>(0.0) {
+      elapsedTime = ValueNotifier<double>(0.0),
+      paused = ValueNotifier<bool>(false) {
     world = WorldGrid(config);
   }
 
@@ -33,6 +34,7 @@ class ColonySimulation {
   final ValueNotifier<double> antSpeedMultiplier;
   final ValueNotifier<int> daysPassed;
   final ValueNotifier<double> elapsedTime;
+  final ValueNotifier<bool> paused;
 
   final math.Random _rng = math.Random();
   int _storedFood = 0;
@@ -123,6 +125,8 @@ class ColonySimulation {
   }
 
   void update(double dt) {
+    if (paused.value) return; // Skip simulation when paused
+
     final double clampedDt = dt.clamp(0.0, 0.05);
     final decayFactor = math.pow(config.decayPerSecond, clampedDt).toDouble();
     final double antSpeed = config.antSpeed * antSpeedMultiplier.value;
@@ -209,6 +213,10 @@ class ColonySimulation {
 
   void togglePheromones() {
     pheromonesVisible.value = !pheromonesVisible.value;
+  }
+
+  void togglePause() {
+    paused.value = !paused.value;
   }
 
   void setPheromoneVisibility(bool visible) {
