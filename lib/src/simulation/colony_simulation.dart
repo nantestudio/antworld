@@ -14,7 +14,7 @@ class ColonySimulation {
     : antCount = ValueNotifier<int>(0),
       foodCollected = ValueNotifier<int>(0),
       pheromonesVisible = ValueNotifier<bool>(true),
-      antSpeedMultiplier = ValueNotifier<double>(1.0),
+      antSpeedMultiplier = ValueNotifier<double>(0.2),
       daysPassed = ValueNotifier<int>(1) {
     world = WorldGrid(config);
   }
@@ -321,7 +321,7 @@ class ColonySimulation {
     foodCollected.value = _storedFood;
     _queuedAnts = 0;
     antSpeedMultiplier.value =
-        (snapshot['antSpeedMultiplier'] as num?)?.toDouble() ?? 1.0;
+        (snapshot['antSpeedMultiplier'] as num?)?.toDouble() ?? 0.2;
     pheromonesVisible.value = snapshot['pheromonesVisible'] as bool? ?? true;
     _lastSeed = (snapshot['seed'] as num?)?.toInt();
     _elapsedTime = (snapshot['elapsedTime'] as num?)?.toDouble() ?? 0.0;
