@@ -14,8 +14,15 @@ class Ant {
     required this.energy,
     required math.Random rng,
     required double explorerRatio,
-  }) : position = startPosition.clone(),
-       _isExplorer = rng.nextDouble() < explorerRatio;
+    required this.attack,
+    required this.defense,
+    required double maxHpValue,
+    this.isEnemy = false,
+  })  : position = startPosition.clone(),
+        _isExplorer =
+            !isEnemy && rng.nextDouble() < explorerRatio,
+        maxHp = maxHpValue,
+        hp = maxHpValue;
 
   Ant.rehydrated({
     required Vector2 position,
@@ -25,10 +32,17 @@ class Ant {
     required this.energy,
     AntState? stateBeforeRest,
     bool isExplorer = false,
-  }) : position = position.clone(),
-       _carryingFood = carryingFood,
-       _stateBeforeRest = stateBeforeRest,
-       _isExplorer = isExplorer;
+    this.isEnemy = false,
+    required this.attack,
+    required this.defense,
+    required double maxHpValue,
+    double? hp,
+  })  : position = position.clone(),
+        _carryingFood = carryingFood,
+        _stateBeforeRest = stateBeforeRest,
+        _isExplorer = isExplorer,
+        maxHp = maxHpValue,
+        hp = (hp ?? maxHpValue).clamp(0, maxHpValue);
 
   final Vector2 position;
   double angle;
@@ -40,8 +54,18 @@ class Ant {
   int _collisionCooldown = 0;
   double _speedMultiplier = 1.0;
   final bool _isExplorer; // explorer ants ignore pheromones more often
+  final bool isEnemy;
+  final double attack;
+  final double defense;
+  final double maxHp;
+  double hp;
 
   bool get hasFood => _carryingFood;
+  bool get isDead => hp <= 0;
+
+  void applyDamage(double amount) {
+    hp = math.max(0, hp - amount);
+  }
 
   bool update(
     double dt,
@@ -49,8 +73,14 @@ class Ant {
     WorldGrid world,
     math.Random rng,
     double antSpeed,
+    {Vector2? attackTarget}
   ) {
     if (dt == 0) return false;
+
+    if (isEnemy) {
+      _updateHostile(dt, config, world, rng, antSpeed, attackTarget);
+      return false;
+    }
 
     final restEnabled = config.restEnabled;
 
@@ -142,7 +172,7 @@ class Ant {
 
     final depositX = position.x.floor();
     final depositY = position.y.floor();
-    if (world.isInsideIndex(depositX, depositY)) {
+    if (!isEnemy && world.isInsideIndex(depositX, depositY)) {
       if (hasFood) {
         // Vary deposit strength ±20% for natural trail variation
         final strength =
@@ -157,7 +187,7 @@ class Ant {
 
     // Check for food at destination
     final destBlock = world.cellTypeAt(gx, gy);
-    if (destBlock == CellType.food && !hasFood) {
+    if (!isEnemy && destBlock == CellType.food && !hasFood) {
       _carryingFood = true;
       state = AntState.returnHome;
       world.removeFood(gx, gy);
@@ -165,7 +195,7 @@ class Ant {
     }
 
     final distNest = position.distanceTo(world.nestPosition);
-    if (distNest < config.nestRadius + 0.5 && hasFood) {
+    if (!isEnemy && distNest < config.nestRadius + 0.5 && hasFood) {
       _carryingFood = false;
       state = AntState.forage;
       angle += math.pi;
@@ -305,6 +335,50 @@ class Ant {
     return target;
   }
 
+  void _updateHostile(
+    double dt,
+    SimulationConfig config,
+    WorldGrid world,
+    math.Random rng,
+    double antSpeed,
+    Vector2? attackTarget,
+  ) {
+    final target = attackTarget ?? world.nestPosition;
+    final desired = math.atan2(target.y - position.y, target.x - position.x);
+    final delta = _normalizeAngle(desired - angle);
+    angle += delta.clamp(-0.35, 0.35) * 0.8;
+    angle += (rng.nextDouble() - 0.5) * 0.12;
+
+    final distance = antSpeed * dt * 0.95;
+    final vx = math.cos(angle) * distance;
+    final vy = math.sin(angle) * distance;
+    final nextX = position.x + vx;
+    final nextY = position.y + vy;
+
+    final collision = _checkPathCollision(
+      position.x,
+      position.y,
+      nextX,
+      nextY,
+      world,
+    );
+
+    if (collision != null) {
+      _dig(world, collision.cellX, collision.cellY, config);
+      angle += (rng.nextDouble() - 0.5) * math.pi;
+      return;
+    }
+
+    final gx = nextX.floor();
+    final gy = nextY.floor();
+    if (!world.isInsideIndex(gx, gy)) {
+      angle += math.pi * 0.5;
+      return;
+    }
+
+    position.setValues(nextX, nextY);
+  }
+
   _PathCollision? _checkPathCollision(
     double x0,
     double y0,
@@ -424,12 +498,13 @@ class Ant {
   }
 
   void _dig(WorldGrid world, int gx, int gy, SimulationConfig config) {
-    final spend = config.restEnabled
+    final applyEnergyCost = config.restEnabled && !isEnemy;
+    final spend = applyEnergyCost
         ? math.min(config.digEnergyCost, energy)
         : config.digEnergyCost;
     final damage = spend * config.digDamagePerEnergy;
     world.damageDirt(gx, gy, damage);
-    if (config.restEnabled) {
+    if (applyEnergyCost) {
       energy -= spend;
       if (energy <= 0) {
         energy = 0;
@@ -477,6 +552,11 @@ class Ant {
       'energy': energy,
       'stateBeforeRest': _stateBeforeRest?.index,
       'isExplorer': _isExplorer,
+      'isEnemy': isEnemy,
+      'attack': attack,
+      'defense': defense,
+      'maxHp': maxHp,
+      'hp': hp,
     };
   }
 
@@ -498,6 +578,11 @@ class Ant {
           ? null
           : AntState.values[clampedRest],
       isExplorer: json['isExplorer'] as bool? ?? false,
+      isEnemy: json['isEnemy'] as bool? ?? false,
+      attack: (json['attack'] as num?)?.toDouble() ?? 5,
+      defense: (json['defense'] as num?)?.toDouble() ?? 2,
+      maxHpValue: (json['maxHp'] as num?)?.toDouble() ?? 100,
+      hp: (json['hp'] as num?)?.toDouble(),
     );
   }
 }

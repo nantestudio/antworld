@@ -34,6 +34,7 @@ class AntWorldGame extends FlameGame
   final Paint _rockPaint = Paint()..color = const Color(0xFF999999);
   final Paint _antPaint = Paint()..color = const Color(0xFFEEEEEE);
   final Paint _antCarryingPaint = Paint()..color = const Color(0xFF76FF03);
+  final Paint _enemyAntPaint = Paint()..color = const Color(0xFFE53935);
   final Paint _nestPaint = Paint()..color = const Color(0xFFD500F9);
   final Paint _foodPheromonePaint = Paint()..color = const Color(0xFF0064FF);
   final Paint _homePheromonePaint = Paint()..color = const Color(0xFF888888);
@@ -274,8 +275,10 @@ class AntWorldGame extends FlameGame
   void _renderAnts(Canvas canvas, double cellSize) {
     final normalPath = Path();
     final carryingPath = Path();
+    final enemyPath = Path();
     var normalHasContent = false;
     var carryingHasContent = false;
+    var enemyHasContent = false;
     final radius = cellSize * 0.35;
     for (final Ant ant in simulation.ants) {
       final rect = Rect.fromCircle(
@@ -290,11 +293,22 @@ class AntWorldGame extends FlameGame
         normalHasContent = true;
       }
     }
+    for (final Ant ant in simulation.enemyAnts) {
+      final rect = Rect.fromCircle(
+        center: Offset(ant.position.x * cellSize, ant.position.y * cellSize),
+        radius: radius,
+      );
+      enemyPath.addOval(rect);
+      enemyHasContent = true;
+    }
     if (normalHasContent) {
       canvas.drawPath(normalPath, _antPaint);
     }
     if (carryingHasContent) {
       canvas.drawPath(carryingPath, _antCarryingPaint);
+    }
+    if (enemyHasContent) {
+      canvas.drawPath(enemyPath, _enemyAntPaint);
     }
   }
 

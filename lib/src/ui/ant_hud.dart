@@ -352,6 +352,15 @@ class _AntHudState extends State<AntHud> {
                     'pheromones at that location.',
                   ),
                   SizedBox(height: 16),
+                  _DocHeading(title: 'Opponents & Raids'),
+                  SizedBox(height: 8),
+                  Text(
+                    'Red enemy colonies raid every 30-70 seconds based on your active population. '
+                    'They spawn together at the map edges, dig through dirt, and beeline toward nearby workers. '
+                    'Both sides have attack, defense, and health stats – collisions trigger duels until one ant pops. '
+                    'Widen choke points and keep guards near the nest to blunt incoming waves.',
+                  ),
+                  SizedBox(height: 16),
                   _DocHeading(title: 'Obstacles & Digging'),
                   SizedBox(height: 8),
                   Text(
@@ -407,6 +416,10 @@ class _AntHudState extends State<AntHud> {
             _PopulationButton(
               label: '+10',
               onPressed: () => widget.simulation.addAnts(10),
+            ),
+            _PopulationButton(
+              label: 'Spawn Enemies',
+              onPressed: widget.simulation.spawnDebugRaid,
             ),
           ],
         ),
@@ -627,6 +640,17 @@ class _AntHudState extends State<AntHud> {
               widget.simulation.setEnergyRecoveryRate(value);
             });
           },
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () {
+              setState(widget.simulation.resetBehaviorDefaults);
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Reset to Defaults'),
+          ),
         ),
       ],
     );

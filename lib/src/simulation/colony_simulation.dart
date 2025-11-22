@@ -22,6 +22,7 @@ class ColonySimulation {
   SimulationConfig config;
   late WorldGrid world;
   final List<Ant> ants = [];
+  final List<Ant> enemyAnts = [];
   final ValueNotifier<int> antCount;
   final ValueNotifier<int> foodCollected;
   final ValueNotifier<bool> pheromonesVisible;
@@ -33,6 +34,8 @@ class ColonySimulation {
   int _queuedAnts = 0;
   int? _lastSeed;
   double _elapsedTime = 0.0;
+  double _raidTimer = 0.0;
+  double _nextRaidIn = 45.0;
 
   bool get showPheromones => pheromonesVisible.value;
   int? get lastSeed => _lastSeed;
@@ -41,9 +44,11 @@ class ColonySimulation {
     world.reset();
     world.carveNest();
     ants.clear();
+    enemyAnts.clear();
     _storedFood = 0;
     _queuedAnts = 0;
     _elapsedTime = 0.0;
+    _scheduleNextRaid();
     foodCollected.value = 0;
     daysPassed.value = 1;
 
@@ -67,7 +72,8 @@ class ColonySimulation {
     }
 
     for (final ant in ants) {
-      final delivered = ant.update(clampedDt, config, world, _rng, antSpeed);
+      final delivered =
+          ant.update(clampedDt, config, world, _rng, antSpeed, attackTarget: null);
       if (delivered) {
         _storedFood += 1;
         foodCollected.value = _storedFood;
@@ -77,7 +83,27 @@ class ColonySimulation {
       }
     }
 
+    final double enemySpeed = antSpeed * 0.9;
+    for (final enemy in enemyAnts) {
+      final target = _enemyTargetFor(enemy);
+      enemy.update(
+        clampedDt,
+        config,
+        world,
+        _rng,
+        enemySpeed,
+        attackTarget: target,
+      );
+    }
+
+    _resolveCombat();
     _flushSpawnQueue();
+
+    _raidTimer += clampedDt;
+    if (_raidTimer >= _nextRaidIn && ants.isNotEmpty) {
+      _spawnEnemyRaid();
+      _scheduleNextRaid();
+    }
   }
 
   void togglePheromones() {
@@ -160,6 +186,20 @@ class ColonySimulation {
     config = config.copyWith(foodSenseRange: clamped);
   }
 
+  void resetBehaviorDefaults() {
+    config = defaultSimulationConfig.copyWith(
+      cols: config.cols,
+      rows: config.rows,
+      cellSize: config.cellSize,
+      startingAnts: config.startingAnts,
+    );
+  }
+
+  void spawnDebugRaid() {
+    _spawnEnemyRaid();
+    _scheduleNextRaid();
+  }
+
   void dig(Vector2 cellPosition) {
     world.digCircle(cellPosition, config.digBrushRadius);
   }
@@ -176,10 +216,12 @@ class ColonySimulation {
   /// Call this before generating a new world to free up resources.
   void prepareForNewWorld() {
     ants.clear();
+    enemyAnts.clear();
     _updateAntCount();
     _storedFood = 0;
     _queuedAnts = 0;
     _elapsedTime = 0.0;
+    _scheduleNextRaid();
     foodCollected.value = 0;
     daysPassed.value = 1;
     // Replace world with minimal placeholder to free memory from old arrays
@@ -192,6 +234,8 @@ class ColonySimulation {
     config = generated.config;
     world = generated.world;
     _lastSeed = generated.seed;
+    enemyAnts.clear();
+    _scheduleNextRaid();
     for (var i = 0; i < config.startingAnts; i++) {
       _spawnAnt();
     }
@@ -213,6 +257,7 @@ class ColonySimulation {
       'config': _configToJson(),
       'world': _worldToJson(),
       'ants': ants.map((ant) => ant.toJson()).toList(),
+      'enemyAnts': enemyAnts.map((ant) => ant.toJson()).toList(),
       'foodCollected': _storedFood,
       'antSpeedMultiplier': antSpeedMultiplier.value,
       'pheromonesVisible': pheromonesVisible.value,
@@ -253,6 +298,14 @@ class ColonySimulation {
       );
     _updateAntCount();
 
+    enemyAnts
+      ..clear()
+      ..addAll(
+        ((snapshot['enemyAnts'] as List<dynamic>?) ?? []).map(
+          (raw) => Ant.fromJson(Map<String, dynamic>.from(raw)),
+        ),
+      );
+
     _storedFood = (snapshot['foodCollected'] as num?)?.toInt() ?? 0;
     foodCollected.value = _storedFood;
     _queuedAnts = 0;
@@ -262,6 +315,7 @@ class ColonySimulation {
     _lastSeed = (snapshot['seed'] as num?)?.toInt();
     _elapsedTime = (snapshot['elapsedTime'] as num?)?.toDouble() ?? 0.0;
     daysPassed.value = (snapshot['daysPassed'] as num?)?.toInt() ?? 0;
+    _scheduleNextRaid();
   }
 
   void addAnts(int count) {
@@ -299,6 +353,7 @@ class ColonySimulation {
   }
 
   void _spawnAnt() {
+    final stats = _rollFriendlyStats();
     ants.add(
       Ant(
         startPosition: world.nestPosition,
@@ -306,6 +361,9 @@ class ColonySimulation {
         energy: config.energyCapacity,
         rng: _rng,
         explorerRatio: config.explorerRatio,
+        attack: stats.attack,
+        defense: stats.defense,
+        maxHpValue: stats.hp,
       ),
     );
     _updateAntCount();
@@ -323,6 +381,136 @@ class ColonySimulation {
 
   void _updateAntCount() {
     antCount.value = ants.length;
+  }
+
+  void _scheduleNextRaid() {
+    _raidTimer = 0;
+    _nextRaidIn = 35 + _rng.nextDouble() * 40;
+  }
+
+  void _spawnEnemyRaid() {
+    if (ants.isEmpty) {
+      return;
+    }
+    final ratio = 0.1 + _rng.nextDouble() * 1.4;
+    final desired = math.max(1, (ants.length * ratio).round());
+    final spawnPoint = _pickRaidSpawnPoint();
+    world.digCircle(spawnPoint, 3);
+    for (var i = 0; i < desired; i++) {
+      final offset = Vector2(
+        ( _rng.nextDouble() - 0.5) * 2,
+        ( _rng.nextDouble() - 0.5) * 2,
+      );
+      final spawnPos = Vector2(
+        (spawnPoint.x + offset.x).clamp(1, world.cols - 2),
+        (spawnPoint.y + offset.y).clamp(1, world.rows - 2),
+      );
+      final stats = _rollEnemyStats();
+      enemyAnts.add(
+        Ant(
+          startPosition: spawnPos,
+          angle: _rng.nextDouble() * math.pi * 2,
+          energy: config.energyCapacity,
+          rng: _rng,
+          explorerRatio: 0,
+          attack: stats.attack,
+          defense: stats.defense,
+          maxHpValue: stats.hp,
+          isEnemy: true,
+        ),
+      );
+    }
+  }
+
+  Vector2 _pickRaidSpawnPoint() {
+    final edge = _rng.nextInt(4);
+    final cols = world.cols;
+    final rows = world.rows;
+    switch (edge) {
+      case 0: // Top
+        return Vector2(_rng.nextInt(cols - 4).toDouble() + 2, 1);
+      case 1: // Bottom
+        return Vector2(_rng.nextInt(cols - 4).toDouble() + 2, rows - 2);
+      case 2: // Left
+        return Vector2(1, _rng.nextInt(rows - 4).toDouble() + 2);
+      default: // Right
+        return Vector2(cols - 2, _rng.nextInt(rows - 4).toDouble() + 2);
+    }
+  }
+
+  void _resolveCombat() {
+    const double fightRadius = 0.6;
+    const double fightRadiusSq = fightRadius * fightRadius;
+    final deadFriendlies = <Ant>{};
+    final deadEnemies = <Ant>{};
+
+    for (final enemy in enemyAnts) {
+      if (enemy.isDead) {
+        deadEnemies.add(enemy);
+        continue;
+      }
+      for (final ally in ants) {
+        if (ally.isDead) {
+          deadFriendlies.add(ally);
+          continue;
+        }
+        final distSq = ally.position.distanceToSquared(enemy.position);
+        if (distSq <= fightRadiusSq) {
+          final damageToAlly = _computeDamage(enemy, ally);
+          ally.applyDamage(damageToAlly);
+          final damageToEnemy = _computeDamage(ally, enemy);
+          enemy.applyDamage(damageToEnemy);
+          if (ally.isDead) {
+            deadFriendlies.add(ally);
+          }
+          if (enemy.isDead) {
+            deadEnemies.add(enemy);
+            break;
+          }
+        }
+      }
+    }
+
+    if (deadFriendlies.isNotEmpty) {
+      ants.removeWhere(deadFriendlies.contains);
+      _updateAntCount();
+    }
+    if (deadEnemies.isNotEmpty) {
+      enemyAnts.removeWhere(deadEnemies.contains);
+    }
+  }
+
+  double _computeDamage(Ant attacker, Ant defender) {
+    final variance = 0.8 + _rng.nextDouble() * 0.5;
+    final mitigation = defender.defense * (0.3 + _rng.nextDouble() * 0.2);
+    return math.max(0.2, attacker.attack * variance - mitigation);
+  }
+
+  Vector2? _enemyTargetFor(Ant enemy) {
+    Ant? closest;
+    double bestDist = double.infinity;
+    for (final ally in ants) {
+      final dist = ally.position.distanceToSquared(enemy.position);
+      if (dist < bestDist) {
+        bestDist = dist;
+        closest = ally;
+      }
+    }
+    return closest?.position ?? world.nestPosition;
+  }
+
+  _CombatStats _rollFriendlyStats() {
+    final hp = 80 + _rng.nextDouble() * 40;
+    final attack = 4 + _rng.nextDouble() * 3;
+    final defense = 1 + _rng.nextDouble() * 2;
+    return _CombatStats(hp: hp, attack: attack, defense: defense);
+  }
+
+  _CombatStats _rollEnemyStats() {
+    final hp = 70 + _rng.nextDouble() * 60;
+    final attack = 5 + _rng.nextDouble() * 4;
+    final defense = 1 + _rng.nextDouble() * 3;
+    return _CombatStats(hp: hp, attack: attack, defense: defense);
   }
 
   Map<String, dynamic> _configToJson() {
@@ -455,4 +643,11 @@ Vector2? _vectorFromJson(Map<String, dynamic>? data) {
     return Vector2(dx.toDouble(), dy.toDouble());
   }
   return null;
+}
+
+class _CombatStats {
+  const _CombatStats({required this.hp, required this.attack, required this.defense});
+  final double hp;
+  final double attack;
+  final double defense;
 }
