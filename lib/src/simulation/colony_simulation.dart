@@ -351,6 +351,7 @@ class ColonySimulation {
     world = WorldGrid(config, nestOverride: nestOverride);
     if (worldData != null) {
       final zonesStr = worldData['zones'] as String?;
+      final blockedStr = worldData['blockedPheromones'] as String?;
       world.loadState(
         cellsData: _decodeUint8(worldData['cells'] as String),
         dirtHealthData: _decodeFloat32(worldData['dirtHealth'] as String),
@@ -361,6 +362,7 @@ class ColonySimulation {
           worldData['homePheromones'] as String,
         ),
         zonesData: zonesStr != null ? _decodeUint8(zonesStr) : null,
+        blockedPheromoneData: blockedStr != null ? _decodeFloat32(blockedStr) : null,
       );
     }
 
@@ -775,6 +777,7 @@ class ColonySimulation {
       'dirtHealth': _encodeFloat32(world.dirtHealth),
       'foodPheromones': _encodeFloat32(world.foodPheromones),
       'homePheromones': _encodeFloat32(world.homePheromones),
+      'blockedPheromones': _encodeFloat32(world.blockedPheromones),
       'nest': {'x': world.nestPosition.x, 'y': world.nestPosition.y},
     };
   }

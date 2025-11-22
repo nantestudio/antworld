@@ -139,17 +139,18 @@ class WorldGenerator {
     int cols,
     int rows,
   ) {
-    final formationCount = rng.nextInt(20) + 25; // 25-45 formations
+    // Reduced: 8-15 formations (was 25-45) for better navigation
+    final formationCount = rng.nextInt(8) + 8;
 
     for (var i = 0; i < formationCount; i++) {
       final pos = _randomPoint(rng, cols, rows);
       final type = rng.nextInt(10);
 
-      if (type < 4) {
-        // 40% - Root-like formations (tree roots, organic tendrils)
+      if (type < 3) {
+        // 30% - Root-like formations (tree roots, organic tendrils)
         _createRootFormation(grid, rng, pos, cols, rows);
       } else if (type < 7) {
-        // 30% - Boulder clusters
+        // 40% - Boulder clusters (smaller, less blocking)
         _createBoulderCluster(grid, rng, pos);
       } else {
         // 30% - Vein formations (mineral veins, long obstacles)
@@ -169,8 +170,8 @@ class WorldGenerator {
     var x = start.x;
     var y = start.y;
     var angle = rng.nextDouble() * math.pi * 2;
-    final length = rng.nextInt(50) + 30; // 30-80 cells long
-    final thickness = rng.nextInt(2) + 1; // 1-2 thickness
+    final length = rng.nextInt(25) + 15; // 15-40 cells long (was 30-80)
+    final thickness = 1; // Single cell thickness for less blocking
 
     for (var i = 0; i < length; i++) {
       final gx = x.round();
@@ -194,8 +195,8 @@ class WorldGenerator {
         }
       }
 
-      // Create branch occasionally
-      if (rng.nextDouble() < 0.08 && i > 5) {
+      // Create branch occasionally (reduced from 8% to 3%)
+      if (rng.nextDouble() < 0.03 && i > 5) {
         _createRootBranch(
           grid,
           rng,
@@ -294,14 +295,14 @@ class WorldGenerator {
 
   /// Creates a cluster of boulders
   void _createBoulderCluster(WorldGrid grid, math.Random rng, Vector2 center) {
-    final count = rng.nextInt(5) + 3; // 3-7 boulders in cluster
+    final count = rng.nextInt(3) + 2; // 2-4 boulders in cluster (was 3-7)
     for (var i = 0; i < count; i++) {
       final offset = Vector2(
-        (rng.nextDouble() - 0.5) * 12,
-        (rng.nextDouble() - 0.5) * 12,
+        (rng.nextDouble() - 0.5) * 10,
+        (rng.nextDouble() - 0.5) * 10,
       );
       final pos = center + offset;
-      final radius = rng.nextInt(3) + 1;
+      final radius = rng.nextInt(2) + 1; // 1-2 radius (was 1-3)
       grid.placeRock(pos, radius);
     }
   }
@@ -317,7 +318,7 @@ class WorldGenerator {
     var x = start.x;
     var y = start.y;
     var angle = rng.nextDouble() * math.pi * 2;
-    final length = rng.nextInt(80) + 40; // 40-120 cells long
+    final length = rng.nextInt(30) + 20; // 20-50 cells long (was 40-120)
     final waviness = rng.nextDouble() * 0.15 + 0.05; // How much it curves
 
     for (var i = 0; i < length; i++) {
@@ -327,8 +328,8 @@ class WorldGenerator {
       if (grid.isInsideIndex(gx, gy)) {
         grid.setCell(gx, gy, CellType.rock);
 
-        // Occasional widening
-        if (rng.nextDouble() < 0.3) {
+        // Occasional widening (reduced from 30% to 15%)
+        if (rng.nextDouble() < 0.15) {
           // Perpendicular offset for width
           final perpAngle = angle + math.pi / 2;
           final side = rng.nextBool() ? 1 : -1;

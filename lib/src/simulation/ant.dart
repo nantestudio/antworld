@@ -213,6 +213,14 @@ class Ant {
       final distMoved = position.distanceTo(_lastPosition);
       if (distMoved < _moveThreshold) {
         _stuckTime += dt;
+        // Deposit blocked pheromone when stuck for a while (but before garbage collection)
+        if (_stuckTime > 5.0 && _stuckTime < _stuckThreshold) {
+          final gx = position.x.floor();
+          final gy = position.y.floor();
+          if (world.isInsideIndex(gx, gy)) {
+            world.depositBlockedPheromone(gx, gy, 0.1 * dt);
+          }
+        }
       } else {
         _stuckTime = 0;
         _lastPosition.setFrom(position);
@@ -301,6 +309,9 @@ class Ant {
         angle += math.pi / 2 + (rng.nextDouble() - 0.5) * 0.6;
         _consecutiveRockHits = 0; // Reset rock hit counter on dirt collision
       } else if (hitBlock == CellType.rock) {
+        // Deposit blocked pheromone to warn other ants about this obstacle
+        world.depositBlockedPheromone(hitX, hitY, 0.3);
+
         // Only 10% of ants try to navigate around obstacles intelligently
         if (rng.nextDouble() < 0.10) {
           _consecutiveRockHits++;
@@ -504,6 +515,12 @@ class Ant {
       return -1;
     }
 
+    // Check for blocked pheromone - strongly discourages this direction
+    final blockedAmount = world.blockedPheromoneAt(gx, gy);
+    if (blockedAmount > 0.5) {
+      return -0.5; // Treat high blocked areas like obstacles
+    }
+
     final behavior = state == AntState.rest && _stateBeforeRest != null
         ? _stateBeforeRest!
         : state;
@@ -515,12 +532,16 @@ class Ant {
       }
       // Add perceptual noise: ±15% variation
       value *= (0.85 + rng.nextDouble() * 0.3);
+      // Subtract blocked pheromone penalty
+      value -= blockedAmount * 2;
       return value;
     }
 
     var value = world.homePheromoneAt(gx, gy);
     // Add perceptual noise: ±15% variation
     value *= (0.85 + rng.nextDouble() * 0.3);
+    // Subtract blocked pheromone penalty
+    value -= blockedAmount * 2;
     return value;
   }
 

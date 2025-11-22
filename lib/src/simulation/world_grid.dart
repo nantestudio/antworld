@@ -23,6 +23,7 @@ class WorldGrid {
       zones = Uint8List(config.cols * config.rows),
       foodPheromones = Float32List(config.cols * config.rows),
       homePheromones = Float32List(config.cols * config.rows),
+      blockedPheromones = Float32List(config.cols * config.rows),
       dirtHealth = Float32List(config.cols * config.rows),
       _homeDistances = Int32List(config.cols * config.rows),
       nestPosition = (nestOverride ?? Vector2(config.cols / 2, config.rows / 2))
@@ -33,6 +34,7 @@ class WorldGrid {
   final Uint8List zones; // NestZone for each cell
   final Float32List foodPheromones;
   final Float32List homePheromones;
+  final Float32List blockedPheromones; // Warning pheromone for dead ends/obstacles
   final Vector2 nestPosition;
   final Float32List dirtHealth;
   final Set<int> _foodCells = <int>{};
@@ -56,6 +58,7 @@ class WorldGrid {
       dirtHealth[i] = config.dirtMaxHealth;
       foodPheromones[i] = 0;
       homePheromones[i] = 0;
+      blockedPheromones[i] = 0;
     }
     _foodCells.clear();
     _activePheromoneCells.clear();
@@ -157,6 +160,9 @@ class WorldGrid {
       return;
     }
 
+    // Blocked pheromones decay faster (squared factor)
+    final blockedFactor = factor * factor;
+
     final toRemove = <int>[];
     for (final idx in _activePheromoneCells) {
       var f = foodPheromones[idx];
@@ -175,7 +181,15 @@ class WorldGrid {
         homePheromones[idx] = 0;
       }
 
-      if (foodPheromones[idx] == 0 && homePheromones[idx] == 0) {
+      var b = blockedPheromones[idx];
+      if (b > threshold) {
+        b *= blockedFactor;
+        blockedPheromones[idx] = b > threshold ? b : 0;
+      } else {
+        blockedPheromones[idx] = 0;
+      }
+
+      if (foodPheromones[idx] == 0 && homePheromones[idx] == 0 && blockedPheromones[idx] == 0) {
         toRemove.add(idx);
       }
     }
@@ -252,6 +266,7 @@ class WorldGrid {
     required Float32List foodPheromoneData,
     required Float32List homePheromoneData,
     Uint8List? zonesData,
+    Float32List? blockedPheromoneData,
   }) {
     cells.setAll(0, cellsData);
     dirtHealth.setAll(0, dirtHealthData);
@@ -259,6 +274,9 @@ class WorldGrid {
     homePheromones.setAll(0, homePheromoneData);
     if (zonesData != null && zonesData.length == zones.length) {
       zones.setAll(0, zonesData);
+    }
+    if (blockedPheromoneData != null && blockedPheromoneData.length == blockedPheromones.length) {
+      blockedPheromones.setAll(0, blockedPheromoneData);
     }
     _rebuildFoodCache();
     _rebuildPheromoneCache();
@@ -302,6 +320,18 @@ class WorldGrid {
   double homePheromoneAt(int x, int y) {
     if (!isInsideIndex(x, y)) return 0;
     return homePheromones[index(x, y)];
+  }
+
+  void depositBlockedPheromone(int x, int y, double amount) {
+    if (!isInsideIndex(x, y)) return;
+    final idx = index(x, y);
+    blockedPheromones[idx] = math.min(1.0, blockedPheromones[idx] + amount);
+    _activePheromoneCells.add(idx);
+  }
+
+  double blockedPheromoneAt(int x, int y) {
+    if (!isInsideIndex(x, y)) return 0;
+    return blockedPheromones[index(x, y)];
   }
 
   void _rebuildFoodCache() {

@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../game/ant_world_game.dart';
@@ -31,7 +30,8 @@ class _AntHudState extends State<AntHud> {
   late int _pendingRows;
   bool _saving = false;
   bool _generatingMap = false;
-  bool _controlsCollapsed = false;
+  bool _controlsCollapsed = true; // Hidden by default
+  bool _statsCollapsed = true; // Stats panel hidden by default
   String _selectedMapSize = 'Medium';
 
   @override
@@ -79,9 +79,40 @@ class _AntHudState extends State<AntHud> {
   }
 
   Widget _buildStatsRow(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    // Collapsed state - just show a small expand button
+    if (_statsCollapsed) {
+      return Align(
+        alignment: Alignment.topLeft,
+        child: FloatingActionButton.small(
+          heroTag: 'showStats',
+          onPressed: () => setState(() => _statsCollapsed = false),
+          backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
+          child: const Icon(Icons.bar_chart),
+        ),
+      );
+    }
+
+    // Expanded state - show full stats panel with collapse button
     return Align(
       alignment: Alignment.topLeft,
-      child: _StatsPanel(simulation: widget.simulation),
+      child: Stack(
+        children: [
+          _StatsPanel(simulation: widget.simulation),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: IconButton(
+              icon: const Icon(Icons.close, size: 18),
+              onPressed: () => setState(() => _statsCollapsed = true),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              tooltip: 'Hide stats',
+            ),
+          ),
+        ],
+      ),
     );
   }
 
