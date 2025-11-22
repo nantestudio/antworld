@@ -436,17 +436,21 @@ class _AntHudState extends State<AntHud> {
         ValueListenableBuilder<double>(
           valueListenable: widget.simulation.antSpeedMultiplier,
           builder: (context, multiplier, _) {
+            const double base = 0.2;
+            final display = (multiplier / base).clamp(0.5, 15.0);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Multiplier: ${multiplier.toStringAsFixed(1)}x'),
+                Text('Speed: ${display.toStringAsFixed(1)}x'),
                 Slider(
-                  value: multiplier,
-                  min: 0.2,
-                  max: 3.0,
-                  divisions: 28,
-                  label: '${multiplier.toStringAsFixed(1)}x',
-                  onChanged: widget.simulation.setAntSpeedMultiplier,
+                  value: display,
+                  min: 1.0,
+                  max: 10.0,
+                  divisions: 18,
+                  label: '${display.toStringAsFixed(1)}x',
+                  onChanged: (value) {
+                    widget.simulation.setAntSpeedMultiplier(value * base);
+                  },
                 ),
               ],
             );
