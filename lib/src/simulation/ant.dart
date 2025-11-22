@@ -96,13 +96,14 @@ class Ant {
 
     if (restEnabled) {
       energy -= config.energyDecayPerSecond * dt;
-      if (energy <= 0) {
-        energy = 0;
+      final double reserve = config.digEnergyCost * 1.2;
+      if (energy <= reserve) {
         if (!_needsRest) {
           _stateBeforeRest = state;
           _needsRest = true;
         }
         state = AntState.returnHome;
+        energy = math.max(energy, config.digEnergyCost * 0.8);
       }
     } else {
       energy = config.energyCapacity;
