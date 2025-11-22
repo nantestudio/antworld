@@ -20,12 +20,14 @@ class GeneratedWorld {
     required this.world,
     required this.seed,
     required this.nestPosition,
+    required this.nest1Position,
   });
 
   final SimulationConfig config;
   final WorldGrid world;
   final int seed;
-  final Vector2 nestPosition;
+  final Vector2 nestPosition;   // Colony 0 nest
+  final Vector2 nest1Position;  // Colony 1 nest
 }
 
 class WorldGenerator {
@@ -54,11 +56,12 @@ class WorldGenerator {
     final grid = WorldGrid(config);
     grid.reset(); // Fills entire grid with dirt
 
-    // Carve the nest chamber first
-    final nest = _carveNestChamber(grid, rng);
+    // Carve both nest chambers on opposite corners
+    final (nest0, nest1) = _carveDualNestChambers(grid, rng, actualCols, actualRows);
 
-    // Carve tunnels and caverns into the dirt
-    _carveMainTunnels(grid, rng, nest, actualCols, actualRows);
+    // Carve tunnels from both nests
+    _carveMainTunnels(grid, rng, nest0, actualCols, actualRows);
+    _carveMainTunnels(grid, rng, nest1, actualCols, actualRows);
     _carveCaverns(grid, rng, actualCols, actualRows);
 
     // Add obstacles and food in carved areas
@@ -72,7 +75,8 @@ class WorldGenerator {
       config: config,
       world: grid,
       seed: seed,
-      nestPosition: nest,
+      nestPosition: nest0,
+      nest1Position: nest1,
     );
   }
 
@@ -424,17 +428,39 @@ class WorldGenerator {
     );
   }
 
-  Vector2 _carveNestChamber(WorldGrid grid, math.Random rng) {
-    // Position nest in the lower portion of the map
-    final nestX = rng.nextInt(grid.cols - 80) + 40;
-    final safeDepth = 20;
-    final nestY = math.max(safeDepth, grid.rows - 35);
-    final nest = Vector2(nestX.toDouble(), nestY.toDouble());
-    grid.nestPosition.setFrom(nest);
-    grid.digCircle(nest, grid.config.nestRadius + 4);
+  /// Creates two nest chambers on opposite corners of the map
+  (Vector2, Vector2) _carveDualNestChambers(
+    WorldGrid grid,
+    math.Random rng,
+    int cols,
+    int rows,
+  ) {
+    final safeMargin = 25; // Distance from edges
+    final nestRadius = grid.config.nestRadius;
+
+    // Colony 0 nest: bottom-left area
+    final nest0X = safeMargin + rng.nextInt(20);
+    final nest0Y = rows - safeMargin - rng.nextInt(20);
+    final nest0 = Vector2(nest0X.toDouble(), nest0Y.toDouble());
+
+    // Colony 1 nest: top-right area
+    final nest1X = cols - safeMargin - rng.nextInt(20);
+    final nest1Y = safeMargin + rng.nextInt(20);
+    final nest1 = Vector2(nest1X.toDouble(), nest1Y.toDouble());
+
+    // Set positions in grid
+    grid.nestPosition.setFrom(nest0);
+    grid.nest1Position.setFrom(nest1);
+
+    // Dig initial chambers
+    grid.digCircle(nest0, nestRadius + 4);
+    grid.digCircle(nest1, nestRadius + 4);
+
+    // Carve zone rings for both nests
     grid.carveNest();
     grid.markHomeDistancesDirty();
-    return nest;
+
+    return (nest0, nest1);
   }
 
   /// Ensures a solid dirt border around the entire map edges

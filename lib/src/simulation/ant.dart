@@ -26,6 +26,7 @@ class CasteStats {
     required this.baseDefense,
     required this.canForage,
     required this.explorerRange,
+    required this.baseAggression,
   });
 
   final double speedMultiplier;
@@ -34,6 +35,7 @@ class CasteStats {
   final double baseDefense;
   final bool canForage;
   final (double, double) explorerRange; // min, max explorer tendency
+  final double baseAggression; // 0.0-1.0, likelihood to initiate combat
 
   static const Map<AntCaste, CasteStats> stats = {
     AntCaste.worker: CasteStats(
@@ -43,6 +45,7 @@ class CasteStats {
       baseDefense: 2,
       canForage: true,
       explorerRange: (0.0, 0.3),
+      baseAggression: 0.2, // Fights only if cornered
     ),
     AntCaste.soldier: CasteStats(
       speedMultiplier: 0.8,
@@ -51,6 +54,7 @@ class CasteStats {
       baseDefense: 8,
       canForage: false,
       explorerRange: (0.1, 0.2),
+      baseAggression: 0.9, // Actively seeks combat
     ),
     AntCaste.nurse: CasteStats(
       speedMultiplier: 0.7,
@@ -59,6 +63,7 @@ class CasteStats {
       baseDefense: 1,
       canForage: false,
       explorerRange: (0.0, 0.05),
+      baseAggression: 0.1, // Very passive, flees
     ),
     AntCaste.drone: CasteStats(
       speedMultiplier: 1.1,
@@ -67,6 +72,7 @@ class CasteStats {
       baseDefense: 1,
       canForage: false,
       explorerRange: (0.0, 0.1),
+      baseAggression: 0.05, // Almost never fights
     ),
     AntCaste.queen: CasteStats(
       speedMultiplier: 0.3,
@@ -75,6 +81,7 @@ class CasteStats {
       baseDefense: 10,
       canForage: false,
       explorerRange: (0.0, 0.0),
+      baseAggression: 0.0, // Never initiates combat
     ),
     AntCaste.larva: CasteStats(
       speedMultiplier: 0.0,
@@ -83,6 +90,7 @@ class CasteStats {
       baseDefense: 0,
       canForage: false,
       explorerRange: (0.0, 0.0),
+      baseAggression: 0.0, // Defenseless
     ),
   };
 }
@@ -99,10 +107,11 @@ class Ant {
     required this.energy,
     required math.Random rng,
     this.caste = AntCaste.worker,
-    this.isEnemy = false,
+    this.colonyId = 0,
   })  : id = _nextId++,
         position = startPosition.clone(),
-        _explorerTendency = _generateExplorerTendency(caste, rng, isEnemy),
+        _explorerTendency = _generateExplorerTendency(caste, rng),
+        aggression = CasteStats.stats[caste]!.baseAggression,
         attack = CasteStats.stats[caste]!.baseAttack,
         defense = CasteStats.stats[caste]!.baseDefense,
         maxHp = CasteStats.stats[caste]!.baseHp,
@@ -118,7 +127,8 @@ class Ant {
     AntState? stateBeforeRest,
     double explorerTendency = 0.0,
     this.caste = AntCaste.worker,
-    this.isEnemy = false,
+    this.colonyId = 0,
+    this.aggression = 0.2,
     required this.attack,
     required this.defense,
     required double maxHpValue,
@@ -136,8 +146,7 @@ class Ant {
         _carryingLarvaId = carryingLarvaId,
         _eggLayTimer = eggLayTimer;
 
-  static double _generateExplorerTendency(AntCaste caste, math.Random rng, bool isEnemy) {
-    if (isEnemy) return 0.1; // Enemies have low explorer tendency
+  static double _generateExplorerTendency(AntCaste caste, math.Random rng) {
     final range = CasteStats.stats[caste]!.explorerRange;
     return range.$1 + rng.nextDouble() * (range.$2 - range.$1);
   }
@@ -154,7 +163,8 @@ class Ant {
   double _speedMultiplier = 1.0;
   final double _explorerTendency; // 0.0-1.0, personality trait for exploration
   final AntCaste caste;
-  final bool isEnemy;
+  final int colonyId; // 0 or 1 - which colony this ant belongs to
+  final double aggression; // 0.0-1.0, likelihood to initiate combat
   final double attack;
   final double defense;
   final double maxHp;
@@ -227,11 +237,6 @@ class Ant {
       }
     } else {
       _stuckTime = 0; // Reset when resting
-    }
-
-    if (isEnemy) {
-      _updateHostile(dt, config, world, rng, antSpeed, attackTarget);
-      return false;
     }
 
     // Caste-specific behaviors
@@ -346,30 +351,31 @@ class Ant {
 
     final depositX = position.x.floor();
     final depositY = position.y.floor();
-    if (!isEnemy && world.isInsideIndex(depositX, depositY)) {
+    if (world.isInsideIndex(depositX, depositY)) {
       if (hasFood) {
         // Vary deposit strength ±20% for natural trail variation
         final strength =
             config.foodDepositStrength * (0.8 + rng.nextDouble() * 0.4);
-        world.depositFoodPheromone(depositX, depositY, strength);
+        world.depositFoodPheromone(depositX, depositY, strength, colonyId);
       } else {
         final strength =
             config.homeDepositStrength * (0.8 + rng.nextDouble() * 0.4);
-        world.depositHomePheromone(depositX, depositY, strength);
+        world.depositHomePheromone(depositX, depositY, strength, colonyId);
       }
     }
 
     // Check for food at destination
     final destBlock = world.cellTypeAt(gx, gy);
-    if (!isEnemy && destBlock == CellType.food && !hasFood) {
+    if (destBlock == CellType.food && !hasFood) {
       _carryingFood = true;
       state = AntState.returnHome;
       world.removeFood(gx, gy);
       angle += config.foodPickupRotation + (rng.nextDouble() - 0.5) * 0.2;
     }
 
-    final distNest = position.distanceTo(world.nestPosition);
-    if (!isEnemy && distNest < config.nestRadius + 0.5) {
+    final myNest = world.getNestPosition(colonyId);
+    final distNest = position.distanceTo(myNest);
+    if (distNest < config.nestRadius + 0.5) {
       bool deliveredFood = false;
       if (hasFood) {
         _carryingFood = false;
@@ -407,11 +413,12 @@ class Ant {
 
     if (behavior == AntState.returnHome || _needsRest || hasFood) {
       double? desiredAngle;
-      final dir = world.directionToNest(position);
+      final dir = world.directionToNest(position, colonyId: colonyId);
       if (dir != null && dir.length2 > 0.0001) {
         desiredAngle = math.atan2(dir.y, dir.x);
       } else {
-        final nestDir = world.nestPosition - position;
+        final myNest = world.getNestPosition(colonyId);
+        final nestDir = myNest - position;
         if (nestDir.length2 > 0) {
           desiredAngle = math.atan2(nestDir.y, nestDir.x);
         }
@@ -561,50 +568,6 @@ class Ant {
     return target;
   }
 
-  void _updateHostile(
-    double dt,
-    SimulationConfig config,
-    WorldGrid world,
-    math.Random rng,
-    double antSpeed,
-    Vector2? attackTarget,
-  ) {
-    final target = attackTarget ?? world.nestPosition;
-    final desired = math.atan2(target.y - position.y, target.x - position.x);
-    final delta = _normalizeAngle(desired - angle);
-    angle += delta.clamp(-0.35, 0.35) * 0.8;
-    angle += (rng.nextDouble() - 0.5) * 0.12;
-
-    final distance = antSpeed * dt * 0.95;
-    final vx = math.cos(angle) * distance;
-    final vy = math.sin(angle) * distance;
-    final nextX = position.x + vx;
-    final nextY = position.y + vy;
-
-    final collision = _checkPathCollision(
-      position.x,
-      position.y,
-      nextX,
-      nextY,
-      world,
-    );
-
-    if (collision != null) {
-      _dig(world, collision.cellX, collision.cellY, config);
-      angle += (rng.nextDouble() - 0.5) * math.pi;
-      return;
-    }
-
-    final gx = nextX.floor();
-    final gy = nextY.floor();
-    if (!world.isInsideIndex(gx, gy)) {
-      angle += math.pi * 0.5;
-      return;
-    }
-
-    position.setValues(nextX, nextY);
-  }
-
   _PathCollision? _checkPathCollision(
     double x0,
     double y0,
@@ -724,7 +687,7 @@ class Ant {
   }
 
   void _dig(WorldGrid world, int gx, int gy, SimulationConfig config) {
-    final applyEnergyCost = config.restEnabled && !isEnemy && !_needsRest;
+    final applyEnergyCost = config.restEnabled && !_needsRest;
     final spend = applyEnergyCost
         ? math.min(config.digEnergyCost, energy)
         : config.digEnergyCost;
@@ -893,15 +856,24 @@ class Ant {
 
     if (_needsRest) {
       // Return to nest to rest
-      final dir = world.directionToNest(position);
+      final myNest = world.getNestPosition(colonyId);
+      final dir = world.directionToNest(position, colonyId: colonyId);
       if (dir != null && dir.length2 > 0.0001) {
         final desired = math.atan2(dir.y, dir.x);
         final delta = _normalizeAngle(desired - angle);
         angle += delta.clamp(-0.3, 0.3);
+      } else {
+        // Fallback for colony 1 or when no path found
+        final nestDir = myNest - position;
+        if (nestDir.length2 > 0) {
+          final desired = math.atan2(nestDir.y, nestDir.x);
+          final delta = _normalizeAngle(desired - angle);
+          angle += delta.clamp(-0.3, 0.3);
+        }
       }
 
       // Check if at nest
-      final distNest = position.distanceTo(world.nestPosition);
+      final distNest = position.distanceTo(myNest);
       if (distNest < config.nestRadius + 0.5) {
         state = AntState.rest;
         _needsRest = false;
@@ -909,8 +881,9 @@ class Ant {
       }
     } else {
       // Patrol behavior: stay near nest outer area
+      final myNest = world.getNestPosition(colonyId);
       final currentZone = world.zoneAtPosition(position);
-      final distNest = position.distanceTo(world.nestPosition);
+      final distNest = position.distanceTo(myNest);
 
       // Patrol radius - stay in general nest area or just outside
       final patrolInner = config.nestRadius * 0.5;
@@ -919,23 +892,23 @@ class Ant {
       if (distNest < patrolInner) {
         // Too close to center - move outward
         final outward = math.atan2(
-          position.y - world.nestPosition.y,
-          position.x - world.nestPosition.x,
+          position.y - myNest.y,
+          position.x - myNest.x,
         );
         final delta = _normalizeAngle(outward - angle);
         angle += delta.clamp(-0.2, 0.2);
       } else if (distNest > patrolOuter || currentZone == NestZone.none) {
         // Too far or outside nest - return
         final inward = math.atan2(
-          world.nestPosition.y - position.y,
-          world.nestPosition.x - position.x,
+          myNest.y - position.y,
+          myNest.x - position.x,
         );
         final delta = _normalizeAngle(inward - angle);
         angle += delta.clamp(-0.2, 0.2);
       } else {
         // In patrol zone - circle around
         // Tangent direction for circling
-        final toNest = world.nestPosition - position;
+        final toNest = myNest - position;
         final tangent = math.atan2(-toNest.x, toNest.y); // Perpendicular
         final delta = _normalizeAngle(tangent - angle);
         angle += delta.clamp(-0.15, 0.15);
@@ -989,7 +962,8 @@ class Ant {
       'stateBeforeRest': _stateBeforeRest?.index,
       'explorerTendency': _explorerTendency,
       'caste': caste.index,
-      'isEnemy': isEnemy,
+      'colonyId': colonyId,
+      'aggression': aggression,
       'attack': attack,
       'defense': defense,
       'maxHp': maxHp,
@@ -1023,7 +997,10 @@ class Ant {
       explorerTendency: (json['explorerTendency'] as num?)?.toDouble() ??
           (json['isExplorer'] == true ? 0.2 : 0.05), // Migrate old saves
       caste: AntCaste.values[clampedCaste],
-      isEnemy: json['isEnemy'] as bool? ?? false,
+      colonyId: (json['colonyId'] as num?)?.toInt() ??
+          (json['isEnemy'] == true ? 1 : 0), // Migrate old saves
+      aggression: (json['aggression'] as num?)?.toDouble() ??
+          CasteStats.stats[AntCaste.values[clampedCaste]]!.baseAggression,
       attack: (json['attack'] as num?)?.toDouble() ?? 5,
       defense: (json['defense'] as num?)?.toDouble() ?? 2,
       maxHpValue: (json['maxHp'] as num?)?.toDouble() ?? 100,

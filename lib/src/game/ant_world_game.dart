@@ -35,10 +35,14 @@ class AntWorldGame extends FlameGame
   final Paint _dirtPaint = Paint()..color = const Color(0xFF5D4037);
   final Paint _foodPaint = Paint()..color = const Color(0xFF76FF03);
   final Paint _rockPaint = Paint()..color = const Color(0xFF999999);
-  final Paint _antPaint = Paint()..color = const Color(0xFFEEEEEE);
-  final Paint _antCarryingPaint = Paint()..color = const Color(0xFF76FF03);
-  final Paint _enemyAntPaint = Paint()..color = const Color(0xFFE53935);
-  final Paint _nestPaint = Paint()..color = const Color(0xFFD500F9);
+  // Colony 0 paints (cyan tones)
+  final Paint _antPaint = Paint()..color = const Color(0xFF4DD0E1); // Cyan
+  final Paint _antCarryingPaint = Paint()..color = const Color(0xFF00E676); // Green (carrying food)
+  // Colony 1 paints (orange/red tones)
+  final Paint _enemyAntPaint = Paint()..color = const Color(0xFFFF7043); // Orange
+  final Paint _colony1CarryingPaint = Paint()..color = const Color(0xFFFFEB3B); // Yellow (carrying food)
+  final Paint _nestPaint = Paint()..color = const Color(0xFF4DD0E1); // Cyan (matches colony 0)
+  final Paint _nest1Paint = Paint()..color = const Color(0xFFFF7043); // Orange (matches colony 1)
   final Paint _foodPheromonePaint = Paint()..color = const Color(0xFF0064FF);
   final Paint _homePheromonePaint = Paint()..color = const Color(0xFF888888);
   final Paint _selectionPaint = Paint()
@@ -187,22 +191,29 @@ class AntWorldGame extends FlameGame
       _renderPheromonesLayer(canvas, world, cellSize);
     }
 
-    final nest = world.nestPosition;
-    final nestOffset = Offset(nest.x * cellSize, nest.y * cellSize);
-    canvas.drawCircle(nestOffset, cellSize * 0.75, _nestPaint);
-    _drawHomeLabel(canvas, nestOffset);
+    // Render colony 0 nest (cyan)
+    final nest0 = world.nestPosition;
+    final nest0Offset = Offset(nest0.x * cellSize, nest0.y * cellSize);
+    canvas.drawCircle(nest0Offset, cellSize * 0.75, _nestPaint);
+    _drawNestLabel(canvas, nest0Offset, 'Colony 0');
+
+    // Render colony 1 nest (orange)
+    final nest1 = world.nest1Position;
+    final nest1Offset = Offset(nest1.x * cellSize, nest1.y * cellSize);
+    canvas.drawCircle(nest1Offset, cellSize * 0.75, _nest1Paint);
+    _drawNestLabel(canvas, nest1Offset, 'Colony 1');
 
     _renderAnts(canvas, cellSize);
   }
 
-  void _drawHomeLabel(Canvas canvas, Offset nestOffset) {
+  void _drawNestLabel(Canvas canvas, Offset nestOffset, String label) {
     const labelStyle = TextStyle(
       color: Color(0xFFE0FFB3),
-      fontSize: 12,
+      fontSize: 10,
       fontWeight: FontWeight.bold,
     );
     final painter = TextPainter(
-      text: const TextSpan(text: 'Home', style: labelStyle),
+      text: TextSpan(text: label, style: labelStyle),
       textDirection: TextDirection.ltr,
     )..layout();
     final offset = nestOffset - Offset(painter.width / 2, painter.height + 6);
@@ -309,42 +320,56 @@ class AntWorldGame extends FlameGame
   }
 
   void _renderAnts(Canvas canvas, double cellSize) {
-    final normalPath = Path();
-    final carryingPath = Path();
-    final enemyPath = Path();
-    var normalHasContent = false;
-    var carryingHasContent = false;
-    var enemyHasContent = false;
+    // Colony 0 paths (cyan/green tones)
+    final colony0Path = Path();
+    final colony0CarryingPath = Path();
+    // Colony 1 paths (orange/red tones)
+    final colony1Path = Path();
+    final colony1CarryingPath = Path();
+
+    var colony0HasContent = false;
+    var colony0CarryingHasContent = false;
+    var colony1HasContent = false;
+    var colony1CarryingHasContent = false;
+
     final radius = cellSize * 0.35;
     for (final Ant ant in simulation.ants) {
       final rect = Rect.fromCircle(
         center: Offset(ant.position.x * cellSize, ant.position.y * cellSize),
         radius: radius,
       );
-      if (ant.hasFood) {
-        carryingPath.addOval(rect);
-        carryingHasContent = true;
+      if (ant.colonyId == 0) {
+        if (ant.hasFood) {
+          colony0CarryingPath.addOval(rect);
+          colony0CarryingHasContent = true;
+        } else {
+          colony0Path.addOval(rect);
+          colony0HasContent = true;
+        }
       } else {
-        normalPath.addOval(rect);
-        normalHasContent = true;
+        if (ant.hasFood) {
+          colony1CarryingPath.addOval(rect);
+          colony1CarryingHasContent = true;
+        } else {
+          colony1Path.addOval(rect);
+          colony1HasContent = true;
+        }
       }
     }
-    for (final Ant ant in simulation.enemyAnts) {
-      final rect = Rect.fromCircle(
-        center: Offset(ant.position.x * cellSize, ant.position.y * cellSize),
-        radius: radius,
-      );
-      enemyPath.addOval(rect);
-      enemyHasContent = true;
+
+    // Draw colony 0 ants (cyan/green)
+    if (colony0HasContent) {
+      canvas.drawPath(colony0Path, _antPaint); // Cyan
     }
-    if (normalHasContent) {
-      canvas.drawPath(normalPath, _antPaint);
+    if (colony0CarryingHasContent) {
+      canvas.drawPath(colony0CarryingPath, _antCarryingPaint); // Bright green
     }
-    if (carryingHasContent) {
-      canvas.drawPath(carryingPath, _antCarryingPaint);
+    // Draw colony 1 ants (orange/red)
+    if (colony1HasContent) {
+      canvas.drawPath(colony1Path, _enemyAntPaint); // Orange/red
     }
-    if (enemyHasContent) {
-      canvas.drawPath(enemyPath, _enemyAntPaint);
+    if (colony1CarryingHasContent) {
+      canvas.drawPath(colony1CarryingPath, _colony1CarryingPaint); // Yellow
     }
 
     // Draw selection highlight
@@ -445,17 +470,8 @@ class AntWorldGame extends FlameGame
     Ant? closest;
     double closestDistSq = _antSelectRadius * _antSelectRadius;
 
-    // Check friendly ants
+    // Check all ants (from all colonies)
     for (final ant in simulation.ants) {
-      final distSq = ant.position.distanceToSquared(cellPos);
-      if (distSq < closestDistSq) {
-        closestDistSq = distSq;
-        closest = ant;
-      }
-    }
-
-    // Check enemy ants
-    for (final ant in simulation.enemyAnts) {
       final distSq = ant.position.distanceToSquared(cellPos);
       if (distSq < closestDistSq) {
         closestDistSq = distSq;

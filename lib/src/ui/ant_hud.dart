@@ -400,13 +400,13 @@ class _AntHudState extends State<AntHud> {
                     'Stronger deposit values create more robust highways that attract more followers.',
                   ),
                   SizedBox(height: 16),
-                  _DocHeading(title: 'Opponents & Raids'),
+                  _DocHeading(title: 'Rival Colonies'),
                   SizedBox(height: 8),
                   Text(
-                    'Red enemy colonies raid every 30-70 seconds based on your active population. '
-                    'They spawn together at the map edges, dig through dirt, and beeline toward nearby workers. '
-                    'Both sides have attack, defense, and health stats – collisions trigger duels until one ant pops. '
-                    'Use "Spawn Enemies" in settings to test your defenses.',
+                    'Two colonies compete for resources on the map. Each colony has its own nest and queen. '
+                    'When ants from different colonies meet, combat may occur based on their aggression level. '
+                    'Soldiers are aggressive (90% fight chance), workers less so (20%), nurses flee (10%). '
+                    'Both sides have attack, defense, and health stats – collisions trigger duels until one ant dies.',
                   ),
                   SizedBox(height: 16),
                   _DocHeading(title: 'World Generation'),
@@ -483,10 +483,6 @@ class _AntHudState extends State<AntHud> {
             _PopulationButton(
               label: '+10',
               onPressed: () => widget.simulation.addAnts(10),
-            ),
-            _PopulationButton(
-              label: 'Spawn Enemies',
-              onPressed: widget.simulation.spawnDebugRaid,
             ),
           ],
         ),
@@ -1114,90 +1110,91 @@ class _StatsPanelState extends State<_StatsPanel> {
                         color: Colors.white70,
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                // Colony stats
-                Wrap(
-                  spacing: 16,
-                  runSpacing: 4,
-                  children: [
+                    const SizedBox(width: 12),
                     _StatItem(
                       icon: Icons.restaurant,
                       label: 'Food',
                       value: '${sim.foodCollected.value}',
                       color: Colors.lightGreenAccent,
                     ),
-                    _StatItem(
-                      icon: Icons.search,
-                      label: 'Foraging',
-                      value: '${sim.foragingCount}',
-                    ),
-                    _StatItem(
-                      icon: Icons.inventory_2,
-                      label: 'Carrying',
-                      value: '${sim.carryingFoodCount}',
-                      color: Colors.lightGreenAccent,
-                    ),
-                    _StatItem(
-                      icon: Icons.hotel,
-                      label: 'Resting',
-                      value: '${sim.restingCount}',
-                      color: Colors.amber,
-                    ),
-                    if (sim.enemyCount > 0)
-                      _StatItem(
-                        icon: Icons.warning,
-                        label: 'Enemies',
-                        value: '${sim.enemyCount}',
-                        color: Colors.redAccent,
-                      ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                // Caste breakdown
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 4,
-                  children: [
-                    if (sim.queenCount > 0)
-                      _StatItem(
-                        icon: Icons.stars,
-                        label: 'Queen',
-                        value: '${sim.queenCount}',
-                        color: Colors.purpleAccent,
-                      ),
-                    _StatItem(
-                      icon: Icons.construction,
-                      label: 'Workers',
-                      value: '${sim.workerCount}',
-                    ),
-                    _StatItem(
-                      icon: Icons.shield,
-                      label: 'Soldiers',
-                      value: '${sim.soldierCount}',
-                      color: Colors.orangeAccent,
-                    ),
-                    _StatItem(
-                      icon: Icons.child_care,
-                      label: 'Nurses',
-                      value: '${sim.nurseCount}',
-                      color: Colors.pinkAccent,
-                    ),
-                    if (sim.larvaCount > 0)
-                      _StatItem(
-                        icon: Icons.egg_alt,
-                        label: 'Larvae',
-                        value: '${sim.larvaCount}',
-                        color: Colors.white70,
-                      ),
-                  ],
+                const SizedBox(height: 8),
+                // Colony 0 stats (cyan)
+                _buildColonySection(
+                  theme: theme,
+                  colonyName: 'Colony 0',
+                  colonyColor: const Color(0xFF4DD0E1), // Cyan
+                  queenCount: sim.queenCount,
+                  workerCount: sim.workerCount,
+                  soldierCount: sim.soldierCount,
+                  nurseCount: sim.nurseCount,
+                  larvaCount: sim.larvaCount,
+                ),
+                const SizedBox(height: 6),
+                // Colony 1 stats (orange)
+                _buildColonySection(
+                  theme: theme,
+                  colonyName: 'Colony 1',
+                  colonyColor: const Color(0xFFFF7043), // Orange
+                  queenCount: sim.enemy1QueenCount,
+                  workerCount: sim.enemy1WorkerCount,
+                  soldierCount: sim.enemy1SoldierCount,
+                  nurseCount: sim.enemy1NurseCount,
+                  larvaCount: sim.enemy1LarvaCount,
                 ),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildColonySection({
+    required ThemeData theme,
+    required String colonyName,
+    required Color colonyColor,
+    required int queenCount,
+    required int workerCount,
+    required int soldierCount,
+    required int nurseCount,
+    required int larvaCount,
+  }) {
+    final totalAnts = queenCount + workerCount + soldierCount + nurseCount + larvaCount;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: colonyColor,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          '$colonyName ($totalAnts)',
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: colonyColor,
+          ),
+        ),
+        const SizedBox(width: 8),
+        if (queenCount > 0)
+          _StatItem(icon: Icons.stars, label: 'Q', value: '$queenCount', color: Colors.purpleAccent),
+        const SizedBox(width: 4),
+        _StatItem(icon: Icons.construction, label: 'W', value: '$workerCount'),
+        const SizedBox(width: 4),
+        _StatItem(icon: Icons.shield, label: 'S', value: '$soldierCount', color: Colors.orangeAccent),
+        const SizedBox(width: 4),
+        _StatItem(icon: Icons.child_care, label: 'N', value: '$nurseCount', color: Colors.pinkAccent),
+        if (larvaCount > 0) ...[
+          const SizedBox(width: 4),
+          _StatItem(icon: Icons.egg_alt, label: 'L', value: '$larvaCount', color: Colors.white70),
+        ],
+      ],
     );
   }
 }
@@ -1279,12 +1276,12 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
                   Row(
                     children: [
                       Icon(
-                        ant.isEnemy ? Icons.warning : Icons.bug_report,
-                        color: ant.isEnemy ? Colors.red : Colors.white,
+                        ant.colonyId == 0 ? Icons.bug_report : Icons.pest_control,
+                        color: ant.colonyId == 0 ? Colors.cyan : Colors.orange,
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        ant.isEnemy ? 'Enemy #${ant.id}' : 'Ant #${ant.id}',
+                        'Colony ${ant.colonyId} - Ant #${ant.id}',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,

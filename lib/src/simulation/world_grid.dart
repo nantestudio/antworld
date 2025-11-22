@@ -18,7 +18,7 @@ enum NestZone {
 }
 
 class WorldGrid {
-  WorldGrid(this.config, {Vector2? nestOverride})
+  WorldGrid(this.config, {Vector2? nestOverride, Vector2? nest1Override})
     : cells = Uint8List(config.cols * config.rows),
       zones = Uint8List(config.cols * config.rows),
       foodPheromones = Float32List(config.cols * config.rows),
@@ -27,6 +27,8 @@ class WorldGrid {
       dirtHealth = Float32List(config.cols * config.rows),
       _homeDistances = Int32List(config.cols * config.rows),
       nestPosition = (nestOverride ?? Vector2(config.cols / 2, config.rows / 2))
+          .clone(),
+      nest1Position = (nest1Override ?? Vector2(config.cols / 2, config.rows * 0.2))
           .clone();
 
   final SimulationConfig config;
@@ -35,7 +37,8 @@ class WorldGrid {
   final Float32List foodPheromones;
   final Float32List homePheromones;
   final Float32List blockedPheromones; // Warning pheromone for dead ends/obstacles
-  final Vector2 nestPosition;
+  final Vector2 nestPosition;  // Colony 0 nest
+  final Vector2 nest1Position; // Colony 1 nest
   final Float32List dirtHealth;
   final Set<int> _foodCells = <int>{};
   final Set<int> _activePheromoneCells = <int>{};
@@ -66,9 +69,20 @@ class WorldGrid {
     _terrainVersion++;
   }
 
+  /// Get nest position for a specific colony
+  Vector2 getNestPosition(int colonyId) {
+    return colonyId == 0 ? nestPosition : nest1Position;
+  }
+
+  /// Carve both colony nests
   void carveNest() {
-    final cx = nestPosition.x.floor();
-    final cy = nestPosition.y.floor();
+    _carveNestAt(nestPosition);
+    _carveNestAt(nest1Position);
+  }
+
+  void _carveNestAt(Vector2 position) {
+    final cx = position.x.floor();
+    final cy = position.y.floor();
     final totalRadius = config.nestRadius + 0.5;
 
     // Zone radii (concentric rings)
@@ -298,16 +312,18 @@ class WorldGrid {
     return true;
   }
 
-  void depositFoodPheromone(int x, int y, double amount) {
+  void depositFoodPheromone(int x, int y, double amount, [int colonyId = 0]) {
     if (!isInsideIndex(x, y)) return;
     final idx = index(x, y);
+    // TODO: Phase 3 - use per-colony pheromone layers
     foodPheromones[idx] = math.min(1.0, foodPheromones[idx] + amount);
     _activePheromoneCells.add(idx);
   }
 
-  void depositHomePheromone(int x, int y, double amount) {
+  void depositHomePheromone(int x, int y, double amount, [int colonyId = 0]) {
     if (!isInsideIndex(x, y)) return;
     final idx = index(x, y);
+    // TODO: Phase 3 - use per-colony pheromone layers
     homePheromones[idx] = math.min(1.0, homePheromones[idx] + amount);
     _activePheromoneCells.add(idx);
   }
@@ -375,7 +391,13 @@ class WorldGrid {
     return best;
   }
 
-  Vector2? directionToNest(Vector2 from) {
+  /// Returns direction to the nest for colony 0 using BFS pathfinding.
+  /// For colony 1, returns null (caller should use direct vector fallback).
+  Vector2? directionToNest(Vector2 from, {int colonyId = 0}) {
+    // Colony 1 doesn't have BFS pathfinding yet - caller uses direct vector
+    if (colonyId != 0) {
+      return null;
+    }
     _ensureHomeDistances();
     final gx = from.x.floor();
     final gy = from.y.floor();
