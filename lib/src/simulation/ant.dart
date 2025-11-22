@@ -59,6 +59,7 @@ class Ant {
   final double defense;
   final double maxHp;
   double hp;
+  bool _needsRest = false;
 
   bool get hasFood => _carryingFood;
   bool get isDead => hp <= 0;
@@ -97,8 +98,11 @@ class Ant {
       energy -= config.energyDecayPerSecond * dt;
       if (energy <= 0) {
         energy = 0;
-        _enterRest();
-        return false;
+        if (!_needsRest) {
+          _stateBeforeRest = state;
+          _needsRest = true;
+        }
+        state = AntState.returnHome;
       }
     } else {
       energy = config.energyCapacity;
@@ -195,11 +199,17 @@ class Ant {
     }
 
     final distNest = position.distanceTo(world.nestPosition);
-    if (!isEnemy && distNest < config.nestRadius + 0.5 && hasFood) {
-      _carryingFood = false;
-      state = AntState.forage;
-      angle += math.pi;
-      return true;
+    if (!isEnemy && distNest < config.nestRadius + 0.5) {
+      if (hasFood) {
+        _carryingFood = false;
+        state = AntState.forage;
+        angle += math.pi;
+        return true;
+      }
+      if (_needsRest) {
+        _enterRest();
+        return false;
+      }
     }
 
     return false;
@@ -539,6 +549,7 @@ class Ant {
       _stateBeforeRest = state;
     }
     state = AntState.rest;
+    _needsRest = false;
   }
 
   void exitRestState() {
