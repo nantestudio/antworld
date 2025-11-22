@@ -100,6 +100,66 @@ class ColonySimulation {
     }
   }
 
+  void setExplorerRatio(double ratio) {
+    final clamped = ratio.clamp(0.0, 0.6).toDouble();
+    config = config.copyWith(explorerRatio: clamped);
+  }
+
+  void setRandomTurnStrength(double value) {
+    final clamped = value.clamp(0.2, 3.0).toDouble();
+    config = config.copyWith(randomTurnStrength: clamped);
+  }
+
+  void setSensorDistance(double value) {
+    final clamped = value.clamp(2.0, 20.0).toDouble();
+    config = config.copyWith(sensorDistance: clamped);
+  }
+
+  void setSensorAngle(double value) {
+    final clamped = value.clamp(0.1, 1.5).toDouble();
+    config = config.copyWith(sensorAngle: clamped);
+  }
+
+  void setFoodDepositStrength(double value) {
+    final clamped = value.clamp(0.0, 1.0).toDouble();
+    config = config.copyWith(foodDepositStrength: clamped);
+  }
+
+  void setHomeDepositStrength(double value) {
+    final clamped = value.clamp(0.0, 1.0).toDouble();
+    config = config.copyWith(homeDepositStrength: clamped);
+  }
+
+  void setDecayPerFrame(double value) {
+    final clamped = value.clamp(0.80, 0.9999).toDouble();
+    config = config.copyWith(decayPerFrame: clamped);
+  }
+
+  void setDecayThreshold(double value) {
+    final clamped = value.clamp(0.0, 0.2).toDouble();
+    config = config.copyWith(decayThreshold: clamped);
+  }
+
+  void setEnergyCapacity(double value) {
+    final clamped = value.clamp(20.0, 400.0).toDouble();
+    config = config.copyWith(energyCapacity: clamped);
+  }
+
+  void setEnergyDecayRate(double value) {
+    final clamped = value.clamp(0.0, 5.0).toDouble();
+    config = config.copyWith(energyDecayPerSecond: clamped);
+  }
+
+  void setEnergyRecoveryRate(double value) {
+    final clamped = value.clamp(0.0, 5.0).toDouble();
+    config = config.copyWith(energyRecoveryPerSecond: clamped);
+  }
+
+  void setFoodSenseRange(double value) {
+    final clamped = value.clamp(5.0, 100.0).toDouble();
+    config = config.copyWith(foodSenseRange: clamped);
+  }
+
   void dig(Vector2 cellPosition) {
     world.digCircle(cellPosition, config.digBrushRadius);
   }
@@ -112,23 +172,40 @@ class ColonySimulation {
     world.placeRock(cellPosition, config.digBrushRadius);
   }
 
-  void generateRandomWorld({int? seed}) {
-    final generator = WorldGenerator();
-    final actualSeed = seed ?? _rng.nextInt(0x7fffffff);
-    final generated = generator.generate(baseConfig: config, seed: actualSeed);
-    config = generated.config;
-    world = generated.world;
-    _lastSeed = actualSeed;
+  /// Prepares the simulation for a new world by clearing all state.
+  /// Call this before generating a new world to free up resources.
+  void prepareForNewWorld() {
+    ants.clear();
+    _updateAntCount();
     _storedFood = 0;
     _queuedAnts = 0;
     _elapsedTime = 0.0;
     foodCollected.value = 0;
     daysPassed.value = 1;
-    ants.clear();
+    // Replace world with minimal placeholder to free memory from old arrays
+    final minConfig = config.copyWith(cols: 2, rows: 2);
+    world = WorldGrid(minConfig);
+  }
+
+  /// Applies a generated world to the simulation.
+  void applyGeneratedWorld(GeneratedWorld generated) {
+    config = generated.config;
+    world = generated.world;
+    _lastSeed = generated.seed;
     for (var i = 0; i < config.startingAnts; i++) {
       _spawnAnt();
     }
     _updateAntCount();
+  }
+
+  void generateRandomWorld({int? seed}) {
+    // Clean up first to free resources
+    prepareForNewWorld();
+
+    final generator = WorldGenerator();
+    final actualSeed = seed ?? _rng.nextInt(0x7fffffff);
+    final generated = generator.generate(baseConfig: config, seed: actualSeed);
+    applyGeneratedWorld(generated);
   }
 
   Map<String, dynamic> toSnapshot() {
@@ -228,6 +305,7 @@ class ColonySimulation {
         angle: _rng.nextDouble() * math.pi * 2,
         energy: config.energyCapacity,
         rng: _rng,
+        explorerRatio: config.explorerRatio,
       ),
     );
     _updateAntCount();
@@ -273,6 +351,8 @@ class ColonySimulation {
       'energyDecayPerSecond': config.energyDecayPerSecond,
       'energyRecoveryPerSecond': config.energyRecoveryPerSecond,
       'restEnabled': config.restEnabled,
+      'explorerRatio': config.explorerRatio,
+      'randomTurnStrength': config.randomTurnStrength,
     };
   }
 
@@ -340,6 +420,11 @@ SimulationConfig _configFromJson(
         (data['energyRecoveryPerSecond'] as num?)?.toDouble() ??
         fallback.energyRecoveryPerSecond,
     restEnabled: data['restEnabled'] as bool? ?? fallback.restEnabled,
+    explorerRatio:
+        (data['explorerRatio'] as num?)?.toDouble() ?? fallback.explorerRatio,
+    randomTurnStrength:
+        (data['randomTurnStrength'] as num?)?.toDouble() ??
+        fallback.randomTurnStrength,
   );
 }
 

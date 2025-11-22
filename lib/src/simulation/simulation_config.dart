@@ -26,6 +26,8 @@ class SimulationConfig {
     this.energyDecayPerSecond = 1,
     this.energyRecoveryPerSecond = 0.5,
     this.restEnabled = true,
+    this.explorerRatio = 0.05,
+    this.randomTurnStrength = 1.2,
   });
 
   final int cols;
@@ -52,6 +54,8 @@ class SimulationConfig {
   final double energyDecayPerSecond;
   final double energyRecoveryPerSecond;
   final bool restEnabled;
+  final double explorerRatio;
+  final double randomTurnStrength;
 
   double get decayPerSecond => math.pow(decayPerFrame, 60).toDouble();
   double get worldWidth => cols * cellSize;
@@ -82,6 +86,8 @@ class SimulationConfig {
     double? energyDecayPerSecond,
     double? energyRecoveryPerSecond,
     bool? restEnabled,
+    double? explorerRatio,
+    double? randomTurnStrength,
   }) {
     return SimulationConfig(
       cols: cols ?? this.cols,
@@ -109,6 +115,8 @@ class SimulationConfig {
       energyRecoveryPerSecond:
           energyRecoveryPerSecond ?? this.energyRecoveryPerSecond,
       restEnabled: restEnabled ?? this.restEnabled,
+      explorerRatio: explorerRatio ?? this.explorerRatio,
+      randomTurnStrength: randomTurnStrength ?? this.randomTurnStrength,
     );
   }
 }

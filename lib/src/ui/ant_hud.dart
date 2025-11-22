@@ -29,6 +29,7 @@ class _AntHudState extends State<AntHud> {
   late int _pendingRows;
   bool _saving = false;
   bool _generatingMap = false;
+  bool _controlsCollapsed = false;
 
   @override
   void initState() {
@@ -90,91 +91,137 @@ class _AntHudState extends State<AntHud> {
 
   Widget _buildControls(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Align(
+    final panel = Align(
       alignment: Alignment.bottomCenter,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 640),
-        child: Card(
-          color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    ValueListenableBuilder<BrushMode>(
-                      valueListenable: widget.game.brushMode,
-                      builder: (context, mode, _) {
-                        return SegmentedButton<BrushMode>(
-                          segments: const [
-                            ButtonSegment(
-                              value: BrushMode.dig,
-                              label: Text('Dig'),
-                              icon: Icon(Icons.construction),
-                            ),
-                            ButtonSegment(
-                              value: BrushMode.food,
-                              label: Text('Food'),
-                              icon: Icon(Icons.fastfood_outlined),
-                            ),
-                            ButtonSegment(
-                              value: BrushMode.rock,
-                              label: Text('Rock'),
-                              icon: Icon(Icons.landscape_outlined),
-                            ),
-                          ],
-                          selected: {mode},
-                          onSelectionChanged: (selection) {
-                            if (selection.isNotEmpty) {
-                              widget.game.setBrushMode(selection.first);
-                            }
-                          },
-                        );
-                      },
-                    ),
-                    ValueListenableBuilder<bool>(
-                      valueListenable: widget.simulation.pheromonesVisible,
-                      builder: (context, visible, _) {
-                        return FilledButton.icon(
-                          onPressed: widget.simulation.togglePheromones,
-                          icon: Icon(
-                            visible ? Icons.visibility : Icons.visibility_off,
+        child: IgnorePointer(
+          ignoring: _controlsCollapsed,
+          child: AnimatedSlide(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            offset: _controlsCollapsed ? const Offset(0, 0.4) : Offset.zero,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              opacity: _controlsCollapsed ? 0 : 1,
+              child: Card(
+                color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Quick Controls',
+                            style: TextStyle(fontWeight: FontWeight.w600),
                           ),
-                          label: Text(
-                            visible ? 'Hide Pheromones' : 'Show Pheromones',
+                          const Spacer(),
+                          IconButton(
+                            tooltip: 'Hide controls',
+                            icon: const Icon(Icons.expand_more),
+                            onPressed: () =>
+                                setState(() => _controlsCollapsed = true),
                           ),
-                        );
-                      },
-                    ),
-                  ],
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          ValueListenableBuilder<BrushMode>(
+                            valueListenable: widget.game.brushMode,
+                            builder: (context, mode, _) {
+                              return SegmentedButton<BrushMode>(
+                                segments: const [
+                                  ButtonSegment(
+                                    value: BrushMode.dig,
+                                    label: Text('Dig'),
+                                    icon: Icon(Icons.construction),
+                                  ),
+                                  ButtonSegment(
+                                    value: BrushMode.food,
+                                    label: Text('Food'),
+                                    icon: Icon(Icons.fastfood_outlined),
+                                  ),
+                                  ButtonSegment(
+                                    value: BrushMode.rock,
+                                    label: Text('Rock'),
+                                    icon: Icon(Icons.landscape_outlined),
+                                  ),
+                                ],
+                                selected: {mode},
+                                onSelectionChanged: (selection) {
+                                  if (selection.isNotEmpty) {
+                                    widget.game.setBrushMode(selection.first);
+                                  }
+                                },
+                              );
+                            },
+                          ),
+                          ValueListenableBuilder<bool>(
+                            valueListenable: widget.simulation.pheromonesVisible,
+                            builder: (context, visible, _) {
+                              return FilledButton.icon(
+                                onPressed: widget.simulation.togglePheromones,
+                                icon: Icon(
+                                  visible
+                                      ? Icons.visibility
+                                      : Icons.visibility_off,
+                                ),
+                                label: Text(
+                                  visible
+                                      ? 'Hide Pheromones'
+                                      : 'Show Pheromones',
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Controls: Left Click = active brush | Right Click/Shift = Food | Press P to toggle pheromones.',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Use the settings panel to manage ant count, speed, map size, and quick food drops.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-              ],
+              ),
             ),
           ),
         ),
       ),
     );
+
+    final fab = Align(
+      alignment: Alignment.bottomLeft,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: AnimatedSlide(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+          offset: _controlsCollapsed ? Offset.zero : const Offset(-0.6, 0.4),
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            opacity: _controlsCollapsed ? 1 : 0,
+            child: IgnorePointer(
+              ignoring: !_controlsCollapsed,
+              child: FloatingActionButton(
+                heroTag: 'showControls',
+                onPressed: () => setState(() => _controlsCollapsed = false),
+                child: const Icon(Icons.more_horiz),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return Stack(children: [panel, fab]);
   }
 
   Widget _buildSettingsPanel(BuildContext context) {
     final theme = Theme.of(context);
-    final screenHeight = MediaQuery.of(context).size.height;
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
@@ -216,7 +263,11 @@ class _AntHudState extends State<AntHud> {
                   const Divider(),
                   _buildBehaviorControls(theme),
                   const Divider(),
+                  _buildTuningControls(theme),
+                  const Divider(),
                   _buildViewControls(theme),
+                  const Divider(),
+                  _buildDocsSection(theme),
                   const Divider(),
                   _buildGenerationControls(theme),
                   const Divider(),
@@ -231,6 +282,98 @@ class _AntHudState extends State<AntHud> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildDocsSection(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Field Guide', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 4),
+        const Text(
+          'Open the in-game handbook to learn how ants forage, rest, and follow pheromones.',
+        ),
+        const SizedBox(height: 8),
+        FilledButton.icon(
+          onPressed: _openDocs,
+          icon: const Icon(Icons.menu_book_outlined),
+          label: const Text('Open Docs'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openDocs() async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.7,
+          minChildSize: 0.4,
+          builder: (context, controller) {
+            return Container(
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: ListView(
+                controller: controller,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                children: const [
+                  _DocHeading(title: 'Colony Primer'),
+                  SizedBox(height: 8),
+                  Text(
+                    'Each ant runs a simple state machine: forage, return home, or rest. '
+                    'When resting is enabled, energy drains over time. Ants head back to the nest to rest '
+                    'once energy hits zero; otherwise they stay in forage/return loops.',
+                  ),
+                  SizedBox(height: 16),
+                  _DocHeading(title: 'Explorers & Movement'),
+                  SizedBox(height: 8),
+                  Text(
+                    'About 5% of ants spawn as explorers. Explorers ignore pheromone input more often '
+                    'and inject random turns, allowing the colony to find new food pockets. '
+                    'The rest steer using three forward sensors spaced by the configured sensor angle. '
+                    'They follow the strongest pheromone signal unless they recently hit rocks.',
+                  ),
+                  SizedBox(height: 16),
+                  _DocHeading(title: 'Pheromone Network'),
+                  SizedBox(height: 8),
+                  Text(
+                    'Ants drop home pheromones while foraging and food pheromones when carrying food. '
+                    'The grid stores two Float32 layers that decay each frame based on the decay slider. '
+                    'Visible trails on the map reflect these layers. Clearing obstacles or dirt removes '
+                    'pheromones at that location.',
+                  ),
+                  SizedBox(height: 16),
+                  _DocHeading(title: 'Obstacles & Digging'),
+                  SizedBox(height: 8),
+                  Text(
+                    'When ants collide with dirt, they dig by spending energy. Rocks block movement, so ants either '
+                    'bounce or, rarely, try a smarter sidestep. You can add dirt, food, or rock cells via the quick controls.',
+                  ),
+                  SizedBox(height: 16),
+                  _DocHeading(title: 'Tips'),
+                  SizedBox(height: 8),
+                  Text(
+                    '• Use Random Map to reroll cave layouts and food clusters.\n'
+                    '• Increase decay thresholds for stronger pheromone highways.\n'
+                    '• Disable resting to keep ants digging nonstop, but they will never recharge.',
+                  ),
+                  SizedBox(height: 24),
+                  Center(child: Icon(Icons.expand_more, color: Colors.white54)),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -315,6 +458,173 @@ class _AntHudState extends State<AntHud> {
           onChanged: (value) {
             setState(() {
               widget.simulation.setRestingEnabled(value);
+            });
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTuningControls(ThemeData theme) {
+    final config = widget.simulation.config;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Ant Behavior Tuning', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 4),
+        _ConfigSlider(
+          label: 'Explorer Ants',
+          value: config.explorerRatio,
+          min: 0,
+          max: 0.5,
+          divisions: 50,
+          displayValue: (v) => '${(v * 100).toStringAsFixed(0)}%',
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setExplorerRatio(value);
+            });
+          },
+        ),
+        _ConfigSlider(
+          label: 'Random Turn Strength',
+          value: config.randomTurnStrength,
+          min: 0.2,
+          max: 2.5,
+          divisions: 46,
+          displayValue: (v) => '${v.toStringAsFixed(2)} rad',
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setRandomTurnStrength(value);
+            });
+          },
+        ),
+        _ConfigSlider(
+          label: 'Sensor Distance',
+          value: config.sensorDistance,
+          min: 2,
+          max: 16,
+          divisions: 28,
+          displayValue: (v) => '${v.toStringAsFixed(1)} cells',
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setSensorDistance(value);
+            });
+          },
+        ),
+        _ConfigSlider(
+          label: 'Sensor Angle',
+          value: config.sensorAngle,
+          min: 0.2,
+          max: 1.2,
+          divisions: 50,
+          displayValue: (v) => '${(v * 180 / math.pi).toStringAsFixed(0)}°',
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setSensorAngle(value);
+            });
+          },
+        ),
+        _ConfigSlider(
+          label: 'Food Deposit Strength',
+          value: config.foodDepositStrength,
+          min: 0.0,
+          max: 1.0,
+          divisions: 20,
+          displayValue: (v) => v.toStringAsFixed(2),
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setFoodDepositStrength(value);
+            });
+          },
+        ),
+        _ConfigSlider(
+          label: 'Home Deposit Strength',
+          value: config.homeDepositStrength,
+          min: 0.0,
+          max: 1.0,
+          divisions: 20,
+          displayValue: (v) => v.toStringAsFixed(2),
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setHomeDepositStrength(value);
+            });
+          },
+        ),
+        _ConfigSlider(
+          label: 'Food Sense Range',
+          value: config.foodSenseRange,
+          min: 10,
+          max: 80,
+          divisions: 14,
+          displayValue: (v) => '${v.toStringAsFixed(0)} cells',
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setFoodSenseRange(value);
+            });
+          },
+        ),
+        _ConfigSlider(
+          label: 'Pheromone Decay / Frame',
+          value: config.decayPerFrame,
+          min: 0.90,
+          max: 0.999,
+          divisions: 99,
+          displayValue: (v) => v.toStringAsFixed(3),
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setDecayPerFrame(value);
+            });
+          },
+        ),
+        _ConfigSlider(
+          label: 'Decay Threshold',
+          value: config.decayThreshold,
+          min: 0.0,
+          max: 0.1,
+          divisions: 50,
+          displayValue: (v) => v.toStringAsFixed(3),
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setDecayThreshold(value);
+            });
+          },
+        ),
+        _ConfigSlider(
+          label: 'Energy Capacity',
+          value: config.energyCapacity,
+          min: 20,
+          max: 300,
+          divisions: 28,
+          displayValue: (v) => '${v.toStringAsFixed(0)} energy',
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setEnergyCapacity(value);
+            });
+          },
+        ),
+        _ConfigSlider(
+          label: 'Energy Decay / sec',
+          value: config.energyDecayPerSecond,
+          min: 0,
+          max: 5,
+          divisions: 25,
+          displayValue: (v) => v.toStringAsFixed(2),
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setEnergyDecayRate(value);
+            });
+          },
+        ),
+        _ConfigSlider(
+          label: 'Energy Recovery / sec',
+          value: config.energyRecoveryPerSecond,
+          min: 0,
+          max: 5,
+          divisions: 25,
+          displayValue: (v) => v.toStringAsFixed(2),
+          onChanged: (value) {
+            setState(() {
+              widget.simulation.setEnergyRecoveryRate(value);
             });
           },
         ),
@@ -474,15 +784,30 @@ class _AntHudState extends State<AntHud> {
 
   Future<void> _randomizeMap() async {
     setState(() => _generatingMap = true);
-    final seed = math.Random().nextInt(0x7fffffff);
-    widget.simulation.generateRandomWorld(seed: seed);
+
+    // Clean up existing simulation first (clear 1000s of ants, free old world memory)
+    widget.simulation.prepareForNewWorld();
     widget.game.invalidateTerrainLayer();
-    widget.game.refreshViewport();
-    setState(() {
-      _generatingMap = false;
-      _pendingCols = widget.simulation.config.cols;
-      _pendingRows = widget.simulation.config.rows;
-    });
+
+    // Allow UI to update and give GC time to reclaim memory
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+
+    final seed = math.Random().nextInt(0x7fffffff);
+
+    try {
+      // Generate new world (cleanup already done, so this won't compete for memory)
+      widget.simulation.generateRandomWorld(seed: seed);
+      widget.game.invalidateTerrainLayer();
+      widget.game.refreshViewport();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _generatingMap = false;
+          _pendingCols = widget.simulation.config.cols;
+          _pendingRows = widget.simulation.config.rows;
+        });
+      }
+    }
     if (!mounted) {
       return;
     }
@@ -501,6 +826,72 @@ class _PopulationButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return OutlinedButton(onPressed: onPressed, child: Text(label));
+  }
+}
+
+class _DocHeading extends StatelessWidget {
+  const _DocHeading({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: Theme.of(context)
+          .textTheme
+          .titleMedium
+          ?.copyWith(fontWeight: FontWeight.w600),
+    );
+  }
+}
+
+class _ConfigSlider extends StatelessWidget {
+  const _ConfigSlider({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    this.divisions,
+    required this.onChanged,
+    required this.displayValue,
+  });
+
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final int? divisions;
+  final ValueChanged<double> onChanged;
+  final String Function(double) displayValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final clampedValue = value.clamp(min, max).toDouble();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(child: Text(label)),
+            const SizedBox(width: 8),
+            Text(
+              displayValue(clampedValue),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+        Slider(
+          value: clampedValue,
+          min: min,
+          max: max,
+          divisions: divisions,
+          label: displayValue(clampedValue),
+          onChanged: onChanged,
+        ),
+      ],
+    );
   }
 }
 

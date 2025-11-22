@@ -13,8 +13,9 @@ class Ant {
     required this.angle,
     required this.energy,
     required math.Random rng,
+    required double explorerRatio,
   }) : position = startPosition.clone(),
-       _isExplorer = rng.nextDouble() < 0.05; // 5% are explorers
+       _isExplorer = rng.nextDouble() < explorerRatio;
 
   Ant.rehydrated({
     required Vector2 position,
@@ -38,7 +39,7 @@ class Ant {
   int _consecutiveRockHits = 0;
   int _collisionCooldown = 0;
   double _speedMultiplier = 1.0;
-  final bool _isExplorer; // 5% of ants are more random/exploratory
+  final bool _isExplorer; // explorer ants ignore pheromones more often
 
   bool get hasFood => _carryingFood;
 
@@ -187,7 +188,7 @@ class Ant {
     // Random exploration: explorers ignore pheromones more often (20% vs 1% chance)
     final exploreChance = _isExplorer ? 0.20 : 0.01;
     if (rng.nextDouble() < exploreChance) {
-      angle += (rng.nextDouble() - 0.5) * 1.2; // Random turn ±0.6 rad
+      angle += (rng.nextDouble() - 0.5) * config.randomTurnStrength;
       return; // Skip normal pheromone following
     }
 

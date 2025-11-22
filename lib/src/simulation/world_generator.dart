@@ -5,6 +5,15 @@ import 'package:flame/components.dart';
 import 'simulation_config.dart';
 import 'world_grid.dart';
 
+class _WalkTask {
+  _WalkTask(this.x, this.y, this.angle, this.steps, this.radius);
+  final double x;
+  final double y;
+  final double angle;
+  final int steps;
+  final int radius;
+}
+
 class GeneratedWorld {
   GeneratedWorld({
     required this.config,
@@ -118,28 +127,58 @@ class WorldGenerator {
     required int radius,
     double? startAngle,
   }) {
-    var x = start.x;
-    var y = start.y;
-    var angle = startAngle ?? rng.nextDouble() * math.pi * 2;
-    for (var i = 0; i < steps; i++) {
-      grid.digCircle(Vector2(x, y), radius);
-      angle += (rng.nextDouble() - 0.5) * 0.5;
-      final distance = rng.nextDouble() * 2 + 0.5;
-      x = (x + math.cos(angle) * distance).clamp(2, cols - 3).toDouble();
-      y = (y + math.sin(angle) * distance).clamp(2, rows - 3).toDouble();
-      if (rng.nextDouble() < 0.1) {
-        final sideSteps = rng.nextInt(40) + 20;
-        final sideAngle = angle + (rng.nextBool() ? math.pi / 2 : -math.pi / 2);
-        _randomWalk(
-          grid,
-          rng,
-          Vector2(x, y),
-          cols,
-          rows,
-          steps: sideSteps,
-          radius: math.max(1, radius - 1),
-          startAngle: sideAngle,
-        );
+    final workQueue = <_WalkTask>[
+      _WalkTask(
+        start.x,
+        start.y,
+        startAngle ?? rng.nextDouble() * math.pi * 2,
+        steps,
+        radius,
+      ),
+    ];
+    final carvePos = Vector2.zero();
+    final maxQueueSize = math.max(128, (cols * rows) ~/ 2);
+    final maxCarveOps = math.max(cols * rows * 4, 2000);
+    var carved = 0;
+
+    while (workQueue.isNotEmpty && carved < maxCarveOps) {
+      final task = workQueue.removeLast();
+      var x = task.x;
+      var y = task.y;
+      var angle = task.angle;
+      final taskRadius = task.radius;
+
+      for (var i = 0; i < task.steps; i++) {
+        carvePos.setValues(x, y);
+        grid.digCircle(carvePos, taskRadius);
+        carved++;
+        if (carved >= maxCarveOps) {
+          workQueue.clear();
+          break;
+        }
+
+        angle += (rng.nextDouble() - 0.5) * 0.5;
+        final distance = rng.nextDouble() * 2 + 0.5;
+        x = (x + math.cos(angle) * distance).clamp(2, cols - 3).toDouble();
+        y = (y + math.sin(angle) * distance).clamp(2, rows - 3).toDouble();
+
+        final shouldBranch = taskRadius > 1 &&
+            workQueue.length < maxQueueSize &&
+            rng.nextDouble() < 0.08;
+        if (shouldBranch) {
+          final sideSteps = rng.nextInt(30) + 20;
+          final sideAngle =
+              angle + (rng.nextBool() ? math.pi / 2 : -math.pi / 2);
+          workQueue.add(
+            _WalkTask(
+              x,
+              y,
+              sideAngle,
+              sideSteps,
+              math.max(1, taskRadius - 1),
+            ),
+          );
+        }
       }
     }
   }
