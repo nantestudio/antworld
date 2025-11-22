@@ -611,9 +611,9 @@ class _AntHudState extends State<AntHud> {
           label: 'Food Sense Range',
           tooltip: 'Maximum distance ants can directly detect food (without pheromones). Only used when no trails nearby.',
           value: config.foodSenseRange,
-          min: 10,
-          max: 80,
-          divisions: 14,
+          min: 20,
+          max: 200,
+          divisions: 18,
           displayValue: (v) => '${v.toStringAsFixed(0)} cells',
           onChanged: (value) {
             setState(() {

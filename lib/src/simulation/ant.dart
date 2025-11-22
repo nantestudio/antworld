@@ -332,31 +332,18 @@ class Ant {
       }
     }
 
-    // Only use direct food sensing when NO pheromones detected and only occasionally
+    // When NO pheromones detected, use direct food sensing to find food
     if (!steered && behavior == AntState.forage) {
-      // Only 15% chance per frame to check for direct food (don't override pheromones)
-      if (rng.nextDouble() < 0.15) {
-        final foodTarget = _biasTowardFood(world, config, rng);
-        if (foodTarget != null) {
-          // Check if there's dirt ahead in the direction of food
-          final nextX = position.x + math.cos(angle) * 1.5;
-          final nextY = position.y + math.sin(angle) * 1.5;
-          final checkX = nextX.floor();
-          final checkY = nextY.floor();
-
-          // If there's dirt blocking the path and ant has energy, dig toward food
-          if (world.isInsideIndex(checkX, checkY) &&
-              world.cellTypeAt(checkX, checkY) == CellType.dirt &&
-              energy >= config.digEnergyCost) {
-            _dig(world, checkX, checkY, config);
-          }
-          return;
-        }
+      // Always try food sensing when there are no pheromone trails to follow
+      final foodTarget = _biasTowardFood(world, config, rng);
+      if (foodTarget != null) {
+        // Successfully steering toward food
+        return;
       }
-    }
-
-    // Small random wandering when no guidance at all
-    if (!steered) {
+      // No food in range - wander more aggressively to explore
+      angle += (rng.nextDouble() - 0.5) * 0.4;
+    } else if (!steered) {
+      // Small random wandering when no guidance at all
       angle += (rng.nextDouble() - 0.5) * 0.15;
     }
   }

@@ -21,7 +21,7 @@ class SimulationConfig {
     this.dirtMaxHealth = 100,
     this.digEnergyCost = 0.5,
     this.digDamagePerEnergy = 1,
-    this.foodSenseRange = 30,
+    this.foodSenseRange = 150, // Large range for 400x400 maps
     this.energyCapacity = 100,
     this.energyDecayPerSecond = 0.4,
     this.energyRecoveryPerSecond = 4.0,
