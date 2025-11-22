@@ -5,7 +5,7 @@ class SimulationConfig {
     this.cols = 100,
     this.rows = 75,
     this.cellSize = 8,
-    this.startingAnts = 20,
+    this.startingAnts = 50,
     this.antSpeed = 48, // cells per second (~0.8 per frame @60fps)
     this.sensorDistance = 6,
     this.sensorAngle = 0.6,

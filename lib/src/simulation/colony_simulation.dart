@@ -82,19 +82,25 @@ class ColonySimulation {
       // Always spawn one queen
       _spawnAnt(caste: AntCaste.queen, colonyId: colonyId);
 
-      // Spawn nurses (10% of starting ants)
-      final nurseCount = math.max(1, (config.startingAnts * 0.1).round());
+      // Calculate base counts with ±20% variance
+      final baseNurse = config.startingAnts * 0.15; // ~15% nurses
+      final baseSoldier = config.startingAnts * 0.20; // ~20% soldiers
+
+      // Add randomness: base * (0.8 to 1.2)
+      final nurseCount = math.max(2, (baseNurse * (0.8 + _rng.nextDouble() * 0.4)).round());
+      final soldierCount = math.max(2, (baseSoldier * (0.8 + _rng.nextDouble() * 0.4)).round());
+
+      // Spawn nurses
       for (var i = 0; i < nurseCount; i++) {
         _spawnAnt(caste: AntCaste.nurse, colonyId: colonyId);
       }
 
-      // Spawn soldiers (10% of starting ants)
-      final soldierCount = math.max(1, (config.startingAnts * 0.1).round());
+      // Spawn soldiers
       for (var i = 0; i < soldierCount; i++) {
         _spawnAnt(caste: AntCaste.soldier, colonyId: colonyId);
       }
 
-      // Rest are workers
+      // Rest are workers (~65%)
       final workerCount = config.startingAnts - 1 - nurseCount - soldierCount;
       for (var i = 0; i < workerCount; i++) {
         _spawnAnt(caste: AntCaste.worker, colonyId: colonyId);
