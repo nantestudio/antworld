@@ -233,14 +233,12 @@ class Ant {
       case AntCaste.queen:
         return _updateQueen(dt, config, world, rng);
       case AntCaste.nurse:
-        // Nurses use modified worker behavior (handled below with zone awareness)
-        break;
+        return _updateNurse(dt, config, world, rng, antSpeed);
       case AntCaste.soldier:
-        // Soldiers patrol and don't forage (handled below)
-        break;
+        return _updateSoldier(dt, config, world, rng, antSpeed);
       case AntCaste.worker:
       case AntCaste.drone:
-        // Workers and drones use standard foraging behavior
+        // Workers and drones use standard foraging behavior below
         break;
     }
 
@@ -797,6 +795,150 @@ class Ant {
       _eggLayTimer = 0;
       return true; // Signal to colony to spawn a larva
     }
+    return false;
+  }
+
+  /// Nurse behavior: stay near nursery, patrol nursery area
+  bool _updateNurse(double dt, SimulationConfig config, WorldGrid world, math.Random rng, double antSpeed) {
+    // Handle resting
+    if (state == AntState.rest) {
+      _recoverEnergy(dt, config);
+      return false;
+    }
+
+    // Energy decay
+    if (config.restEnabled) {
+      energy -= config.energyDecayPerSecond * dt;
+      if (energy <= 0) {
+        _needsRest = true;
+        state = AntState.rest;
+        energy = config.digEnergyCost;
+        return false;
+      }
+    }
+
+    final currentZone = world.zoneAtPosition(position);
+
+    // If outside nursery/queen area, move back toward nursery
+    if (currentZone == NestZone.none || currentZone == NestZone.general) {
+      final target = world.nearestZoneCell(position, NestZone.nursery, 50);
+      if (target != null) {
+        final desired = math.atan2(target.y - position.y, target.x - position.x);
+        final delta = _normalizeAngle(desired - angle);
+        angle += delta.clamp(-0.3, 0.3);
+      }
+    } else {
+      // In nursery or queen chamber - patrol slowly
+      angle += (rng.nextDouble() - 0.5) * 0.3;
+    }
+
+    // Move at reduced speed (nurses are slower)
+    final speed = antSpeed * casteSpeedMultiplier * dt * 0.6;
+    final vx = math.cos(angle) * speed;
+    final vy = math.sin(angle) * speed;
+    final nextX = position.x + vx;
+    final nextY = position.y + vy;
+
+    // Check bounds and walkability
+    final gx = nextX.floor();
+    final gy = nextY.floor();
+    if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
+      position.setValues(nextX, nextY);
+    } else {
+      // Turn around if blocked
+      angle += math.pi * 0.5 + (rng.nextDouble() - 0.5) * 0.5;
+    }
+
+    return false;
+  }
+
+  /// Soldier behavior: patrol nest perimeter, engage enemies
+  bool _updateSoldier(double dt, SimulationConfig config, WorldGrid world, math.Random rng, double antSpeed) {
+    // Handle resting
+    if (state == AntState.rest) {
+      _recoverEnergy(dt, config);
+      return false;
+    }
+
+    // Energy decay
+    if (config.restEnabled) {
+      energy -= config.energyDecayPerSecond * dt;
+      if (energy <= 0) {
+        _needsRest = true;
+        state = AntState.returnHome;
+        energy = config.digEnergyCost;
+      }
+    }
+
+    if (_needsRest) {
+      // Return to nest to rest
+      final dir = world.directionToNest(position);
+      if (dir != null && dir.length2 > 0.0001) {
+        final desired = math.atan2(dir.y, dir.x);
+        final delta = _normalizeAngle(desired - angle);
+        angle += delta.clamp(-0.3, 0.3);
+      }
+
+      // Check if at nest
+      final distNest = position.distanceTo(world.nestPosition);
+      if (distNest < config.nestRadius + 0.5) {
+        state = AntState.rest;
+        _needsRest = false;
+        return false;
+      }
+    } else {
+      // Patrol behavior: stay near nest outer area
+      final currentZone = world.zoneAtPosition(position);
+      final distNest = position.distanceTo(world.nestPosition);
+
+      // Patrol radius - stay in general nest area or just outside
+      final patrolInner = config.nestRadius * 0.5;
+      final patrolOuter = config.nestRadius * 2.0;
+
+      if (distNest < patrolInner) {
+        // Too close to center - move outward
+        final outward = math.atan2(
+          position.y - world.nestPosition.y,
+          position.x - world.nestPosition.x,
+        );
+        final delta = _normalizeAngle(outward - angle);
+        angle += delta.clamp(-0.2, 0.2);
+      } else if (distNest > patrolOuter || currentZone == NestZone.none) {
+        // Too far or outside nest - return
+        final inward = math.atan2(
+          world.nestPosition.y - position.y,
+          world.nestPosition.x - position.x,
+        );
+        final delta = _normalizeAngle(inward - angle);
+        angle += delta.clamp(-0.2, 0.2);
+      } else {
+        // In patrol zone - circle around
+        // Tangent direction for circling
+        final toNest = world.nestPosition - position;
+        final tangent = math.atan2(-toNest.x, toNest.y); // Perpendicular
+        final delta = _normalizeAngle(tangent - angle);
+        angle += delta.clamp(-0.15, 0.15);
+        angle += (rng.nextDouble() - 0.5) * 0.2;
+      }
+    }
+
+    // Move at normal soldier speed
+    final speed = antSpeed * casteSpeedMultiplier * dt;
+    final vx = math.cos(angle) * speed;
+    final vy = math.sin(angle) * speed;
+    final nextX = position.x + vx;
+    final nextY = position.y + vy;
+
+    // Check bounds and walkability
+    final gx = nextX.floor();
+    final gy = nextY.floor();
+    if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
+      position.setValues(nextX, nextY);
+    } else {
+      // Turn around if blocked
+      angle += math.pi * 0.5 + (rng.nextDouble() - 0.5) * 0.5;
+    }
+
     return false;
   }
 
