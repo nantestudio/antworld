@@ -352,7 +352,8 @@ class _AntHudState extends State<AntHud> {
                   Text(
                     'Each ant runs a simple state machine: forage, return home, or rest. '
                     'When resting is enabled, energy drains over time. Ants head back to the nest to rest '
-                    'once energy hits zero; otherwise they stay in forage/return loops.',
+                    'once energy hits zero; otherwise they stay in forage/return loops. '
+                    'Click any ant to see its real-time stats (energy, HP, state, position).',
                   ),
                   SizedBox(height: 16),
                   _DocHeading(title: 'Explorers & Movement'),
@@ -360,8 +361,8 @@ class _AntHudState extends State<AntHud> {
                   Text(
                     'About 5% of ants spawn as explorers. Explorers ignore pheromone input more often '
                     'and inject random turns, allowing the colony to find new food pockets. '
-                    'The rest steer using three forward sensors spaced by the configured sensor angle. '
-                    'They follow the strongest pheromone signal unless they recently hit rocks.',
+                    'Regular ants prioritize following pheromone trails using three forward sensors. '
+                    'They only use direct food sensing when no pheromone trails are nearby.',
                   ),
                   SizedBox(height: 16),
                   _DocHeading(title: 'Pheromone Network'),
@@ -369,8 +370,8 @@ class _AntHudState extends State<AntHud> {
                   Text(
                     'Ants drop home pheromones while foraging and food pheromones when carrying food. '
                     'The grid stores two Float32 layers that decay each frame based on the decay slider. '
-                    'Visible trails on the map reflect these layers. Clearing obstacles or dirt removes '
-                    'pheromones at that location.',
+                    'Toggle "Show Pheromones" to see trails: blue for food, gray for home. '
+                    'Stronger deposit values create more robust highways that attract more followers.',
                   ),
                   SizedBox(height: 16),
                   _DocHeading(title: 'Opponents & Raids'),
@@ -379,22 +380,41 @@ class _AntHudState extends State<AntHud> {
                     'Red enemy colonies raid every 30-70 seconds based on your active population. '
                     'They spawn together at the map edges, dig through dirt, and beeline toward nearby workers. '
                     'Both sides have attack, defense, and health stats – collisions trigger duels until one ant pops. '
-                    'Widen choke points and keep guards near the nest to blunt incoming waves.',
+                    'Use "Spawn Enemies" in settings to test your defenses.',
+                  ),
+                  SizedBox(height: 16),
+                  _DocHeading(title: 'World Generation'),
+                  SizedBox(height: 8),
+                  Text(
+                    'Random maps generate a 400×400 grid filled with dirt, then carve tunnels and caverns. '
+                    'Obstacles include organic formations: tree roots (branching lines), boulder clusters, '
+                    'and mineral veins (long curved barriers). Food clusters are scattered throughout. '
+                    'The nest spawns in the lower portion of the map.',
                   ),
                   SizedBox(height: 16),
                   _DocHeading(title: 'Obstacles & Digging'),
                   SizedBox(height: 8),
                   Text(
-                    'When ants collide with dirt, they dig by spending energy. Rocks block movement, so ants either '
-                    'bounce or, rarely, try a smarter sidestep. You can add dirt, food, or rock cells via the quick controls.',
+                    'When ants collide with dirt, they dig by spending energy. Rocks block movement entirely. '
+                    'You can paint cells using the brush modes: Dig clears terrain, Food places food clusters, '
+                    'Rock creates impassable barriers. Shift+click or right-click always places food.',
+                  ),
+                  SizedBox(height: 16),
+                  _DocHeading(title: 'Stuck Detection'),
+                  SizedBox(height: 8),
+                  Text(
+                    'Ants that fail to move for 30 seconds (except when resting) are removed from the simulation. '
+                    'This prevents ants from getting permanently trapped in unreachable areas.',
                   ),
                   SizedBox(height: 16),
                   _DocHeading(title: 'Tips'),
                   SizedBox(height: 8),
                   Text(
                     '• Use Random Map to reroll cave layouts and food clusters.\n'
-                    '• Increase decay thresholds for stronger pheromone highways.\n'
-                    '• Disable resting to keep ants digging nonstop, but they will never recharge.',
+                    '• Hover over (i) icons in settings to learn what each slider does.\n'
+                    '• Higher pheromone decay values (closer to 1.0) create longer-lasting trails.\n'
+                    '• Click ants to track individuals and watch their behavior in real-time.\n'
+                    '• Disable resting to keep ants active, but they won\'t recover energy.',
                   ),
                   SizedBox(height: 24),
                   Center(child: Icon(Icons.expand_more, color: Colors.white54)),
@@ -512,6 +532,7 @@ class _AntHudState extends State<AntHud> {
         const SizedBox(height: 4),
         _ConfigSlider(
           label: 'Explorer Ants',
+          tooltip: 'Percentage of ants that ignore pheromones and wander randomly to discover new food sources.',
           value: config.explorerRatio,
           min: 0,
           max: 0.5,
@@ -525,6 +546,7 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Random Turn Strength',
+          tooltip: 'How sharply ants turn randomly each step. Higher values create more erratic movement.',
           value: config.randomTurnStrength,
           min: 0.2,
           max: 2.5,
@@ -538,6 +560,7 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Sensor Distance',
+          tooltip: 'How far ahead ants sense pheromones. Longer range helps follow distant trails.',
           value: config.sensorDistance,
           min: 2,
           max: 16,
@@ -551,6 +574,7 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Sensor Angle',
+          tooltip: 'Spread angle between left/right sensors. Wider angles detect broader areas but may miss narrow trails.',
           value: config.sensorAngle,
           min: 0.2,
           max: 1.2,
@@ -564,6 +588,7 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Food Deposit Strength',
+          tooltip: 'How much food pheromone ants drop when carrying food. Stronger trails attract more followers.',
           value: config.foodDepositStrength,
           min: 0.0,
           max: 1.0,
@@ -577,6 +602,7 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Home Deposit Strength',
+          tooltip: 'How much home pheromone foraging ants drop. Helps returning ants find their way back.',
           value: config.homeDepositStrength,
           min: 0.0,
           max: 1.0,
@@ -590,6 +616,7 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Food Sense Range',
+          tooltip: 'Maximum distance ants can directly detect food (without pheromones). Only used when no trails nearby.',
           value: config.foodSenseRange,
           min: 10,
           max: 80,
@@ -603,6 +630,7 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Pheromone Decay / Frame',
+          tooltip: 'Multiplier applied to pheromones each frame. Higher = longer-lasting trails (0.99 = slow decay).',
           value: config.decayPerFrame,
           min: 0.90,
           max: 0.999,
@@ -616,6 +644,7 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Decay Threshold',
+          tooltip: 'Pheromone level below which trails are removed. Higher values clean up weak trails faster.',
           value: config.decayThreshold,
           min: 0.0,
           max: 0.1,
@@ -629,6 +658,7 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Energy Capacity',
+          tooltip: 'Maximum energy an ant can store. Higher capacity means longer foraging trips before resting.',
           value: config.energyCapacity,
           min: 20,
           max: 300,
@@ -642,6 +672,7 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Energy Decay / sec',
+          tooltip: 'Energy lost per second while moving. Set to 0 for infinite stamina.',
           value: config.energyDecayPerSecond,
           min: 0,
           max: 5,
@@ -655,6 +686,7 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Energy Recovery / sec',
+          tooltip: 'Energy gained per second while resting at the nest.',
           value: config.energyRecoveryPerSecond,
           min: 0,
           max: 5,
@@ -904,6 +936,7 @@ class _ConfigSlider extends StatelessWidget {
     this.divisions,
     required this.onChanged,
     required this.displayValue,
+    this.tooltip,
   });
 
   final String label;
@@ -913,6 +946,7 @@ class _ConfigSlider extends StatelessWidget {
   final int? divisions;
   final ValueChanged<double> onChanged;
   final String Function(double) displayValue;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -923,7 +957,25 @@ class _ConfigSlider extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Expanded(child: Text(label)),
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(child: Text(label)),
+                  if (tooltip != null) ...[
+                    const SizedBox(width: 4),
+                    Tooltip(
+                      message: tooltip!,
+                      preferBelow: false,
+                      child: Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
             const SizedBox(width: 8),
             Text(
               displayValue(clampedValue),
