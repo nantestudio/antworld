@@ -112,13 +112,14 @@ class ColonySimulation {
     }
 
     final larvaeToMature = <Ant>[];
+    final queensLayingEggs = <Ant>[];
     for (final ant in ants) {
       final result =
           ant.update(clampedDt, config, world, _rng, antSpeed, attackTarget: null);
 
       if (ant.caste == AntCaste.queen && result) {
-        // Queen wants to lay an egg - spawn a larva
-        _spawnLarvaAtQueen(ant);
+        // Queen wants to lay an egg - defer spawning until after iteration
+        queensLayingEggs.add(ant);
       } else if (ant.caste == AntCaste.larva && ant.isReadyToMature) {
         // Larva ready to become a worker
         larvaeToMature.add(ant);
@@ -130,6 +131,11 @@ class ColonySimulation {
           _queuedAnts += 1;
         }
       }
+    }
+
+    // Spawn larvae from queens (after iteration to avoid concurrent modification)
+    for (final queen in queensLayingEggs) {
+      _spawnLarvaAtQueen(queen);
     }
 
     // Mature larvae into workers
@@ -304,13 +310,18 @@ class ColonySimulation {
     _updateAntCount();
   }
 
-  void generateRandomWorld({int? seed}) {
+  void generateRandomWorld({int? seed, int? cols, int? rows}) {
     // Clean up first to free resources
     prepareForNewWorld();
 
     final generator = WorldGenerator();
     final actualSeed = seed ?? _rng.nextInt(0x7fffffff);
-    final generated = generator.generate(baseConfig: config, seed: actualSeed);
+    final generated = generator.generate(
+      baseConfig: config,
+      seed: actualSeed,
+      cols: cols,
+      rows: rows,
+    );
     applyGeneratedWorld(generated);
   }
 

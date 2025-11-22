@@ -29,18 +29,28 @@ class GeneratedWorld {
 }
 
 class WorldGenerator {
-  // 4x original size (original was ~100x100)
-  static const int defaultCols = 400;
-  static const int defaultRows = 400;
+  // Default map size - smaller for better performance
+  static const int defaultCols = 150;
+  static const int defaultRows = 150;
+
+  // Preset map sizes
+  static const Map<String, (int, int)> presets = {
+    'Small': (100, 100),
+    'Medium': (150, 150),
+    'Large': (250, 250),
+    'Huge': (400, 400),
+  };
 
   GeneratedWorld generate({
     required SimulationConfig baseConfig,
     required int seed,
+    int? cols,
+    int? rows,
   }) {
     final rng = math.Random(seed);
-    final cols = defaultCols;
-    final rows = defaultRows;
-    final config = baseConfig.copyWith(cols: cols, rows: rows);
+    final actualCols = cols ?? defaultCols;
+    final actualRows = rows ?? defaultRows;
+    final config = baseConfig.copyWith(cols: actualCols, rows: actualRows);
     final grid = WorldGrid(config);
     grid.reset(); // Fills entire grid with dirt
 
@@ -48,12 +58,12 @@ class WorldGenerator {
     final nest = _carveNestChamber(grid, rng);
 
     // Carve tunnels and caverns into the dirt
-    _carveMainTunnels(grid, rng, nest, cols, rows);
-    _carveCaverns(grid, rng, cols, rows);
+    _carveMainTunnels(grid, rng, nest, actualCols, actualRows);
+    _carveCaverns(grid, rng, actualCols, actualRows);
 
     // Add obstacles and food in carved areas
-    _createRockFormations(grid, rng, cols, rows);
-    _scatterFood(grid, rng, cols, rows);
+    _createRockFormations(grid, rng, actualCols, actualRows);
+    _scatterFood(grid, rng, actualCols, actualRows);
 
     // Ensure solid dirt border around entire map
     _ensureDirtBorder(grid, 3);

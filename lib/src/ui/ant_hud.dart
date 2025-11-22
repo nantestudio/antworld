@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../game/ant_world_game.dart';
 import '../simulation/ant.dart';
 import '../simulation/colony_simulation.dart';
+import '../simulation/world_generator.dart';
 import '../state/simulation_storage.dart';
 
 class AntHud extends StatefulWidget {
@@ -31,6 +32,7 @@ class _AntHudState extends State<AntHud> {
   bool _saving = false;
   bool _generatingMap = false;
   bool _controlsCollapsed = false;
+  String _selectedMapSize = 'Medium';
 
   @override
   void initState() {
@@ -727,12 +729,41 @@ class _AntHudState extends State<AntHud> {
 
   Widget _buildGenerationControls(ThemeData theme) {
     final seed = widget.simulation.lastSeed;
+    final current = widget.simulation.config;
+    final presets = WorldGenerator.presets;
+    final selectedSize = presets[_selectedMapSize]!;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Map Generation', style: theme.textTheme.titleSmall),
         const SizedBox(height: 4),
-        Text(seed == null ? 'Seed: --' : 'Seed: $seed'),
+        Text('Current: ${current.cols}×${current.rows}'),
+        Text(seed == null ? 'Seed: --' : 'Seed: $seed',
+            style: theme.textTheme.bodySmall),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            const Text('Size: '),
+            const SizedBox(width: 8),
+            DropdownButton<String>(
+              value: _selectedMapSize,
+              isDense: true,
+              items: presets.keys.map((name) {
+                final size = presets[name]!;
+                return DropdownMenuItem(
+                  value: name,
+                  child: Text('$name (${size.$1}×${size.$2})'),
+                );
+              }).toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => _selectedMapSize = value);
+                }
+              },
+            ),
+          ],
+        ),
         const SizedBox(height: 8),
         FilledButton.icon(
           onPressed: _generatingMap ? null : _randomizeMap,
@@ -743,7 +774,9 @@ class _AntHudState extends State<AntHud> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.auto_awesome),
-          label: Text(_generatingMap ? 'Generating...' : 'Random Map'),
+          label: Text(_generatingMap
+              ? 'Generating...'
+              : 'New Colony (${selectedSize.$1}×${selectedSize.$2})'),
         ),
       ],
     );
@@ -859,6 +892,11 @@ class _AntHudState extends State<AntHud> {
   Future<void> _randomizeMap() async {
     setState(() => _generatingMap = true);
 
+    // Get selected map size
+    final size = WorldGenerator.presets[_selectedMapSize]!;
+    final cols = size.$1;
+    final rows = size.$2;
+
     // Clean up existing simulation first (clear 1000s of ants, free old world memory)
     widget.simulation.prepareForNewWorld();
     widget.game.invalidateTerrainLayer();
@@ -869,8 +907,8 @@ class _AntHudState extends State<AntHud> {
     final seed = math.Random().nextInt(0x7fffffff);
 
     try {
-      // Generate new world (cleanup already done, so this won't compete for memory)
-      widget.simulation.generateRandomWorld(seed: seed);
+      // Generate new world with selected size
+      widget.simulation.generateRandomWorld(seed: seed, cols: cols, rows: rows);
       widget.game.invalidateTerrainLayer();
       widget.game.refreshViewport();
     } finally {
