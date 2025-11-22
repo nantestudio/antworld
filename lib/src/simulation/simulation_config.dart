@@ -9,8 +9,8 @@ class SimulationConfig {
     this.antSpeed = 48, // cells per second (~0.8 per frame @60fps)
     this.sensorDistance = 6,
     this.sensorAngle = 0.6,
-    this.foodDepositStrength = 0.5,
-    this.homeDepositStrength = 0.4,
+    this.foodDepositStrength = 0.6,
+    this.homeDepositStrength = 0.5,
     this.foodPickupRotation = math.pi,
     this.foodPerNewAnt = 3,
     this.nestRadius = 3,
@@ -57,9 +57,28 @@ class SimulationConfig {
   final double explorerRatio;
   final double randomTurnStrength;
 
-  double get decayPerSecond => math.pow(decayPerFrame, 60).toDouble();
+  double get decayPerSecond => math.pow(effectiveDecayPerFrame, 60).toDouble();
   double get worldWidth => cols * cellSize;
   double get worldHeight => rows * cellSize;
+
+  /// Calculate decay rate based on map size so trails last long enough for round trips.
+  /// Pheromones should persist for ~2-3x the time needed for a round trip across the map.
+  double get effectiveDecayPerFrame {
+    // Map diagonal in cells
+    final diagonal = math.sqrt(cols * cols + rows * rows);
+    // Round trip time in seconds (at antSpeed cells/sec)
+    final roundTripTime = (2 * diagonal) / antSpeed;
+    // Target persistence: 2.5x round trip time (minimum 15 seconds)
+    final targetPersistence = math.max(15.0, roundTripTime * 2.5);
+    // Calculate decay so pheromone at 0.5 stays above 0.01 for targetPersistence seconds
+    // 0.5 * decay^(targetPersistence * 60) = 0.01
+    // decay^(frames) = 0.02
+    // decay = 0.02^(1/frames)
+    final frames = targetPersistence * 60;
+    final calculatedDecay = math.pow(0.02, 1 / frames);
+    // Clamp to reasonable range
+    return calculatedDecay.clamp(0.990, 0.9995).toDouble();
+  }
 
   SimulationConfig copyWith({
     int? cols,
