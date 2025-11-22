@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AntWorld is a Flutter + Flame game that simulates an ant colony using emergent behavior and pheromone-based navigation. Individual ants follow simple rules (sense pheromones with 3 sensors, move toward stronger signals, drop pheromones, pick up food) which creates complex colony-wide patterns like foraging highways.
 
+The simulation includes combat mechanics where enemy ant raids periodically spawn and attack the colony.
+
 ## Common Development Commands
 
 ### Running and Testing
@@ -70,24 +72,35 @@ AntWorldGame
 
 **`ColonySimulation`** (`lib/src/simulation/colony_simulation.dart`)
 - Orchestrates the entire simulation update loop
-- Manages ant list and spawning
+- Manages ant list and spawning, including enemy ants
 - Tracks food collected and day counter
 - Coordinates between ants and world grid
+- Handles enemy raids (periodic spawning from map edges)
+- Combat resolution between friendly and enemy ants
+- Automatic food replenishment to maintain minimum supply
 - ValueNotifiers expose state to UI (antCount, foodCollected, daysPassed, pheromonesVisible, antSpeedMultiplier)
 
 **`WorldGrid`** (`lib/src/simulation/world_grid.dart`)
 - 2D grid storing cell types (air, dirt, food, rock) with corresponding health values
 - Two Float32List arrays for pheromone layers (food pheromones, home pheromones)
-- Pheromone decay happens every frame
+- Pheromone decay happens every frame (only active cells tracked for efficiency)
 - Food positions cached in a Set for O(1) lookup
+- BFS pathfinding via `_homeDistances` array for returning ants
 - Grid indices calculated as: `index(x, y) = y * cols + x`
+
+**`WorldGenerator`** (`lib/src/simulation/world_generator.dart`)
+- Procedural world generation with seeded randomness
+- Generates tunnels, rooms, and initial food placement
 
 **`Ant`** (`lib/src/simulation/ant.dart`)
 - Individual ant with position, angle, energy, state (forage/returnHome/rest)
 - State machine: foraging → finds food → returns home → delivers food → repeats
 - 3-sensor system for pheromone detection (left, front, right at ±0.6 radians)
 - Direct food sensing within 30 cells when not following pheromone trails
+- Grid pathfinding (BFS) guides ants home via `WorldGrid.directionToNest()`
 - Energy system: drains while moving, recovers while resting, digging costs extra
+- Combat stats: attack, defense, HP for fighting enemy ants
+- Explorer ants (5% by default) ignore pheromones more often to discover new food
 
 **`AntWorldGame`** (`lib/src/game/ant_world_game.dart`)
 - Flame game component that renders the simulation
@@ -124,6 +137,20 @@ AntWorldGame
 - Left/right sensors at ±0.6 radians from current angle
 - Returns accumulated pheromone strength along the sensor ray
 - Actual food cells get +10 bonus signal for direct detection
+- Perceptual noise (±15% variation) makes trails spread naturally
+
+**Return Pathfinding**: BFS from nest precomputes distances
+- `WorldGrid._homeDistances` stores shortest walkable distance to nest
+- `directionToNest()` returns vector toward neighbor with lower distance
+- Recomputed when terrain changes (`_homeDistanceDirty` flag)
+- Ants returning home use this instead of pheromone following
+
+**Combat System**: Enemy raids attack the colony
+- Raids spawn periodically (35-75 seconds) from random map edges
+- Enemy count scales with colony size (1-20% of friendly ants)
+- Combat triggers when ants are within 0.6 cells of each other
+- Damage = `attacker.attack * variance - defender.defense * mitigation`
+- Dead ants are removed; surviving enemies continue toward nest
 
 ## Code Patterns
 
@@ -145,7 +172,7 @@ When extending the simulation, follow this pattern:
 if (!world.isInsideIndex(x, y)) return;
 
 // Get cell type
-final cellType = world.cellAt(x, y);
+final cellType = world.cellTypeAt(x, y);
 
 // Modify cells
 world.setCell(x, y, CellType.air);
@@ -159,8 +186,9 @@ world.depositFoodPheromone(x, y, 0.5);
 
 - Static terrain is cached in a `Picture` - call `game.invalidateTerrainLayer()` after terrain changes
 - Delta time is clamped to 0.05s max to prevent physics instability during lag
-- Pheromone decay only processes cells above threshold (0.01) for efficiency
+- Pheromone decay only processes active cells tracked in `_activePheromoneCells` Set
 - Food positions stored in `Set<int>` for fast collision detection
+- BFS pathfinding is lazy-computed and cached until terrain changes
 
 ### State Management
 
@@ -173,19 +201,21 @@ All simulation state is in `ColonySimulation`, game state is in `AntWorldGame`, 
 
 ## Testing Notes
 
-- The simulation is deterministic when using the same RNG seed
-- `ColonySimulation._rng` can be seeded for reproducible tests
-- Focus tests on: ant state transitions, pheromone decay math, collision detection, energy system
+- World generation is deterministic when using `generateRandomWorld(seed: N)`
+- `ColonySimulation._lastSeed` stores the seed used for the current world
+- Focus tests on: ant state transitions, pheromone decay math, collision detection, energy system, combat resolution
 - UI tests should verify ValueNotifier updates trigger proper rebuilds
 
 ## Common Gotchas
 
 - **Grid coordinates vs pixel coordinates**: Grid uses integer (col, row), rendering uses float (x, y) in pixels. Convert with `cellPos * config.cellSize`.
-- **Angle wrapping**: Ant angles are in radians, not normalized. Use `atan2(dy, dx)` for direction calculations.
+- **Angle wrapping**: Ant angles are in radians, not normalized. Use `atan2(dy, dx)` for direction calculations. Use `_normalizeAngle()` helper in Ant class.
 - **Pheromone indexing**: Always use `world.index(x, y)` rather than calculating manually to avoid bugs.
 - **Delta time**: `dt` is in seconds. Speed values are typically "per second" so multiply by `dt` when applying.
 - **Energy precision**: Energy uses double for smooth recovery but display rounds. Keep energy <= capacity.
 - **Terrain caching**: After bulk terrain edits, call `game.invalidateTerrainLayer()` once rather than per cell.
+- **Pathfinding invalidation**: Terrain changes auto-set `_homeDistanceDirty = true`, but call `world.markHomeDistancesDirty()` if modifying terrain directly.
+- **Collision detection**: Ant movement uses Amanatides & Woo raycast algorithm in `_checkPathCollision()` to detect obstacles along the path.
 
 ## Architecture Philosophy
 

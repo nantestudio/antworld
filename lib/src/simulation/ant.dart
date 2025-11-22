@@ -200,15 +200,25 @@ class Ant {
 
     final distNest = position.distanceTo(world.nestPosition);
     if (!isEnemy && distNest < config.nestRadius + 0.5) {
+      bool deliveredFood = false;
       if (hasFood) {
         _carryingFood = false;
-        state = AntState.forage;
+        deliveredFood = true;
         angle += math.pi;
-        return true;
       }
       if (_needsRest) {
+        // Turn around if we didn't already (from dropping food)
+        if (!deliveredFood) {
+          angle += math.pi;
+        }
+        // Set state to forage before resting so we resume foraging after
+        state = AntState.forage;
         _enterRest();
-        return false;
+        return deliveredFood;
+      }
+      if (deliveredFood) {
+        state = AntState.forage;
+        return true;
       }
     }
 
@@ -226,14 +236,24 @@ class Ant {
         : state;
 
     if (behavior == AntState.returnHome || _needsRest || hasFood) {
+      double? desiredAngle;
       final dir = world.directionToNest(position);
       if (dir != null && dir.length2 > 0.0001) {
-        angle = math.atan2(dir.y, dir.x);
+        desiredAngle = math.atan2(dir.y, dir.x);
       } else {
         final nestDir = world.nestPosition - position;
         if (nestDir.length2 > 0) {
-          angle = math.atan2(nestDir.y, nestDir.x);
+          desiredAngle = math.atan2(nestDir.y, nestDir.x);
         }
+      }
+      if (desiredAngle != null) {
+        // Gradually turn toward home instead of snapping
+        final delta = _normalizeAngle(desiredAngle - angle);
+        // Turn at most 0.4 radians toward the target, with some randomness
+        final turnAmount = delta.clamp(-0.4, 0.4) * (0.6 + rng.nextDouble() * 0.4);
+        angle += turnAmount;
+        // Add wiggle for natural movement
+        angle += (rng.nextDouble() - 0.5) * 0.15;
       }
       return;
     }
@@ -531,7 +551,12 @@ class Ant {
       energy -= spend;
       if (energy <= 0) {
         energy = 0;
-        _enterRest();
+        // Don't rest here - go home first to rest
+        if (!_needsRest) {
+          _stateBeforeRest = state;
+          _needsRest = true;
+        }
+        state = AntState.returnHome;
       }
     }
   }
