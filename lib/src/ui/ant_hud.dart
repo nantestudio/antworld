@@ -79,15 +79,7 @@ class _AntHudState extends State<AntHud> {
   Widget _buildStatsRow(BuildContext context) {
     return Align(
       alignment: Alignment.topLeft,
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        children: [
-          _StatCard(label: 'Day', listenable: widget.simulation.daysPassed),
-          _StatCard(label: 'Ants', listenable: widget.simulation.antCount),
-          _StatCard(label: 'Food', listenable: widget.simulation.foodCollected),
-        ],
-      ),
+      child: _StatsPanel(simulation: widget.simulation),
     );
   }
 
@@ -997,37 +989,144 @@ class _ConfigSlider extends StatelessWidget {
   }
 }
 
-class _StatCard extends StatelessWidget {
-  const _StatCard({required this.label, required this.listenable});
+class _StatsPanel extends StatefulWidget {
+  const _StatsPanel({required this.simulation});
 
-  final String label;
-  final ValueListenable<int> listenable;
+  final ColonySimulation simulation;
+
+  @override
+  State<_StatsPanel> createState() => _StatsPanelState();
+}
+
+class _StatsPanelState extends State<_StatsPanel> {
+  late final Stream<void> _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Stream.periodic(const Duration(milliseconds: 200));
+  }
+
+  String _formatTime(double seconds) {
+    final mins = (seconds / 60).floor();
+    final secs = (seconds % 60).floor();
+    return '${mins}m ${secs}s';
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        child: ValueListenableBuilder<int>(
-          valueListenable: listenable,
-          builder: (context, value, _) {
-            return Column(
+    final sim = widget.simulation;
+
+    return StreamBuilder<void>(
+      stream: _ticker,
+      builder: (context, _) {
+        return Card(
+          color: theme.colorScheme.surface.withValues(alpha: 0.9),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(label, style: theme.textTheme.labelLarge),
-                const SizedBox(height: 4),
-                Text(
-                  '$value',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                // Time row
+                Row(
+                  children: [
+                    Text(
+                      'Day ${sim.daysPassed.value}',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      _formatTime(sim.elapsedTime.value),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                // Stats grid
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 4,
+                  children: [
+                    _StatItem(
+                      icon: Icons.bug_report,
+                      label: 'Ants',
+                      value: '${sim.antCount.value}',
+                    ),
+                    _StatItem(
+                      icon: Icons.restaurant,
+                      label: 'Food',
+                      value: '${sim.foodCollected.value}',
+                      color: Colors.lightGreenAccent,
+                    ),
+                    _StatItem(
+                      icon: Icons.search,
+                      label: 'Foraging',
+                      value: '${sim.foragingCount}',
+                    ),
+                    _StatItem(
+                      icon: Icons.inventory_2,
+                      label: 'Carrying',
+                      value: '${sim.carryingFoodCount}',
+                      color: Colors.lightGreenAccent,
+                    ),
+                    _StatItem(
+                      icon: Icons.hotel,
+                      label: 'Resting',
+                      value: '${sim.restingCount}',
+                      color: Colors.amber,
+                    ),
+                    if (sim.enemyCount > 0)
+                      _StatItem(
+                        icon: Icons.warning,
+                        label: 'Enemies',
+                        value: '${sim.enemyCount}',
+                        color: Colors.redAccent,
+                      ),
+                  ],
                 ),
               ],
-            );
-          },
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _StatItem extends StatelessWidget {
+  const _StatItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color ?? Colors.white70),
+        const SizedBox(width: 4),
+        Text(
+          '$value $label',
+          style: TextStyle(
+            fontSize: 12,
+            color: color ?? Colors.white,
+          ),
         ),
-      ),
+      ],
     );
   }
 }

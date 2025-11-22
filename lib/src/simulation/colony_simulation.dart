@@ -15,7 +15,8 @@ class ColonySimulation {
       foodCollected = ValueNotifier<int>(0),
       pheromonesVisible = ValueNotifier<bool>(true),
       antSpeedMultiplier = ValueNotifier<double>(0.2),
-      daysPassed = ValueNotifier<int>(1) {
+      daysPassed = ValueNotifier<int>(1),
+      elapsedTime = ValueNotifier<double>(0.0) {
     world = WorldGrid(config);
   }
 
@@ -28,6 +29,7 @@ class ColonySimulation {
   final ValueNotifier<bool> pheromonesVisible;
   final ValueNotifier<double> antSpeedMultiplier;
   final ValueNotifier<int> daysPassed;
+  final ValueNotifier<double> elapsedTime;
 
   final math.Random _rng = math.Random();
   int _storedFood = 0;
@@ -42,6 +44,12 @@ class ColonySimulation {
   bool get showPheromones => pheromonesVisible.value;
   int? get lastSeed => _lastSeed;
 
+  // Stats getters for UI
+  int get enemyCount => enemyAnts.length;
+  int get restingCount => ants.where((a) => a.state == AntState.rest).length;
+  int get carryingFoodCount => ants.where((a) => a.hasFood).length;
+  int get foragingCount => ants.where((a) => a.state == AntState.forage && !a.hasFood).length;
+
   void initialize() {
     world.reset();
     world.carveNest();
@@ -50,6 +58,7 @@ class ColonySimulation {
     _storedFood = 0;
     _queuedAnts = 0;
     _elapsedTime = 0.0;
+    elapsedTime.value = 0.0;
     _scheduleNextRaid();
     _scheduleNextFoodCheck();
     foodCollected.value = 0;
@@ -69,6 +78,7 @@ class ColonySimulation {
 
     // Track elapsed time and update days (1 minute = 1 day, affected by speed multiplier)
     _elapsedTime += clampedDt * antSpeedMultiplier.value;
+    elapsedTime.value = _elapsedTime;
     final newDays = (_elapsedTime / 60.0).floor() + 1;
     if (newDays != daysPassed.value) {
       daysPassed.value = newDays;

@@ -273,11 +273,12 @@ class Ant {
       if (desiredAngle != null) {
         // Gradually turn toward home instead of snapping
         final delta = _normalizeAngle(desiredAngle - angle);
-        // Turn at most 0.4 radians toward the target, with some randomness
-        final turnAmount = delta.clamp(-0.4, 0.4) * (0.6 + rng.nextDouble() * 0.4);
+        // Turn at most 0.3 radians toward the target (slower, more organic)
+        // Only apply 50-80% of the turn for smoother curves
+        final turnAmount = delta.clamp(-0.3, 0.3) * (0.5 + rng.nextDouble() * 0.3);
         angle += turnAmount;
-        // Add wiggle for natural movement
-        angle += (rng.nextDouble() - 0.5) * 0.15;
+        // Add stronger wiggle for natural ant-like movement
+        angle += (rng.nextDouble() - 0.5) * 0.25;
       }
       return;
     }
