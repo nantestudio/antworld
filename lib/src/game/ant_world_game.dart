@@ -38,7 +38,12 @@ class AntWorldGame extends FlameGame
   final Vector2 _scaleStartPan = Vector2.zero();
 
   final Paint _screenBgPaint = Paint()..color = const Color(0xFF0F0F0F);
-  final Paint _dirtPaint = Paint()..color = const Color(0xFF5D4037);
+  // 5 dirt type paints (from soft sand to hardite)
+  final Paint _softSandPaint = Paint()..color = const Color(0xFFD7CCC8);   // Light tan
+  final Paint _looseSoilPaint = Paint()..color = const Color(0xFFA1887F);  // Sandy brown
+  final Paint _packedEarthPaint = Paint()..color = const Color(0xFF795548); // Medium brown
+  final Paint _clayPaint = Paint()..color = const Color(0xFF5D4037);       // Dark brown
+  final Paint _harditePaint = Paint()..color = const Color(0xFF8D6E63);    // Reddish-brown
   final Paint _foodPaint = Paint()..color = const Color(0xFF76FF03);
   final Paint _rockPaint = Paint()..color = const Color(0xFF999999);
   // Colony 0 paints (cyan tones)
@@ -293,6 +298,21 @@ class AntWorldGame extends FlameGame
     _cachedTerrainVersion = world.terrainVersion;
   }
 
+  Paint _getDirtPaint(DirtType type) {
+    switch (type) {
+      case DirtType.softSand:
+        return _softSandPaint;
+      case DirtType.looseSoil:
+        return _looseSoilPaint;
+      case DirtType.packedEarth:
+        return _packedEarthPaint;
+      case DirtType.clay:
+        return _clayPaint;
+      case DirtType.hardite:
+        return _harditePaint;
+    }
+  }
+
   void _drawTerrain(Canvas canvas, WorldGrid world, double cellSize) {
     final cols = world.cols;
     final rows = world.rows;
@@ -307,7 +327,9 @@ class AntWorldGame extends FlameGame
         final dy = y * cellSize;
         final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
         if (cellValue == CellType.dirt.index) {
-          canvas.drawRect(rect, _dirtPaint);
+          final dirtType = world.dirtTypeAt(x, y);
+          final paint = _getDirtPaint(dirtType);
+          canvas.drawRect(rect, paint);
         } else if (cellValue == CellType.food.index) {
           canvas.drawRect(rect, _foodPaint);
         } else if (cellValue == CellType.rock.index) {

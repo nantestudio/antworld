@@ -47,6 +47,11 @@ class WorldGenerator {
     final grid = WorldGrid(config);
     grid.reset(); // Fills entire grid with dirt
 
+    // Distribute dirt types based on distance from nests
+    final tempNest0 = Vector2(actualCols * 0.75, actualRows * 0.75);
+    final tempNest1 = Vector2(actualCols * 0.25, actualRows * 0.25);
+    _distributeDirtTypes(grid, rng, tempNest0, tempNest1, actualCols, actualRows);
+
     // Carve both nest chambers on opposite corners
     final (nest0, nest1) = _carveDualNestChambers(grid, rng, actualCols, actualRows);
 
@@ -73,6 +78,93 @@ class WorldGenerator {
       nestPosition: nest0,
       nest1Position: nest1,
     );
+  }
+
+  /// Distribute dirt types based on distance from nests and noise
+  void _distributeDirtTypes(
+    WorldGrid grid,
+    math.Random rng,
+    Vector2 nest0,
+    Vector2 nest1,
+    int cols,
+    int rows,
+  ) {
+    final nestRadius = grid.config.nestRadius;
+    final maxDist = math.sqrt(cols * cols + rows * rows) * 0.5;
+
+    // Pre-generate noise offsets for variation
+    final noiseOffsetX = rng.nextDouble() * 1000;
+    final noiseOffsetY = rng.nextDouble() * 1000;
+
+    for (var y = 0; y < rows; y++) {
+      for (var x = 0; x < cols; x++) {
+        if (grid.cellTypeAt(x, y) != CellType.dirt) continue;
+
+        final pos = Vector2(x.toDouble(), y.toDouble());
+        final dist0 = pos.distanceTo(nest0);
+        final dist1 = pos.distanceTo(nest1);
+        final minDist = math.min(dist0, dist1);
+
+        // Calculate base hardness from distance (0.0 = at nest, 1.0 = far away)
+        final distFactor = (minDist / maxDist).clamp(0.0, 1.0);
+
+        // Add pseudo-random noise for natural variation (simple hash-based noise)
+        final noise = _simpleNoise(x + noiseOffsetX.toInt(), y + noiseOffsetY.toInt());
+
+        // Combine distance and noise
+        final combined = distFactor * 0.7 + noise * 0.3;
+
+        // Determine dirt type based on combined value and distance zones
+        DirtType type;
+        if (minDist < nestRadius * 3) {
+          // Safety zone: only soft sand or loose soil
+          type = combined < 0.5 ? DirtType.softSand : DirtType.looseSoil;
+        } else if (minDist < nestRadius * 5) {
+          // Transition zone: soft to packed
+          if (combined < 0.3) {
+            type = DirtType.softSand;
+          } else if (combined < 0.6) {
+            type = DirtType.looseSoil;
+          } else {
+            type = DirtType.packedEarth;
+          }
+        } else if (minDist < nestRadius * 8) {
+          // Mid zone: loose to clay
+          if (combined < 0.2) {
+            type = DirtType.looseSoil;
+          } else if (combined < 0.5) {
+            type = DirtType.packedEarth;
+          } else if (combined < 0.85) {
+            type = DirtType.clay;
+          } else {
+            // Rare hardite veins (15% in this zone)
+            type = DirtType.hardite;
+          }
+        } else {
+          // Outer zone: can have all types, biased toward harder
+          if (combined < 0.15) {
+            type = DirtType.looseSoil;
+          } else if (combined < 0.35) {
+            type = DirtType.packedEarth;
+          } else if (combined < 0.7) {
+            type = DirtType.clay;
+          } else {
+            type = DirtType.hardite;
+          }
+        }
+
+        grid.setDirtType(x, y, type);
+      }
+    }
+  }
+
+  /// Simple hash-based noise function (0.0 to 1.0)
+  double _simpleNoise(int x, int y) {
+    // Simple hash mixing
+    var h = x * 374761393 + y * 668265263;
+    h = (h ^ (h >> 13)) * 1274126177;
+    h = h ^ (h >> 16);
+    return (h & 0x7FFFFFFF) / 0x7FFFFFFF;
   }
 
   void _carveCaverns(
@@ -466,23 +558,23 @@ class WorldGenerator {
     final cols = grid.cols;
     final rows = grid.rows;
 
-    // Top and bottom borders
+    // Top and bottom borders - use hardite for hard boundary
     for (var x = 0; x < cols; x++) {
       for (var y = 0; y < borderWidth; y++) {
-        grid.setCell(x, y, CellType.dirt);
+        grid.setCell(x, y, CellType.dirt, dirtType: DirtType.hardite);
       }
       for (var y = rows - borderWidth; y < rows; y++) {
-        grid.setCell(x, y, CellType.dirt);
+        grid.setCell(x, y, CellType.dirt, dirtType: DirtType.hardite);
       }
     }
 
     // Left and right borders
     for (var y = 0; y < rows; y++) {
       for (var x = 0; x < borderWidth; x++) {
-        grid.setCell(x, y, CellType.dirt);
+        grid.setCell(x, y, CellType.dirt, dirtType: DirtType.hardite);
       }
       for (var x = cols - borderWidth; x < cols; x++) {
-        grid.setCell(x, y, CellType.dirt);
+        grid.setCell(x, y, CellType.dirt, dirtType: DirtType.hardite);
       }
     }
   }

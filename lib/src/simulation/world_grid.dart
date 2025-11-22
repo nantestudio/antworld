@@ -8,6 +8,24 @@ import 'simulation_config.dart';
 
 enum CellType { air, dirt, food, rock }
 
+/// Dirt hardness types - determines HP and dig difficulty
+enum DirtType {
+  softSand,    // 10 HP - very easy to dig
+  looseSoil,   // 25 HP - easy
+  packedEarth, // 50 HP - medium
+  clay,        // 100 HP - hard
+  hardite,     // 200 HP - very hard, rare
+}
+
+/// HP values for each dirt type
+const Map<DirtType, double> dirtTypeHealth = {
+  DirtType.softSand: 10.0,
+  DirtType.looseSoil: 25.0,
+  DirtType.packedEarth: 50.0,
+  DirtType.clay: 100.0,
+  DirtType.hardite: 200.0,
+};
+
 /// Nest zone types for spatial organization
 enum NestZone {
   none,         // Outside nest or unassigned
@@ -21,6 +39,7 @@ class WorldGrid {
   WorldGrid(this.config, {Vector2? nestOverride, Vector2? nest1Override})
     : cells = Uint8List(config.cols * config.rows),
       zones = Uint8List(config.cols * config.rows),
+      dirtTypes = Uint8List(config.cols * config.rows),
       foodPheromones0 = Float32List(config.cols * config.rows),
       foodPheromones1 = Float32List(config.cols * config.rows),
       homePheromones0 = Float32List(config.cols * config.rows),
@@ -40,6 +59,7 @@ class WorldGrid {
   final SimulationConfig config;
   final Uint8List cells;
   final Uint8List zones; // NestZone for each cell
+  final Uint8List dirtTypes; // DirtType for each cell
   // Per-colony pheromone layers - each colony only senses its own trails
   final Float32List foodPheromones0; // Colony 0 food trails
   final Float32List foodPheromones1; // Colony 1 food trails
@@ -70,7 +90,8 @@ class WorldGrid {
     for (var i = 0; i < cells.length; i++) {
       cells[i] = CellType.dirt.index;
       zones[i] = NestZone.none.index;
-      dirtHealth[i] = config.dirtMaxHealth;
+      dirtTypes[i] = DirtType.packedEarth.index; // Default to medium hardness
+      dirtHealth[i] = dirtTypeHealth[DirtType.packedEarth]!;
       foodAmount[i] = 0;
       foodPheromones0[i] = 0;
       foodPheromones1[i] = 0;
@@ -156,16 +177,34 @@ class WorldGrid {
 
   CellType cellTypeAt(int x, int y) => CellType.values[cells[index(x, y)]];
 
-  void setCell(int x, int y, CellType type) {
+  DirtType dirtTypeAt(int x, int y) => DirtType.values[dirtTypes[index(x, y)]];
+
+  double dirtMaxHealthAt(int x, int y) {
+    final type = DirtType.values[dirtTypes[index(x, y)]];
+    return dirtTypeHealth[type]!;
+  }
+
+  void setDirtType(int x, int y, DirtType type) {
+    final idx = index(x, y);
+    dirtTypes[idx] = type.index;
+    // Reset health to max for this dirt type
+    if (cells[idx] == CellType.dirt.index) {
+      dirtHealth[idx] = dirtTypeHealth[type]!;
+    }
+  }
+
+  void setCell(int x, int y, CellType type, {DirtType? dirtType}) {
     final idx = index(x, y);
     final previous = cells[idx];
     final incoming = type.index;
-    if (previous == incoming) {
+    if (previous == incoming && type != CellType.dirt) {
       return;
     }
     cells[idx] = incoming;
     if (type == CellType.dirt) {
-      dirtHealth[idx] = config.dirtMaxHealth;
+      final dt = dirtType ?? DirtType.packedEarth;
+      dirtTypes[idx] = dt.index;
+      dirtHealth[idx] = dirtTypeHealth[dt]!;
     } else {
       dirtHealth[idx] = 0;
     }
@@ -340,6 +379,7 @@ class WorldGrid {
   void loadState({
     required Uint8List cellsData,
     required Float32List dirtHealthData,
+    Uint8List? dirtTypesData,
     Float32List? foodPheromoneData,  // Legacy: single layer
     Float32List? homePheromoneData,  // Legacy: single layer
     Float32List? foodPheromone0Data, // New: per-colony
@@ -352,6 +392,18 @@ class WorldGrid {
   }) {
     cells.setAll(0, cellsData);
     dirtHealth.setAll(0, dirtHealthData);
+
+    // Load dirt types or default to packedEarth for legacy saves
+    if (dirtTypesData != null && dirtTypesData.length == dirtTypes.length) {
+      dirtTypes.setAll(0, dirtTypesData);
+    } else {
+      // Legacy saves: default all dirt to packedEarth (50 HP behavior)
+      for (int i = 0; i < cells.length; i++) {
+        if (cells[i] == CellType.dirt.index) {
+          dirtTypes[i] = DirtType.packedEarth.index;
+        }
+      }
+    }
 
     // Support both legacy (single layer) and new (per-colony) formats
     if (foodPheromone0Data != null && foodPheromone0Data.length == foodPheromones0.length) {

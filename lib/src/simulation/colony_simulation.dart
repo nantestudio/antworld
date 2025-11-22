@@ -391,6 +391,7 @@ class ColonySimulation {
     world = WorldGrid(config, nestOverride: nestOverride, nest1Override: nest1Override);
     if (worldData != null) {
       final zonesStr = worldData['zones'] as String?;
+      final dirtTypesStr = worldData['dirtTypes'] as String?;
       final blockedStr = worldData['blockedPheromones'] as String?;
       final foodAmountStr = worldData['foodAmount'] as String?;
 
@@ -405,6 +406,7 @@ class ColonySimulation {
       world.loadState(
         cellsData: _decodeUint8(worldData['cells'] as String),
         dirtHealthData: _decodeFloat32(worldData['dirtHealth'] as String),
+        dirtTypesData: dirtTypesStr != null ? _decodeUint8(dirtTypesStr) : null,
         // Legacy pheromone data (will be copied to colony 0 layer)
         foodPheromoneData: legacyFoodStr != null ? _decodeFloat32(legacyFoodStr) : null,
         homePheromoneData: legacyHomeStr != null ? _decodeFloat32(legacyHomeStr) : null,
@@ -945,6 +947,7 @@ class ColonySimulation {
     return {
       'cells': _encodeUint8(Uint8List.fromList(world.cells)),
       'zones': _encodeUint8(Uint8List.fromList(world.zones)),
+      'dirtTypes': _encodeUint8(Uint8List.fromList(world.dirtTypes)),
       'dirtHealth': _encodeFloat32(world.dirtHealth),
       'foodAmount': _encodeUint8(Uint8List.fromList(world.foodAmount)),
       // Per-colony pheromone layers
