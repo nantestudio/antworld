@@ -7,31 +7,117 @@ import 'world_grid.dart';
 
 enum AntState { forage, returnHome, rest }
 
+/// Ant castes with different roles and abilities
+enum AntCaste {
+  worker,   // Basic forager/digger
+  soldier,  // Combat-focused, patrols and defends
+  nurse,    // Stays in nest, cares for larvae
+  drone,    // Male, reproductive only
+  queen,    // Produces eggs, stays in nest center
+  larva,    // Immobile, needs feeding to mature
+}
+
+/// Caste-specific stats and modifiers
+class CasteStats {
+  const CasteStats({
+    required this.speedMultiplier,
+    required this.baseHp,
+    required this.baseAttack,
+    required this.baseDefense,
+    required this.canForage,
+    required this.explorerRange,
+  });
+
+  final double speedMultiplier;
+  final double baseHp;
+  final double baseAttack;
+  final double baseDefense;
+  final bool canForage;
+  final (double, double) explorerRange; // min, max explorer tendency
+
+  static const Map<AntCaste, CasteStats> stats = {
+    AntCaste.worker: CasteStats(
+      speedMultiplier: 1.0,
+      baseHp: 100,
+      baseAttack: 5,
+      baseDefense: 2,
+      canForage: true,
+      explorerRange: (0.0, 0.3),
+    ),
+    AntCaste.soldier: CasteStats(
+      speedMultiplier: 0.8,
+      baseHp: 150,
+      baseAttack: 15,
+      baseDefense: 8,
+      canForage: false,
+      explorerRange: (0.1, 0.2),
+    ),
+    AntCaste.nurse: CasteStats(
+      speedMultiplier: 0.7,
+      baseHp: 80,
+      baseAttack: 2,
+      baseDefense: 1,
+      canForage: false,
+      explorerRange: (0.0, 0.05),
+    ),
+    AntCaste.drone: CasteStats(
+      speedMultiplier: 1.1,
+      baseHp: 60,
+      baseAttack: 1,
+      baseDefense: 1,
+      canForage: false,
+      explorerRange: (0.0, 0.1),
+    ),
+    AntCaste.queen: CasteStats(
+      speedMultiplier: 0.3,
+      baseHp: 500,
+      baseAttack: 3,
+      baseDefense: 10,
+      canForage: false,
+      explorerRange: (0.0, 0.0),
+    ),
+    AntCaste.larva: CasteStats(
+      speedMultiplier: 0.0,
+      baseHp: 50,
+      baseAttack: 0,
+      baseDefense: 0,
+      canForage: false,
+      explorerRange: (0.0, 0.0),
+    ),
+  };
+}
+
 class Ant {
+  static int _nextId = 1;
+
+  /// Reset ID counter (call when starting new simulation)
+  static void resetIdCounter() => _nextId = 1;
+
   Ant({
     required Vector2 startPosition,
     required this.angle,
     required this.energy,
     required math.Random rng,
-    required double explorerRatio,
-    required this.attack,
-    required this.defense,
-    required double maxHpValue,
+    this.caste = AntCaste.worker,
     this.isEnemy = false,
-  })  : position = startPosition.clone(),
-        _isExplorer =
-            !isEnemy && rng.nextDouble() < explorerRatio,
-        maxHp = maxHpValue,
-        hp = maxHpValue;
+  })  : id = _nextId++,
+        position = startPosition.clone(),
+        _explorerTendency = _generateExplorerTendency(caste, rng, isEnemy),
+        attack = CasteStats.stats[caste]!.baseAttack,
+        defense = CasteStats.stats[caste]!.baseDefense,
+        maxHp = CasteStats.stats[caste]!.baseHp,
+        hp = CasteStats.stats[caste]!.baseHp;
 
   Ant.rehydrated({
+    required this.id,
     required Vector2 position,
     required this.angle,
     required this.state,
     required bool carryingFood,
     required this.energy,
     AntState? stateBeforeRest,
-    bool isExplorer = false,
+    double explorerTendency = 0.0,
+    this.caste = AntCaste.worker,
     this.isEnemy = false,
     required this.attack,
     required this.defense,
@@ -40,10 +126,17 @@ class Ant {
   })  : position = position.clone(),
         _carryingFood = carryingFood,
         _stateBeforeRest = stateBeforeRest,
-        _isExplorer = isExplorer,
+        _explorerTendency = explorerTendency,
         maxHp = maxHpValue,
         hp = (hp ?? maxHpValue).clamp(0, maxHpValue);
 
+  static double _generateExplorerTendency(AntCaste caste, math.Random rng, bool isEnemy) {
+    if (isEnemy) return 0.1; // Enemies have low explorer tendency
+    final range = CasteStats.stats[caste]!.explorerRange;
+    return range.$1 + rng.nextDouble() * (range.$2 - range.$1);
+  }
+
+  final int id;
   final Vector2 position;
   double angle;
   AntState state = AntState.forage;
@@ -53,7 +146,8 @@ class Ant {
   int _consecutiveRockHits = 0;
   int _collisionCooldown = 0;
   double _speedMultiplier = 1.0;
-  final bool _isExplorer; // explorer ants ignore pheromones more often
+  final double _explorerTendency; // 0.0-1.0, personality trait for exploration
+  final AntCaste caste;
   final bool isEnemy;
   final double attack;
   final double defense;
@@ -71,9 +165,12 @@ class Ant {
   bool get isDead => hp <= 0;
   bool get isStuck => _stuckTime >= _stuckThreshold;
   double get stuckTime => _stuckTime;
-  bool get isExplorer => _isExplorer;
+  double get explorerTendency => _explorerTendency;
+  bool get isExplorer => _explorerTendency > 0.15; // High tendency = explorer
   bool get needsRest => _needsRest;
   AntState? get stateBeforeRest => _stateBeforeRest;
+  double get casteSpeedMultiplier => CasteStats.stats[caste]!.speedMultiplier;
+  bool get canForage => CasteStats.stats[caste]!.canForage;
 
   void applyDamage(double amount) {
     hp = math.max(0, hp - amount);
@@ -283,8 +380,9 @@ class Ant {
       return;
     }
 
-    // Random exploration: explorers ignore pheromones more often (20% vs 1% chance)
-    final exploreChance = _isExplorer ? 0.20 : 0.01;
+    // Random exploration: based on explorer tendency (personality trait)
+    // Higher tendency = more likely to ignore pheromones and wander
+    final exploreChance = 0.01 + _explorerTendency * 0.5; // 1% to 51% based on tendency
     if (rng.nextDouble() < exploreChance) {
       angle += (rng.nextDouble() - 0.5) * config.randomTurnStrength;
       return; // Skip normal pheromone following
@@ -319,13 +417,14 @@ class Ant {
         steered = true;
       } else if (sensorLeft > sensorRight) {
         // Left is strongest - turn left
-        final mistakeChance = _isExplorer ? 0.15 : 0.03;
+        // Mistake chance scales with explorer tendency (3% to 18%)
+        final mistakeChance = 0.03 + _explorerTendency * 0.5;
         final mistakeFactor = rng.nextDouble() < mistakeChance ? 0.4 : 1.0;
         angle -= (rng.nextDouble() * 0.15 + 0.08) * mistakeFactor;
         steered = true;
       } else {
         // Right is strongest - turn right
-        final mistakeChance = _isExplorer ? 0.15 : 0.03;
+        final mistakeChance = 0.03 + _explorerTendency * 0.5;
         final mistakeFactor = rng.nextDouble() < mistakeChance ? 0.4 : 1.0;
         angle += (rng.nextDouble() * 0.15 + 0.08) * mistakeFactor;
         steered = true;
@@ -622,6 +721,7 @@ class Ant {
 
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'x': position.x,
       'y': position.y,
       'angle': angle,
@@ -629,7 +729,8 @@ class Ant {
       'carryingFood': _carryingFood,
       'energy': energy,
       'stateBeforeRest': _stateBeforeRest?.index,
-      'isExplorer': _isExplorer,
+      'explorerTendency': _explorerTendency,
+      'caste': caste.index,
       'isEnemy': isEnemy,
       'attack': attack,
       'defense': defense,
@@ -643,7 +744,10 @@ class Ant {
     final restIndex = (json['stateBeforeRest'] as num?)?.toInt();
     final clampedState = _clampStateIndex(stateIndex)!;
     final clampedRest = _clampStateIndex(restIndex);
+    final casteIndex = (json['caste'] as num?)?.toInt() ?? 0;
+    final clampedCaste = casteIndex.clamp(0, AntCaste.values.length - 1);
     return Ant.rehydrated(
+      id: (json['id'] as num?)?.toInt() ?? _nextId++,
       position: Vector2(
         (json['x'] as num).toDouble(),
         (json['y'] as num).toDouble(),
@@ -655,7 +759,9 @@ class Ant {
       stateBeforeRest: clampedRest == null
           ? null
           : AntState.values[clampedRest],
-      isExplorer: json['isExplorer'] as bool? ?? false,
+      explorerTendency: (json['explorerTendency'] as num?)?.toDouble() ??
+          (json['isExplorer'] == true ? 0.2 : 0.05), // Migrate old saves
+      caste: AntCaste.values[clampedCaste],
       isEnemy: json['isEnemy'] as bool? ?? false,
       attack: (json['attack'] as num?)?.toDouble() ?? 5,
       defense: (json['defense'] as num?)?.toDouble() ?? 2,

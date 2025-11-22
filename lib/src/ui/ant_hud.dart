@@ -1181,7 +1181,7 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        ant.isEnemy ? 'Enemy Ant' : 'Ant',
+                        ant.isEnemy ? 'Enemy #${ant.id}' : 'Ant #${ant.id}',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -1197,6 +1197,7 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
                     ],
                   ),
                   const SizedBox(height: 8),
+                  _buildProperty('Caste', _casteLabel(ant.caste)),
                   _buildProperty('State', _stateLabel(ant)),
                   _buildProperty('Position', '(${ant.position.x.toStringAsFixed(1)}, ${ant.position.y.toStringAsFixed(1)})'),
                   _buildProperty('Energy', '${ant.energy.toStringAsFixed(1)} / ${widget.simulation.config.energyCapacity}'),
@@ -1204,7 +1205,7 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
                   _buildProperty('Attack', ant.attack.toStringAsFixed(1)),
                   _buildProperty('Defense', ant.defense.toStringAsFixed(1)),
                   _buildProperty('Carrying Food', ant.hasFood ? 'Yes' : 'No'),
-                  if (ant.isExplorer) _buildProperty('Type', 'Explorer'),
+                  _buildProperty('Explorer', '${(ant.explorerTendency * 100).toStringAsFixed(0)}%'),
                   if (ant.needsRest) _buildProperty('Needs Rest', 'Yes'),
                   if (ant.stuckTime > 0)
                     _buildProperty('Stuck Time', '${ant.stuckTime.toStringAsFixed(1)}s'),
@@ -1238,6 +1239,23 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
         return 'Returning Home';
       case AntState.rest:
         return 'Resting';
+    }
+  }
+
+  String _casteLabel(AntCaste caste) {
+    switch (caste) {
+      case AntCaste.worker:
+        return 'Worker';
+      case AntCaste.soldier:
+        return 'Soldier';
+      case AntCaste.nurse:
+        return 'Nurse';
+      case AntCaste.drone:
+        return 'Drone';
+      case AntCaste.queen:
+        return 'Queen';
+      case AntCaste.larva:
+        return 'Larva';
     }
   }
 }

@@ -55,6 +55,7 @@ class ColonySimulation {
     world.carveNest();
     ants.clear();
     enemyAnts.clear();
+    Ant.resetIdCounter();
     _storedFood = 0;
     _queuedAnts = 0;
     _elapsedTime = 0.0;
@@ -237,6 +238,7 @@ class ColonySimulation {
   void prepareForNewWorld() {
     ants.clear();
     enemyAnts.clear();
+    Ant.resetIdCounter();
     _updateAntCount();
     _storedFood = 0;
     _queuedAnts = 0;
@@ -374,18 +376,14 @@ class ColonySimulation {
     _lastSeed = null;
   }
 
-  void _spawnAnt() {
-    final stats = _rollFriendlyStats();
+  void _spawnAnt({AntCaste caste = AntCaste.worker}) {
     ants.add(
       Ant(
         startPosition: world.nestPosition,
         angle: _rng.nextDouble() * math.pi * 2,
         energy: config.energyCapacity,
         rng: _rng,
-        explorerRatio: config.explorerRatio,
-        attack: stats.attack,
-        defense: stats.defense,
-        maxHpValue: stats.hp,
+        caste: caste,
       ),
     );
     _updateAntCount();
@@ -433,17 +431,13 @@ class ColonySimulation {
         (spawnPoint.x + offset.x).clamp(1, world.cols - 2),
         (spawnPoint.y + offset.y).clamp(1, world.rows - 2),
       );
-      final stats = _rollEnemyStats();
       enemyAnts.add(
         Ant(
           startPosition: spawnPos,
           angle: _rng.nextDouble() * math.pi * 2,
           energy: config.energyCapacity,
           rng: _rng,
-          explorerRatio: 0,
-          attack: stats.attack,
-          defense: stats.defense,
-          maxHpValue: stats.hp,
+          caste: AntCaste.soldier, // Enemies are soldiers
           isEnemy: true,
         ),
       );
@@ -658,20 +652,6 @@ class ColonySimulation {
     return closest?.position ?? world.nestPosition;
   }
 
-  _CombatStats _rollFriendlyStats() {
-    final hp = 80 + _rng.nextDouble() * 40;
-    final attack = 4 + _rng.nextDouble() * 3;
-    final defense = 1 + _rng.nextDouble() * 2;
-    return _CombatStats(hp: hp, attack: attack, defense: defense);
-  }
-
-  _CombatStats _rollEnemyStats() {
-    final hp = 70 + _rng.nextDouble() * 60;
-    final attack = 5 + _rng.nextDouble() * 4;
-    final defense = 1 + _rng.nextDouble() * 3;
-    return _CombatStats(hp: hp, attack: attack, defense: defense);
-  }
-
   Map<String, dynamic> _configToJson() {
     return {
       'cols': config.cols,
@@ -804,9 +784,3 @@ Vector2? _vectorFromJson(Map<String, dynamic>? data) {
   return null;
 }
 
-class _CombatStats {
-  const _CombatStats({required this.hp, required this.attack, required this.defense});
-  final double hp;
-  final double attack;
-  final double defense;
-}
