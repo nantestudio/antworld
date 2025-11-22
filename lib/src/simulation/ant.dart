@@ -123,12 +123,18 @@ class Ant {
     required this.defense,
     required double maxHpValue,
     double? hp,
+    double growthProgress = 0.0,
+    int carryingLarvaId = -1,
+    double eggLayTimer = 0.0,
   })  : position = position.clone(),
         _carryingFood = carryingFood,
         _stateBeforeRest = stateBeforeRest,
         _explorerTendency = explorerTendency,
         maxHp = maxHpValue,
-        hp = (hp ?? maxHpValue).clamp(0, maxHpValue);
+        hp = (hp ?? maxHpValue).clamp(0, maxHpValue),
+        _growthProgress = growthProgress,
+        _carryingLarvaId = carryingLarvaId,
+        _eggLayTimer = eggLayTimer;
 
   static double _generateExplorerTendency(AntCaste caste, math.Random rng, bool isEnemy) {
     if (isEnemy) return 0.1; // Enemies have low explorer tendency
@@ -155,6 +161,17 @@ class Ant {
   double hp;
   bool _needsRest = false;
 
+  // Larva growth (only used when caste == larva)
+  double _growthProgress = 0.0;
+  static const double _growthTimeToMature = 60.0; // seconds to mature
+
+  // Nurse carrying larva (reference by ID, -1 = not carrying)
+  int _carryingLarvaId = -1;
+
+  // Queen egg laying timer
+  double _eggLayTimer = 0.0;
+  static const double _eggLayInterval = 30.0; // seconds between laying eggs
+
   // Stuck detection
   final Vector2 _lastPosition = Vector2.zero();
   double _stuckTime = 0;
@@ -171,6 +188,11 @@ class Ant {
   AntState? get stateBeforeRest => _stateBeforeRest;
   double get casteSpeedMultiplier => CasteStats.stats[caste]!.speedMultiplier;
   bool get canForage => CasteStats.stats[caste]!.canForage;
+  double get growthProgress => _growthProgress;
+  bool get isCarryingLarva => _carryingLarvaId >= 0;
+  int get carryingLarvaId => _carryingLarvaId;
+  bool get isReadyToMature => caste == AntCaste.larva && _growthProgress >= _growthTimeToMature;
+  bool get wantsToLayEgg => caste == AntCaste.queen && _eggLayTimer >= _eggLayInterval;
 
   void applyDamage(double amount) {
     hp = math.max(0, hp - amount);
@@ -202,6 +224,24 @@ class Ant {
     if (isEnemy) {
       _updateHostile(dt, config, world, rng, antSpeed, attackTarget);
       return false;
+    }
+
+    // Caste-specific behaviors
+    switch (caste) {
+      case AntCaste.larva:
+        return _updateLarva(dt);
+      case AntCaste.queen:
+        return _updateQueen(dt, config, world, rng);
+      case AntCaste.nurse:
+        // Nurses use modified worker behavior (handled below with zone awareness)
+        break;
+      case AntCaste.soldier:
+        // Soldiers patrol and don't forage (handled below)
+        break;
+      case AntCaste.worker:
+      case AntCaste.drone:
+        // Workers and drones use standard foraging behavior
+        break;
     }
 
     final restEnabled = config.restEnabled;
@@ -719,6 +759,61 @@ class Ant {
     }
   }
 
+  // Caste-specific behaviors
+
+  /// Larva behavior: immobile, just grow over time
+  bool _updateLarva(double dt) {
+    _growthProgress += dt;
+    // Larvae don't move, just signal when ready to mature
+    // Colony simulation handles the actual maturation
+    return false;
+  }
+
+  /// Queen behavior: stay in chamber, lay eggs periodically
+  bool _updateQueen(double dt, SimulationConfig config, WorldGrid world, math.Random rng) {
+    _eggLayTimer += dt;
+
+    // Check if we're in the queen chamber
+    final currentZone = world.zoneAtPosition(position);
+    if (currentZone != NestZone.queenChamber) {
+      // Move toward queen chamber
+      final target = world.nearestZoneCell(position, NestZone.queenChamber, 50);
+      if (target != null) {
+        final desired = math.atan2(target.y - position.y, target.x - position.x);
+        final delta = _normalizeAngle(desired - angle);
+        angle += delta.clamp(-0.2, 0.2);
+        // Queen moves very slowly
+        final speed = config.antSpeed * 0.1 * dt;
+        position.x += math.cos(angle) * speed;
+        position.y += math.sin(angle) * speed;
+      }
+    } else {
+      // In chamber - just wiggle slightly in place
+      angle += (rng.nextDouble() - 0.5) * 0.1;
+    }
+
+    // Return true if queen wants to lay an egg (colony handles spawning)
+    if (_eggLayTimer >= _eggLayInterval) {
+      _eggLayTimer = 0;
+      return true; // Signal to colony to spawn a larva
+    }
+    return false;
+  }
+
+  /// Nurse methods for carrying larvae
+  void pickUpLarva(int larvaId) {
+    _carryingLarvaId = larvaId;
+  }
+
+  void dropLarva() {
+    _carryingLarvaId = -1;
+  }
+
+  /// Reset egg timer (called after spawning larva)
+  void resetEggTimer() {
+    _eggLayTimer = 0;
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -736,6 +831,9 @@ class Ant {
       'defense': defense,
       'maxHp': maxHp,
       'hp': hp,
+      'growthProgress': _growthProgress,
+      'carryingLarvaId': _carryingLarvaId,
+      'eggLayTimer': _eggLayTimer,
     };
   }
 
@@ -767,6 +865,9 @@ class Ant {
       defense: (json['defense'] as num?)?.toDouble() ?? 2,
       maxHpValue: (json['maxHp'] as num?)?.toDouble() ?? 100,
       hp: (json['hp'] as num?)?.toDouble(),
+      growthProgress: (json['growthProgress'] as num?)?.toDouble() ?? 0.0,
+      carryingLarvaId: (json['carryingLarvaId'] as num?)?.toInt() ?? -1,
+      eggLayTimer: (json['eggLayTimer'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }

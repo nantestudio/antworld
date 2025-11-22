@@ -1048,16 +1048,11 @@ class _StatsPanelState extends State<_StatsPanel> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                // Stats grid
+                // Colony stats
                 Wrap(
                   spacing: 16,
                   runSpacing: 4,
                   children: [
-                    _StatItem(
-                      icon: Icons.bug_report,
-                      label: 'Ants',
-                      value: '${sim.antCount.value}',
-                    ),
                     _StatItem(
                       icon: Icons.restaurant,
                       label: 'Food',
@@ -1087,6 +1082,45 @@ class _StatsPanelState extends State<_StatsPanel> {
                         label: 'Enemies',
                         value: '${sim.enemyCount}',
                         color: Colors.redAccent,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                // Caste breakdown
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
+                  children: [
+                    if (sim.queenCount > 0)
+                      _StatItem(
+                        icon: Icons.stars,
+                        label: 'Queen',
+                        value: '${sim.queenCount}',
+                        color: Colors.purpleAccent,
+                      ),
+                    _StatItem(
+                      icon: Icons.construction,
+                      label: 'Workers',
+                      value: '${sim.workerCount}',
+                    ),
+                    _StatItem(
+                      icon: Icons.shield,
+                      label: 'Soldiers',
+                      value: '${sim.soldierCount}',
+                      color: Colors.orangeAccent,
+                    ),
+                    _StatItem(
+                      icon: Icons.child_care,
+                      label: 'Nurses',
+                      value: '${sim.nurseCount}',
+                      color: Colors.pinkAccent,
+                    ),
+                    if (sim.larvaCount > 0)
+                      _StatItem(
+                        icon: Icons.egg_alt,
+                        label: 'Larvae',
+                        value: '${sim.larvaCount}',
+                        color: Colors.white70,
                       ),
                   ],
                 ),
@@ -1207,8 +1241,9 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
                   _buildProperty('Carrying Food', ant.hasFood ? 'Yes' : 'No'),
                   _buildProperty('Explorer', '${(ant.explorerTendency * 100).toStringAsFixed(0)}%'),
                   if (ant.needsRest) _buildProperty('Needs Rest', 'Yes'),
-                  if (ant.stuckTime > 0)
-                    _buildProperty('Stuck Time', '${ant.stuckTime.toStringAsFixed(1)}s'),
+                  _buildProperty('Stuck Time', ant.stuckTime > 0.1
+                      ? '${ant.stuckTime.toStringAsFixed(1)}s'
+                      : 'N/A'),
                 ],
               ),
             ),

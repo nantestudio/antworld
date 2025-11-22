@@ -8,9 +8,19 @@ import 'simulation_config.dart';
 
 enum CellType { air, dirt, food, rock }
 
+/// Nest zone types for spatial organization
+enum NestZone {
+  none,         // Outside nest or unassigned
+  general,      // General nest area (outer ring)
+  nursery,      // Larva growing area (middle ring)
+  queenChamber, // Queen's room (inner core)
+  foodStorage,  // Food storage area (future use)
+}
+
 class WorldGrid {
   WorldGrid(this.config, {Vector2? nestOverride})
     : cells = Uint8List(config.cols * config.rows),
+      zones = Uint8List(config.cols * config.rows),
       foodPheromones = Float32List(config.cols * config.rows),
       homePheromones = Float32List(config.cols * config.rows),
       dirtHealth = Float32List(config.cols * config.rows),
@@ -20,6 +30,7 @@ class WorldGrid {
 
   final SimulationConfig config;
   final Uint8List cells;
+  final Uint8List zones; // NestZone for each cell
   final Float32List foodPheromones;
   final Float32List homePheromones;
   final Vector2 nestPosition;
@@ -41,6 +52,7 @@ class WorldGrid {
   void reset() {
     for (var i = 0; i < cells.length; i++) {
       cells[i] = CellType.dirt.index;
+      zones[i] = NestZone.none.index;
       dirtHealth[i] = config.dirtMaxHealth;
       foodPheromones[i] = 0;
       homePheromones[i] = 0;
@@ -54,15 +66,36 @@ class WorldGrid {
   void carveNest() {
     final cx = nestPosition.x.floor();
     final cy = nestPosition.y.floor();
+    final totalRadius = config.nestRadius + 0.5;
+
+    // Zone radii (concentric rings)
+    // Queen chamber: innermost 30% of nest
+    // Nursery: 30-60% of nest radius
+    // General: 60-100% of nest radius
+    final queenRadius = totalRadius * 0.3;
+    final nurseryRadius = totalRadius * 0.6;
+
     for (var dx = -config.nestRadius; dx <= config.nestRadius; dx++) {
       for (var dy = -config.nestRadius; dy <= config.nestRadius; dy++) {
         final nx = cx + dx;
         final ny = cy + dy;
         if (!isInsideIndex(nx, ny)) continue;
-        if (math.sqrt(dx * dx + dy * dy) <= config.nestRadius + 0.5) {
+
+        final dist = math.sqrt(dx * dx + dy * dy);
+        if (dist <= totalRadius) {
           setCell(nx, ny, CellType.air);
-          homePheromones[index(nx, ny)] = 1.0;
-          _activePheromoneCells.add(index(nx, ny));
+          final idx = index(nx, ny);
+          homePheromones[idx] = 1.0;
+          _activePheromoneCells.add(idx);
+
+          // Assign zone based on distance from center
+          if (dist <= queenRadius) {
+            zones[idx] = NestZone.queenChamber.index;
+          } else if (dist <= nurseryRadius) {
+            zones[idx] = NestZone.nursery.index;
+          } else {
+            zones[idx] = NestZone.general.index;
+          }
         }
       }
     }
@@ -218,11 +251,15 @@ class WorldGrid {
     required Float32List dirtHealthData,
     required Float32List foodPheromoneData,
     required Float32List homePheromoneData,
+    Uint8List? zonesData,
   }) {
     cells.setAll(0, cellsData);
     dirtHealth.setAll(0, dirtHealthData);
     foodPheromones.setAll(0, foodPheromoneData);
     homePheromones.setAll(0, homePheromoneData);
+    if (zonesData != null && zonesData.length == zones.length) {
+      zones.setAll(0, zonesData);
+    }
     _rebuildFoodCache();
     _rebuildPheromoneCache();
     _terrainVersion++;
@@ -383,5 +420,80 @@ class WorldGrid {
         queue.add(idx);
       }
     }
+  }
+
+  // Zone management methods
+
+  /// Get the zone type at a grid position
+  NestZone zoneAt(int x, int y) {
+    if (!isInsideIndex(x, y)) return NestZone.none;
+    return NestZone.values[zones[index(x, y)]];
+  }
+
+  /// Get zone at world position
+  NestZone zoneAtPosition(Vector2 pos) {
+    return zoneAt(pos.x.floor(), pos.y.floor());
+  }
+
+  /// Set zone for a cell
+  void setZone(int x, int y, NestZone zone) {
+    if (!isInsideIndex(x, y)) return;
+    zones[index(x, y)] = zone.index;
+  }
+
+  /// Check if position is within a specific zone
+  bool isInZone(Vector2 pos, NestZone zone) {
+    return zoneAtPosition(pos) == zone;
+  }
+
+  /// Find nearest walkable cell of a specific zone type
+  Vector2? nearestZoneCell(Vector2 from, NestZone targetZone, double maxDistance) {
+    final maxDistSq = maxDistance * maxDistance;
+    var bestDistSq = maxDistSq;
+    Vector2? best;
+    final fx = from.x;
+    final fy = from.y;
+
+    // Scan area around the position
+    final scanRadius = maxDistance.ceil();
+    final cx = fx.floor();
+    final cy = fy.floor();
+
+    for (var dx = -scanRadius; dx <= scanRadius; dx++) {
+      for (var dy = -scanRadius; dy <= scanRadius; dy++) {
+        final nx = cx + dx;
+        final ny = cy + dy;
+        if (!isInsideIndex(nx, ny)) continue;
+        if (!isWalkableCell(nx, ny)) continue;
+
+        final idx = index(nx, ny);
+        if (NestZone.values[zones[idx]] != targetZone) continue;
+
+        final cellX = nx + 0.5;
+        final cellY = ny + 0.5;
+        final ddx = cellX - fx;
+        final ddy = cellY - fy;
+        final distSq = ddx * ddx + ddy * ddy;
+
+        if (distSq < bestDistSq) {
+          bestDistSq = distSq;
+          best = Vector2(cellX, cellY);
+        }
+      }
+    }
+    return best;
+  }
+
+  /// Get all cells in a zone (for debugging/visualization)
+  List<Vector2> getCellsInZone(NestZone zone) {
+    final result = <Vector2>[];
+    for (var y = 0; y < rows; y++) {
+      for (var x = 0; x < cols; x++) {
+        if (zoneAt(x, y) == zone) {
+          result.add(Vector2(x + 0.5, y + 0.5));
+        }
+      }
+    }
+    return result;
   }
 }

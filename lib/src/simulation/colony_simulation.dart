@@ -49,6 +49,11 @@ class ColonySimulation {
   int get restingCount => ants.where((a) => a.state == AntState.rest).length;
   int get carryingFoodCount => ants.where((a) => a.hasFood).length;
   int get foragingCount => ants.where((a) => a.state == AntState.forage && !a.hasFood).length;
+  int get workerCount => ants.where((a) => a.caste == AntCaste.worker).length;
+  int get soldierCount => ants.where((a) => a.caste == AntCaste.soldier).length;
+  int get nurseCount => ants.where((a) => a.caste == AntCaste.nurse).length;
+  int get larvaCount => ants.where((a) => a.caste == AntCaste.larva).length;
+  int get queenCount => ants.where((a) => a.caste == AntCaste.queen).length;
 
   void initialize() {
     world.reset();
@@ -65,10 +70,31 @@ class ColonySimulation {
     foodCollected.value = 0;
     daysPassed.value = 1;
 
-    for (var i = 0; i < config.startingAnts; i++) {
-      _spawnAnt();
-    }
+    _spawnInitialColony();
     _updateAntCount();
+  }
+
+  void _spawnInitialColony() {
+    // Always spawn one queen
+    _spawnAnt(caste: AntCaste.queen);
+
+    // Spawn nurses (10% of starting ants)
+    final nurseCount = math.max(1, (config.startingAnts * 0.1).round());
+    for (var i = 0; i < nurseCount; i++) {
+      _spawnAnt(caste: AntCaste.nurse);
+    }
+
+    // Spawn soldiers (10% of starting ants)
+    final soldierCount = math.max(1, (config.startingAnts * 0.1).round());
+    for (var i = 0; i < soldierCount; i++) {
+      _spawnAnt(caste: AntCaste.soldier);
+    }
+
+    // Rest are workers
+    final workerCount = config.startingAnts - 1 - nurseCount - soldierCount;
+    for (var i = 0; i < workerCount; i++) {
+      _spawnAnt(caste: AntCaste.worker);
+    }
   }
 
   void update(double dt) {
@@ -85,16 +111,30 @@ class ColonySimulation {
       daysPassed.value = newDays;
     }
 
+    final larvaeToMature = <Ant>[];
     for (final ant in ants) {
-      final delivered =
+      final result =
           ant.update(clampedDt, config, world, _rng, antSpeed, attackTarget: null);
-      if (delivered) {
+
+      if (ant.caste == AntCaste.queen && result) {
+        // Queen wants to lay an egg - spawn a larva
+        _spawnLarvaAtQueen(ant);
+      } else if (ant.caste == AntCaste.larva && ant.isReadyToMature) {
+        // Larva ready to become a worker
+        larvaeToMature.add(ant);
+      } else if (result && ant.caste == AntCaste.worker) {
+        // Worker delivered food
         _storedFood += 1;
         foodCollected.value = _storedFood;
         if (_storedFood % config.foodPerNewAnt == 0) {
           _queuedAnts += 1;
         }
       }
+    }
+
+    // Mature larvae into workers
+    for (final larva in larvaeToMature) {
+      _matureLarva(larva);
     }
 
     final double enemySpeed = antSpeed * 0.9;
@@ -260,9 +300,7 @@ class ColonySimulation {
     enemyAnts.clear();
     _scheduleNextRaid();
     _scheduleNextFoodCheck();
-    for (var i = 0; i < config.startingAnts; i++) {
-      _spawnAnt();
-    }
+    _spawnInitialColony();
     _updateAntCount();
   }
 
@@ -301,6 +339,7 @@ class ColonySimulation {
     );
     world = WorldGrid(config, nestOverride: nestOverride);
     if (worldData != null) {
+      final zonesStr = worldData['zones'] as String?;
       world.loadState(
         cellsData: _decodeUint8(worldData['cells'] as String),
         dirtHealthData: _decodeFloat32(worldData['dirtHealth'] as String),
@@ -310,6 +349,7 @@ class ColonySimulation {
         homePheromoneData: _decodeFloat32(
           worldData['homePheromones'] as String,
         ),
+        zonesData: zonesStr != null ? _decodeUint8(zonesStr) : null,
       );
     }
 
@@ -387,6 +427,40 @@ class ColonySimulation {
       ),
     );
     _updateAntCount();
+  }
+
+  void _spawnLarvaAtQueen(Ant queen) {
+    // Spawn larva near the queen's position (in queen chamber)
+    final offset = Vector2(
+      (_rng.nextDouble() - 0.5) * 2,
+      (_rng.nextDouble() - 0.5) * 2,
+    );
+    final spawnPos = queen.position + offset;
+    ants.add(
+      Ant(
+        startPosition: spawnPos,
+        angle: _rng.nextDouble() * math.pi * 2,
+        energy: config.energyCapacity,
+        rng: _rng,
+        caste: AntCaste.larva,
+      ),
+    );
+    _updateAntCount();
+  }
+
+  void _matureLarva(Ant larva) {
+    // Remove the larva and spawn a new worker at its position
+    ants.remove(larva);
+    ants.add(
+      Ant(
+        startPosition: larva.position,
+        angle: _rng.nextDouble() * math.pi * 2,
+        energy: config.energyCapacity,
+        rng: _rng,
+        caste: AntCaste.worker,
+      ),
+    );
+    // No need to update count - same number of ants
   }
 
   void _flushSpawnQueue() {
@@ -686,6 +760,7 @@ class ColonySimulation {
   Map<String, dynamic> _worldToJson() {
     return {
       'cells': _encodeUint8(Uint8List.fromList(world.cells)),
+      'zones': _encodeUint8(Uint8List.fromList(world.zones)),
       'dirtHealth': _encodeFloat32(world.dirtHealth),
       'foodPheromones': _encodeFloat32(world.foodPheromones),
       'homePheromones': _encodeFloat32(world.homePheromones),
