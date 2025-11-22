@@ -10,7 +10,7 @@ class SimulationConfig {
     this.sensorDistance = 6,
     this.sensorAngle = 0.6,
     this.foodDepositStrength = 0.5,
-    this.homeDepositStrength = 0.2,
+    this.homeDepositStrength = 0.4,
     this.foodPickupRotation = math.pi,
     this.foodPerNewAnt = 3,
     this.nestRadius = 3,

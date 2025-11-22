@@ -412,25 +412,45 @@ class Ant {
         : state;
 
     if (behavior == AntState.returnHome || _needsRest || hasFood) {
-      double? desiredAngle;
+      // Try BFS pathfinding first (only works for colony 0)
       final dir = world.directionToNest(position, colonyId: colonyId);
       if (dir != null && dir.length2 > 0.0001) {
-        desiredAngle = math.atan2(dir.y, dir.x);
-      } else {
-        final myNest = world.getNestPosition(colonyId);
-        final nestDir = myNest - position;
-        if (nestDir.length2 > 0) {
-          desiredAngle = math.atan2(nestDir.y, nestDir.x);
-        }
-      }
-      if (desiredAngle != null) {
-        // Gradually turn toward home instead of snapping
+        final desiredAngle = math.atan2(dir.y, dir.x);
         final delta = _normalizeAngle(desiredAngle - angle);
-        // Turn more decisively toward home (0.4-0.6 radians max)
-        final turnAmount = delta.clamp(-0.5, 0.5) * (0.7 + rng.nextDouble() * 0.2);
-        angle += turnAmount;
-        // Minimal wiggle to keep movement natural but focused
-        angle += (rng.nextDouble() - 0.5) * 0.08;
+        angle += delta.clamp(-0.5, 0.5) * (0.7 + rng.nextDouble() * 0.2);
+        angle += (rng.nextDouble() - 0.5) * 0.05;
+        return;
+      }
+
+      // No BFS path - use home pheromone sensing (3-sensor system)
+      final sensorRight = _sense(angle + config.sensorAngle, config, world, rng);
+      final sensorFront = _sense(angle, config, world, rng);
+      final sensorLeft = _sense(angle - config.sensorAngle, config, world, rng);
+
+      final maxSignal = math.max(sensorFront, math.max(sensorLeft, sensorRight));
+      if (maxSignal > 0.01) {
+        // Follow home pheromone gradient
+        if (sensorFront >= sensorLeft && sensorFront >= sensorRight) {
+          // Front strongest - go straight with tiny noise
+          angle += (rng.nextDouble() - 0.5) * 0.05;
+        } else if (sensorLeft > sensorRight) {
+          // Turn left toward stronger home scent
+          angle -= (rng.nextDouble() * 0.15 + 0.1);
+        } else {
+          // Turn right toward stronger home scent
+          angle += (rng.nextDouble() * 0.15 + 0.1);
+        }
+        return;
+      }
+
+      // No pheromones - fall back to direct vector toward nest
+      final myNest = world.getNestPosition(colonyId);
+      final nestDir = myNest - position;
+      if (nestDir.length2 > 0) {
+        final desiredAngle = math.atan2(nestDir.y, nestDir.x);
+        final delta = _normalizeAngle(desiredAngle - angle);
+        angle += delta.clamp(-0.5, 0.5) * 0.6;
+        angle += (rng.nextDouble() - 0.5) * 0.1;
       }
       return;
     }

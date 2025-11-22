@@ -168,9 +168,13 @@ class WorldGrid {
 
   void decay(double factor, double threshold) {
     if (_activePheromoneCells.isEmpty) {
-      final nestIdx = index(nestPosition.x.floor(), nestPosition.y.floor());
-      homePheromones[nestIdx] = 1.0;
-      _activePheromoneCells.add(nestIdx);
+      // Both nests radiate home pheromone
+      final nest0Idx = index(nestPosition.x.floor(), nestPosition.y.floor());
+      final nest1Idx = index(nest1Position.x.floor(), nest1Position.y.floor());
+      homePheromones[nest0Idx] = 1.0;
+      homePheromones[nest1Idx] = 1.0;
+      _activePheromoneCells.add(nest0Idx);
+      _activePheromoneCells.add(nest1Idx);
       return;
     }
 
@@ -212,9 +216,13 @@ class WorldGrid {
       _activePheromoneCells.remove(idx);
     }
 
-    final nestIdx = index(nestPosition.x.floor(), nestPosition.y.floor());
-    homePheromones[nestIdx] = 1.0;
-    _activePheromoneCells.add(nestIdx);
+    // Both nests always radiate max home pheromone
+    final nest0Idx = index(nestPosition.x.floor(), nestPosition.y.floor());
+    final nest1Idx = index(nest1Position.x.floor(), nest1Position.y.floor());
+    homePheromones[nest0Idx] = 1.0;
+    homePheromones[nest1Idx] = 1.0;
+    _activePheromoneCells.add(nest0Idx);
+    _activePheromoneCells.add(nest1Idx);
   }
 
   void digCircle(Vector2 cellPos, int radius) {
