@@ -96,14 +96,13 @@ class Ant {
 
     if (restEnabled) {
       energy -= config.energyDecayPerSecond * dt;
-      final double reserve = config.digEnergyCost * 1.2;
-      if (energy <= reserve) {
+      if (energy <= 0) {
+        energy = 0;
         if (!_needsRest) {
           _stateBeforeRest = state;
           _needsRest = true;
         }
         state = AntState.returnHome;
-        energy = math.max(energy, config.digEnergyCost * 0.8);
       }
     } else {
       energy = config.energyCapacity;
@@ -520,7 +519,7 @@ class Ant {
   }
 
   void _dig(WorldGrid world, int gx, int gy, SimulationConfig config) {
-    final applyEnergyCost = config.restEnabled && !isEnemy;
+    final applyEnergyCost = config.restEnabled && !isEnemy && !_needsRest;
     final spend = applyEnergyCost
         ? math.min(config.digEnergyCost, energy)
         : config.digEnergyCost;
@@ -542,6 +541,7 @@ class Ant {
       state =
           _stateBeforeRest ?? (hasFood ? AntState.returnHome : AntState.forage);
       _stateBeforeRest = null;
+      _needsRest = false;
     }
   }
 
