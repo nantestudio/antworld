@@ -36,13 +36,11 @@ class WorldGenerator {
     final rng = math.Random(seed);
     final cols = rng.nextInt(60) + 70; // 70-129
     final rows = rng.nextInt(50) + 70; // 70-119
-    final nestX = rng.nextInt(cols - 20) + 10;
-    final nestY = rng.nextInt(rows - 20) + 10;
     final config = baseConfig.copyWith(cols: cols, rows: rows);
-    final nest = Vector2(nestX.toDouble(), nestY.toDouble());
-    final grid = WorldGrid(config, nestOverride: nest);
+    final grid = WorldGrid(config);
     grid.reset();
-    grid.carveNest();
+    _buildSurfaceLayer(grid);
+    final nest = _carveNestChamber(grid, rng);
 
     _carveMainTunnels(grid, rng, nest, cols, rows);
     _carveCaverns(grid, rng, cols, rows);
@@ -190,3 +188,21 @@ class WorldGenerator {
     );
   }
 }
+  void _buildSurfaceLayer(WorldGrid grid) {
+    final surfaceDepth = 6;
+    for (var y = 0; y < surfaceDepth && y < grid.rows; y++) {
+      for (var x = 0; x < grid.cols; x++) {
+        grid.setCell(x, y, CellType.air);
+      }
+    }
+  }
+
+  Vector2 _carveNestChamber(WorldGrid grid, math.Random rng) {
+    final nestX = rng.nextInt(grid.cols - 20) + 10;
+    final safeDepth = 8;
+    final nestY = math.max(safeDepth, grid.rows - 12);
+    final nest = Vector2(nestX.toDouble(), nestY.toDouble());
+    grid.digCircle(nest, grid.config.nestRadius + 3);
+    grid.carveNest();
+    return nest;
+  }
