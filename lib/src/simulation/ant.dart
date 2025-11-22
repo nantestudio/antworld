@@ -426,21 +426,21 @@ class Ant {
       if (desiredAngle != null) {
         // Gradually turn toward home instead of snapping
         final delta = _normalizeAngle(desiredAngle - angle);
-        // Turn at most 0.3 radians toward the target (slower, more organic)
-        // Only apply 50-80% of the turn for smoother curves
-        final turnAmount = delta.clamp(-0.3, 0.3) * (0.5 + rng.nextDouble() * 0.3);
+        // Turn more decisively toward home (0.4-0.6 radians max)
+        final turnAmount = delta.clamp(-0.5, 0.5) * (0.7 + rng.nextDouble() * 0.2);
         angle += turnAmount;
-        // Add stronger wiggle for natural ant-like movement
-        angle += (rng.nextDouble() - 0.5) * 0.25;
+        // Minimal wiggle to keep movement natural but focused
+        angle += (rng.nextDouble() - 0.5) * 0.08;
       }
       return;
     }
 
     // Random exploration: based on explorer tendency (personality trait)
     // Higher tendency = more likely to ignore pheromones and wander
-    final exploreChance = 0.01 + _explorerTendency * 0.5; // 1% to 51% based on tendency
+    // Reduced from 1-51% to 0.5-10% for more focused behavior
+    final exploreChance = 0.005 + _explorerTendency * 0.1;
     if (rng.nextDouble() < exploreChance) {
-      angle += (rng.nextDouble() - 0.5) * config.randomTurnStrength;
+      angle += (rng.nextDouble() - 0.5) * config.randomTurnStrength * 0.5;
       return; // Skip normal pheromone following
     }
 
@@ -495,11 +495,11 @@ class Ant {
         // Successfully steering toward food
         return;
       }
-      // No food in range - wander more aggressively to explore
-      angle += (rng.nextDouble() - 0.5) * 0.4;
+      // No food in range - moderate wandering to explore (reduced from 0.4)
+      angle += (rng.nextDouble() - 0.5) * 0.2;
     } else if (!steered) {
-      // Small random wandering when no guidance at all
-      angle += (rng.nextDouble() - 0.5) * 0.15;
+      // Minimal random wandering when no guidance at all
+      angle += (rng.nextDouble() - 0.5) * 0.1;
     }
   }
 
@@ -563,8 +563,10 @@ class Ant {
     }
     final desired = math.atan2(target.y - position.y, target.x - position.x);
     final delta = _normalizeAngle(desired - angle);
-    angle += delta.clamp(-0.3, 0.3) * 0.4;
-    angle += (rng.nextDouble() - 0.5) * 0.05;
+    // Turn more decisively toward food (was 0.12 max, now 0.35 max)
+    angle += delta.clamp(-0.5, 0.5) * 0.7;
+    // Minimal noise when targeting food
+    angle += (rng.nextDouble() - 0.5) * 0.02;
     return target;
   }
 
@@ -861,14 +863,15 @@ class Ant {
       if (dir != null && dir.length2 > 0.0001) {
         final desired = math.atan2(dir.y, dir.x);
         final delta = _normalizeAngle(desired - angle);
-        angle += delta.clamp(-0.3, 0.3);
+        // More decisive turning toward nest
+        angle += delta.clamp(-0.5, 0.5) * 0.8;
       } else {
         // Fallback for colony 1 or when no path found
         final nestDir = myNest - position;
         if (nestDir.length2 > 0) {
           final desired = math.atan2(nestDir.y, nestDir.x);
           final delta = _normalizeAngle(desired - angle);
-          angle += delta.clamp(-0.3, 0.3);
+          angle += delta.clamp(-0.5, 0.5) * 0.8;
         }
       }
 
