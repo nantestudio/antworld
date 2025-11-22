@@ -550,7 +550,7 @@ class WorldGenerator {
     return (nest0, nest1);
   }
 
-  /// Create home and nursery rooms for a colony
+  /// Create home, nursery, and food storage rooms for a colony
   void _createColonyRooms(
     WorldGrid grid,
     Vector2 nestCenter,
@@ -559,7 +559,9 @@ class WorldGenerator {
   ) {
     const homeRadius = 4.0;
     const nurseryRadius = 3.0;
+    const foodStorageRadius = 3.5;
     const roomGap = 2.0; // Gap between rooms
+    const margin = 8.0;
 
     // Create home room at nest center
     final homeRoom = Room(
@@ -570,17 +572,13 @@ class WorldGenerator {
     );
     grid.addRoom(homeRoom);
 
-    // Calculate nursery position - offset from home
-    // Random direction but ensure it's within bounds
-    final angle = rng.nextDouble() * 2 * math.pi;
-    final distance = homeRadius + roomGap + nurseryRadius;
+    // Calculate nursery position - offset from home in random direction
+    final nurseryAngle = rng.nextDouble() * 2 * math.pi;
+    final nurseryDistance = homeRadius + roomGap + nurseryRadius;
     var nurseryCenter = Vector2(
-      nestCenter.x + math.cos(angle) * distance,
-      nestCenter.y + math.sin(angle) * distance,
+      nestCenter.x + math.cos(nurseryAngle) * nurseryDistance,
+      nestCenter.y + math.sin(nurseryAngle) * nurseryDistance,
     );
-
-    // Clamp to map bounds with margin
-    const margin = 8.0;
     nurseryCenter.x = nurseryCenter.x.clamp(margin, grid.cols - margin);
     nurseryCenter.y = nurseryCenter.y.clamp(margin, grid.rows - margin);
 
@@ -593,8 +591,28 @@ class WorldGenerator {
     );
     grid.addRoom(nurseryRoom);
 
-    // Dig a connecting tunnel between rooms
+    // Calculate food storage position - opposite side from nursery
+    final foodAngle = nurseryAngle + math.pi; // Opposite direction
+    final foodDistance = homeRadius + roomGap + foodStorageRadius;
+    var foodCenter = Vector2(
+      nestCenter.x + math.cos(foodAngle) * foodDistance,
+      nestCenter.y + math.sin(foodAngle) * foodDistance,
+    );
+    foodCenter.x = foodCenter.x.clamp(margin, grid.cols - margin);
+    foodCenter.y = foodCenter.y.clamp(margin, grid.rows - margin);
+
+    // Create food storage room
+    final foodRoom = Room(
+      type: RoomType.foodStorage,
+      center: foodCenter,
+      radius: foodStorageRadius,
+      colonyId: colonyId,
+    );
+    grid.addRoom(foodRoom);
+
+    // Dig connecting tunnels between rooms
     _digTunnel(grid, homeRoom.center, nurseryRoom.center);
+    _digTunnel(grid, homeRoom.center, foodRoom.center);
   }
 
   /// Dig a tunnel connecting two points

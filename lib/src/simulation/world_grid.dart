@@ -10,20 +10,20 @@ enum CellType { air, dirt, food, rock }
 
 /// Dirt hardness types - determines HP and dig difficulty
 enum DirtType {
-  softSand,    // 10 HP - very easy to dig
-  looseSoil,   // 25 HP - easy
-  packedEarth, // 50 HP - medium
-  clay,        // 100 HP - hard
-  hardite,     // 200 HP - very hard, rare
+  softSand,    // 5 HP - very easy to dig
+  looseSoil,   // 12 HP - easy
+  packedEarth, // 25 HP - medium
+  clay,        // 50 HP - hard
+  hardite,     // 100 HP - very hard, rare
 }
 
-/// HP values for each dirt type
+/// HP values for each dirt type (halved for easier digging)
 const Map<DirtType, double> dirtTypeHealth = {
-  DirtType.softSand: 10.0,
-  DirtType.looseSoil: 25.0,
-  DirtType.packedEarth: 50.0,
-  DirtType.clay: 100.0,
-  DirtType.hardite: 200.0,
+  DirtType.softSand: 5.0,
+  DirtType.looseSoil: 12.0,
+  DirtType.packedEarth: 25.0,
+  DirtType.clay: 50.0,
+  DirtType.hardite: 100.0,
 };
 
 /// Nest zone types for spatial organization

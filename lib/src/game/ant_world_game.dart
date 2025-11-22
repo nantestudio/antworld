@@ -81,6 +81,8 @@ class AntWorldGame extends FlameGame
   final Paint _homeRoom1Paint = Paint()..color = const Color(0x1AFF7043); // Orange 10%
   final Paint _nurseryRoom0Paint = Paint()..color = const Color(0x1AE91E63); // Pink 10%
   final Paint _nurseryRoom1Paint = Paint()..color = const Color(0x1AFF9800); // Amber 10%
+  final Paint _foodRoom0Paint = Paint()..color = const Color(0x1A8BC34A); // Green 10%
+  final Paint _foodRoom1Paint = Paint()..color = const Color(0x1ACDDC39); // Lime 10%
   final Paint _homeRoomBorder0Paint = Paint()
     ..color = const Color(0x334DD0E1)
     ..style = PaintingStyle.stroke
@@ -95,6 +97,14 @@ class AntWorldGame extends FlameGame
     ..strokeWidth = 2.0;
   final Paint _nurseryRoomBorder1Paint = Paint()
     ..color = const Color(0x33FF9800)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
+  final Paint _foodRoomBorder0Paint = Paint()
+    ..color = const Color(0x338BC34A)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
+  final Paint _foodRoomBorder1Paint = Paint()
+    ..color = const Color(0x33CDDC39)
     ..style = PaintingStyle.stroke
     ..strokeWidth = 2.0;
 
@@ -122,6 +132,10 @@ class AntWorldGame extends FlameGame
   )..layout();
   late final TextPainter _nurseryLabelPainter = TextPainter(
     text: const TextSpan(text: 'Nursery', style: _roomLabelStyle),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  late final TextPainter _foodStorageLabelPainter = TextPainter(
+    text: const TextSpan(text: 'Food', style: _roomLabelStyle),
     textDirection: TextDirection.ltr,
   )..layout();
 
@@ -325,12 +339,16 @@ class AntWorldGame extends FlameGame
       // Select paints based on room type and colony
       Paint fillPaint;
       Paint borderPaint;
-      if (room.type == RoomType.home) {
-        fillPaint = room.colonyId == 0 ? _homeRoom0Paint : _homeRoom1Paint;
-        borderPaint = room.colonyId == 0 ? _homeRoomBorder0Paint : _homeRoomBorder1Paint;
-      } else {
-        fillPaint = room.colonyId == 0 ? _nurseryRoom0Paint : _nurseryRoom1Paint;
-        borderPaint = room.colonyId == 0 ? _nurseryRoomBorder0Paint : _nurseryRoomBorder1Paint;
+      switch (room.type) {
+        case RoomType.home:
+          fillPaint = room.colonyId == 0 ? _homeRoom0Paint : _homeRoom1Paint;
+          borderPaint = room.colonyId == 0 ? _homeRoomBorder0Paint : _homeRoomBorder1Paint;
+        case RoomType.nursery:
+          fillPaint = room.colonyId == 0 ? _nurseryRoom0Paint : _nurseryRoom1Paint;
+          borderPaint = room.colonyId == 0 ? _nurseryRoomBorder0Paint : _nurseryRoomBorder1Paint;
+        case RoomType.foodStorage:
+          fillPaint = room.colonyId == 0 ? _foodRoom0Paint : _foodRoom1Paint;
+          borderPaint = room.colonyId == 0 ? _foodRoomBorder0Paint : _foodRoomBorder1Paint;
       }
 
       // Draw filled circle
@@ -344,7 +362,15 @@ class AntWorldGame extends FlameGame
   }
 
   void _drawRoomLabel(Canvas canvas, Offset centerOffset, Room room) {
-    final painter = room.type == RoomType.home ? _homeLabelPainter : _nurseryLabelPainter;
+    final TextPainter painter;
+    switch (room.type) {
+      case RoomType.home:
+        painter = _homeLabelPainter;
+      case RoomType.nursery:
+        painter = _nurseryLabelPainter;
+      case RoomType.foodStorage:
+        painter = _foodStorageLabelPainter;
+    }
     final offset = centerOffset - Offset(painter.width / 2, painter.height / 2);
     painter.paint(canvas, offset);
   }
