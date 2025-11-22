@@ -138,6 +138,7 @@ class _AntWorldAppState extends State<AntWorldApp> {
 
     final simulation = ColonySimulation(defaultSimulationConfig);
     simulation.initialize();
+    simulation.generateRandomWorld();
     final game = AntWorldGame(simulation);
 
     setState(() {
