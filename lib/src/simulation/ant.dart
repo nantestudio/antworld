@@ -836,6 +836,12 @@ class Ant {
     _wakeFromRest();
   }
 
+  /// Pick up food (from combat kill or food cell)
+  void pickUpFood() {
+    _carryingFood = true;
+    state = AntState.returnHome;
+  }
+
   void _wakeFromRest() {
     if (state == AntState.rest) {
       state =

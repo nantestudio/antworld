@@ -5,6 +5,7 @@ class SimulationConfig {
     this.cols = 100,
     this.rows = 75,
     this.cellSize = 8,
+    this.colonyCount = 2,
     this.startingAnts = 50,
     this.antSpeed = 48, // cells per second (~0.8 per frame @60fps)
     this.sensorDistance = 6,
@@ -33,6 +34,7 @@ class SimulationConfig {
   final int cols;
   final int rows;
   final double cellSize;
+  final int colonyCount; // 1-4 colonies
   final int startingAnts;
   final double antSpeed;
   final double sensorDistance;
@@ -84,6 +86,7 @@ class SimulationConfig {
     int? cols,
     int? rows,
     double? cellSize,
+    int? colonyCount,
     int? startingAnts,
     double? antSpeed,
     double? sensorDistance,
@@ -112,6 +115,7 @@ class SimulationConfig {
       cols: cols ?? this.cols,
       rows: rows ?? this.rows,
       cellSize: cellSize ?? this.cellSize,
+      colonyCount: colonyCount ?? this.colonyCount,
       startingAnts: startingAnts ?? this.startingAnts,
       antSpeed: antSpeed ?? this.antSpeed,
       sensorDistance: sensorDistance ?? this.sensorDistance,

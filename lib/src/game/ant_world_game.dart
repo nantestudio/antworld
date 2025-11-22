@@ -44,6 +44,7 @@ class AntWorldGame extends FlameGame
   final Paint _packedEarthPaint = Paint()..color = const Color(0xFF795548); // Medium brown
   final Paint _clayPaint = Paint()..color = const Color(0xFF5D4037);       // Dark brown
   final Paint _harditePaint = Paint()..color = const Color(0xFF8D6E63);    // Reddish-brown
+  final Paint _bedrockPaint = Paint()..color = const Color(0xFF616161);   // Dark gray (replaces rock)
   final Paint _foodPaint = Paint()..color = const Color(0xFF76FF03);
   final Paint _rockPaint = Paint()..color = const Color(0xFF999999);
   // Colony 0 paints (cyan tones)
@@ -107,6 +108,9 @@ class AntWorldGame extends FlameGame
     ..color = const Color(0x33CDDC39)
     ..style = PaintingStyle.stroke
     ..strokeWidth = 2.0;
+  // Stored food item paints (small circles in food room)
+  final Paint _storedFood0Paint = Paint()..color = const Color(0xCC76FF03); // Bright green
+  final Paint _storedFood1Paint = Paint()..color = const Color(0xCCFFEB3B); // Yellow
 
   // Cached TextPainters for labels (avoid per-frame allocation)
   static const _nestLabelStyle = TextStyle(
@@ -356,8 +360,39 @@ class AntWorldGame extends FlameGame
       // Draw border
       canvas.drawCircle(centerOffset, radiusPixels, borderPaint);
 
+      // Draw stored food items in food storage room
+      if (room.type == RoomType.foodStorage) {
+        _drawStoredFood(canvas, room, cellSize);
+      }
+
       // Draw room label
       _drawRoomLabel(canvas, centerOffset, room);
+    }
+  }
+
+  void _drawStoredFood(Canvas canvas, Room room, double cellSize) {
+    final foodCount = room.colonyId == 0
+        ? simulation.colony0Food.value
+        : simulation.colony1Food.value;
+    if (foodCount == 0) return;
+
+    final paint = room.colonyId == 0 ? _storedFood0Paint : _storedFood1Paint;
+    final centerX = room.center.x * cellSize;
+    final centerY = room.center.y * cellSize;
+    final maxRadius = room.radius * cellSize * 0.7; // Keep items inside room
+    final itemRadius = cellSize * 0.25; // Small food circles
+
+    // Display up to 50 food items visually, arranged in spiral pattern
+    final displayCount = math.min(foodCount, 50);
+    const goldenAngle = 2.39996; // ~137.5 degrees in radians
+
+    for (var i = 0; i < displayCount; i++) {
+      // Spiral layout using golden angle
+      final angle = i * goldenAngle;
+      final dist = maxRadius * math.sqrt(i / displayCount);
+      final x = centerX + math.cos(angle) * dist;
+      final y = centerY + math.sin(angle) * dist;
+      canvas.drawCircle(Offset(x, y), itemRadius, paint);
     }
   }
 
@@ -413,6 +448,8 @@ class AntWorldGame extends FlameGame
         return _clayPaint;
       case DirtType.hardite:
         return _harditePaint;
+      case DirtType.bedrock:
+        return _bedrockPaint;
     }
   }
 

@@ -32,6 +32,7 @@ class _AntHudState extends State<AntHud> {
   bool _saving = false;
   bool _generatingMap = false;
   String _selectedMapSize = 'Medium';
+  int _selectedColonyCount = 2;
 
   @override
   void initState() {
@@ -833,6 +834,28 @@ class _AntHudState extends State<AntHud> {
           ],
         ),
         const SizedBox(height: 8),
+        Row(
+          children: [
+            const Text('Colonies: '),
+            const SizedBox(width: 8),
+            DropdownButton<int>(
+              value: _selectedColonyCount,
+              isDense: true,
+              items: [1, 2, 3, 4].map((count) {
+                return DropdownMenuItem(
+                  value: count,
+                  child: Text('$count'),
+                );
+              }).toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => _selectedColonyCount = value);
+                }
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
         FilledButton.icon(
           onPressed: _generatingMap ? null : _randomizeMap,
           icon: _generatingMap
@@ -975,8 +998,13 @@ class _AntHudState extends State<AntHud> {
     final seed = math.Random().nextInt(0x7fffffff);
 
     try {
-      // Generate new world with selected size
-      widget.simulation.generateRandomWorld(seed: seed, cols: cols, rows: rows);
+      // Generate new world with selected size and colony count
+      widget.simulation.generateRandomWorld(
+        seed: seed,
+        cols: cols,
+        rows: rows,
+        colonyCount: _selectedColonyCount,
+      );
       widget.game.invalidateTerrainLayer();
       widget.game.refreshViewport();
     } finally {
@@ -1177,10 +1205,13 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
             // Time row
             Row(
               children: [
-                Text(
-                  'Day ${sim.daysPassed.value}',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+                Flexible(
+                  child: Text(
+                    'Day ${sim.daysPassed.value}',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1253,11 +1284,14 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              '$colonyName ($totalAnts ants)',
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: colonyColor,
+            Flexible(
+              child: Text(
+                '$colonyName ($totalAnts ants)',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: colonyColor,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -1304,11 +1338,14 @@ class _StatItem extends StatelessWidget {
       children: [
         Icon(icon, size: 14, color: color ?? Colors.white70),
         const SizedBox(width: 4),
-        Text(
-          '$value $label',
-          style: TextStyle(
-            fontSize: 12,
-            color: color ?? Colors.white,
+        Flexible(
+          child: Text(
+            '$value $label',
+            style: TextStyle(
+              fontSize: 12,
+              color: color ?? Colors.white,
+            ),
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],

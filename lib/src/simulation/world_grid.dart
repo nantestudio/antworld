@@ -15,6 +15,7 @@ enum DirtType {
   packedEarth, // 25 HP - medium
   clay,        // 50 HP - hard
   hardite,     // 100 HP - very hard, rare
+  bedrock,     // 200 HP - extremely hard (replaces rock)
 }
 
 /// HP values for each dirt type (halved for easier digging)
@@ -24,6 +25,7 @@ const Map<DirtType, double> dirtTypeHealth = {
   DirtType.packedEarth: 25.0,
   DirtType.clay: 50.0,
   DirtType.hardite: 100.0,
+  DirtType.bedrock: 200.0,
 };
 
 /// Nest zone types for spatial organization
@@ -395,7 +397,9 @@ class WorldGrid {
         final ny = cy + dy;
         if (!isInsideIndex(nx, ny)) continue;
         if (dx * dx + dy * dy <= radius * radius) {
-          setCell(nx, ny, CellType.rock);
+          // Place bedrock dirt (diggable but very hard) instead of impassable rock
+          setCell(nx, ny, CellType.dirt);
+          setDirtType(nx, ny, DirtType.bedrock);
         }
       }
     }

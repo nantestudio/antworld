@@ -116,8 +116,8 @@ class ColonySimulation {
   }
 
   void _spawnInitialColony() {
-    // Spawn ants for both colonies
-    for (var colonyId = 0; colonyId < 2; colonyId++) {
+    // Spawn ants for all colonies based on config
+    for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
       // Always spawn one queen
       _spawnAnt(caste: AntCaste.queen, colonyId: colonyId);
 
@@ -225,6 +225,11 @@ class ColonySimulation {
 
     // Update egg positions to follow carrying nurses
     _updateCarriedEggs();
+
+    // Nurses feed resting/injured ants with stored food
+    if (_physicsFrame % 10 == 0) {
+      _processNurseFeeding();
+    }
 
     // Run physics/collision less frequently for performance
     // Separation and combat don't need to run every single frame
@@ -385,7 +390,7 @@ class ColonySimulation {
     _updateAntCount();
   }
 
-  void generateRandomWorld({int? seed, int? cols, int? rows}) {
+  void generateRandomWorld({int? seed, int? cols, int? rows, int? colonyCount}) {
     // Clean up first to free resources
     prepareForNewWorld();
 
@@ -396,6 +401,7 @@ class ColonySimulation {
       seed: actualSeed,
       cols: cols,
       rows: rows,
+      colonyCount: colonyCount,
     );
     applyGeneratedWorld(generated);
   }
@@ -668,6 +674,58 @@ class ColonySimulation {
     }
   }
 
+  /// Nurses feed resting or injured ants using stored colony food
+  void _processNurseFeeding() {
+    const feedRadius = 2.0; // Nurse must be within 2 cells to feed
+    const feedRadiusSq = feedRadius * feedRadius;
+
+    for (final nurse in ants) {
+      if (nurse.caste != AntCaste.nurse || nurse.isDead) continue;
+      if (nurse.isCarryingEgg) continue; // Can't feed while carrying egg
+
+      // Check if colony has food to share
+      if (_colonyFood[nurse.colonyId] <= 0) continue;
+
+      // Find nearby ants that need feeding (resting or low HP)
+      for (final target in ants) {
+        if (target.colonyId != nurse.colonyId) continue;
+        if (target.isDead || target == nurse) continue;
+        if (target.caste == AntCaste.egg || target.caste == AntCaste.larva) continue;
+
+        final distSq = nurse.position.distanceToSquared(target.position);
+        if (distSq > feedRadiusSq) continue;
+
+        // Check if ant needs feeding: resting OR low HP
+        final needsEnergy = target.state == AntState.rest;
+        final needsHealing = target.hp < target.maxHp * 0.8;
+
+        if (needsEnergy || needsHealing) {
+          // Spend 1 food to feed this ant
+          _colonyFood[nurse.colonyId] -= 1;
+          if (nurse.colonyId == 0) {
+            colony0Food.value = _colonyFood[0];
+          } else {
+            colony1Food.value = _colonyFood[1];
+          }
+
+          // Restore ant's energy to full and wake them up
+          if (needsEnergy) {
+            target.energy = config.energyCapacity;
+            target.exitRestState();
+          }
+
+          // Heal some HP
+          if (needsHealing) {
+            target.hp = (target.hp + target.maxHp * 0.3).clamp(0, target.maxHp);
+          }
+
+          // One feeding per nurse per cycle
+          break;
+        }
+      }
+    }
+  }
+
   /// Determines what caste the colony needs most based on current composition.
   /// Target ratios: 65% workers, 20% soldiers, 15% nurses
   AntCaste _determineNeededCaste(int colonyId) {
@@ -818,24 +876,17 @@ class ColonySimulation {
   }
 
   void _maintainFoodSupply() {
-    final current = world.foodCount;
-    final area = world.cols * world.rows;
-    final baseline = math.max(80, (area * 0.012).round());
-    final antTarget = ants.length * 4;
-    final target = math.max(baseline, antTarget);
-    if (current >= target) {
+    // Only spawn food when the map is completely empty of food
+    if (world.foodCount > 0) {
       return;
     }
-    final deficit = target - current;
-    final clusters = math.min(6, math.max(1, (deficit / 25).ceil()));
-    for (var i = 0; i < clusters; i++) {
-      final spot = _randomOpenCell();
-      if (spot == null) {
-        break;
-      }
-      final radius = 2 + _rng.nextInt(3);
-      world.placeFood(spot, radius);
+    // Spawn a single food cluster in an open area (not on rocks)
+    final spot = _randomOpenCell();
+    if (spot == null) {
+      return;
     }
+    final radius = 2 + _rng.nextInt(3);
+    world.placeFood(spot, radius);
   }
 
   void _applySeparation() {
@@ -1047,8 +1098,17 @@ class ColonySimulation {
                   a.applyDamage(damageToA);
                   b.applyDamage(damageToB);
 
-                  if (a.isDead) deadAnts.add(a);
-                  if (b.isDead) deadAnts.add(b);
+                  // Winner picks up dead enemy as food
+                  if (a.isDead && !b.isDead && !b.hasFood) {
+                    deadAnts.add(a);
+                    b.pickUpFood(); // Eat the enemy!
+                  } else if (b.isDead && !a.isDead && !a.hasFood) {
+                    deadAnts.add(b);
+                    a.pickUpFood(); // Eat the enemy!
+                  } else {
+                    if (a.isDead) deadAnts.add(a);
+                    if (b.isDead) deadAnts.add(b);
+                  }
                 }
               }
             }
