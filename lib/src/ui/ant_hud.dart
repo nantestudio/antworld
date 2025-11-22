@@ -100,20 +100,27 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
+  double _drawerWidth(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    // Responsive width: max 320, min 200, or 70% of screen on small devices
+    return (screenWidth * 0.7).clamp(200.0, 320.0);
+  }
+
   Widget _buildStatsDrawer(BuildContext context) {
     final theme = Theme.of(context);
     final isOpen = _openDrawer == 0;
+    final width = _drawerWidth(context);
 
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
-      left: isOpen ? 48 : -320,
+      left: isOpen ? 48 : -width,
       top: 16,
       bottom: 16,
       child: SizedBox(
-        width: 320,
+        width: width,
         child: Card(
-          color: theme.colorScheme.surface.withValues(alpha: 0.95),
+          color: theme.colorScheme.surface.withValues(alpha: 0.7),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -137,17 +144,18 @@ class _AntHudState extends State<AntHud> {
   Widget _buildControlsDrawer(BuildContext context) {
     final theme = Theme.of(context);
     final isOpen = _openDrawer == 1;
+    final width = _drawerWidth(context);
 
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
-      left: isOpen ? 48 : -320,
+      left: isOpen ? 48 : -width,
       top: 16,
       bottom: 16,
       child: SizedBox(
-        width: 320,
+        width: width,
         child: Card(
-          color: theme.colorScheme.surface.withValues(alpha: 0.95),
+          color: theme.colorScheme.surface.withValues(alpha: 0.7),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -171,17 +179,18 @@ class _AntHudState extends State<AntHud> {
   Widget _buildSettingsDrawer(BuildContext context) {
     final theme = Theme.of(context);
     final isOpen = _openDrawer == 2;
+    final width = _drawerWidth(context);
 
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
-      left: isOpen ? 48 : -320,
+      left: isOpen ? 48 : -width,
       top: 16,
       bottom: 16,
       child: SizedBox(
-        width: 320,
+        width: width,
         child: Card(
-          color: theme.colorScheme.surface.withValues(alpha: 0.95),
+          color: theme.colorScheme.surface.withValues(alpha: 0.7),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -194,25 +203,27 @@ class _AntHudState extends State<AntHud> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildPopulationControls(theme),
-                        const Divider(),
+                        // Simulation Speed
                         _buildSpeedControls(theme),
                         const Divider(),
+                        // Behavior
                         _buildBehaviorControls(theme),
                         const Divider(),
+                        // Ant Tuning
                         _buildTuningControls(theme),
                         const Divider(),
-                        _buildViewControls(theme),
-                        const Divider(),
-                        _buildDocsSection(theme),
-                        const Divider(),
+                        // World Generation
                         _buildGenerationControls(theme),
+                        const SizedBox(height: 8),
+                        _buildGridControls(theme),
                         const Divider(),
+                        // Utilities
                         _buildFoodControls(),
-                        const Divider(),
+                        const SizedBox(height: 12),
                         _buildPersistenceControls(),
                         const Divider(),
-                        _buildGridControls(theme),
+                        // Help
+                        _buildDocsSection(theme),
                       ],
                     ),
                   ),
@@ -250,6 +261,25 @@ class _AntHudState extends State<AntHud> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Edit Mode Toggle
+        ValueListenableBuilder<bool>(
+          valueListenable: widget.game.editMode,
+          builder: (context, editing, _) {
+            return SwitchListTile(
+              title: Text('Edit Mode', style: theme.textTheme.titleSmall),
+              subtitle: Text(
+                editing ? 'Tap/drag to edit terrain' : 'Navigate only',
+                style: theme.textTheme.bodySmall,
+              ),
+              value: editing,
+              onChanged: (value) {
+                widget.game.editMode.value = value;
+              },
+              contentPadding: EdgeInsets.zero,
+            );
+          },
+        ),
+        const Divider(),
         Text('Brush Mode', style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
         ValueListenableBuilder<BrushMode>(
@@ -282,8 +312,10 @@ class _AntHudState extends State<AntHud> {
             );
           },
         ),
-        const SizedBox(height: 16),
-        Text('Pheromones', style: theme.textTheme.titleSmall),
+        const Divider(height: 32),
+        _buildViewControls(theme),
+        const Divider(height: 32),
+        Text('Display', style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
         ValueListenableBuilder<bool>(
           valueListenable: widget.simulation.pheromonesVisible,
@@ -300,11 +332,7 @@ class _AntHudState extends State<AntHud> {
           },
         ),
         const Divider(height: 32),
-        _buildFoodControls(),
-        const Divider(height: 32),
-        _buildGenerationControls(theme),
-        const Divider(height: 32),
-        _buildPersistenceControls(),
+        _buildPopulationControls(theme),
       ],
     );
   }
@@ -1074,7 +1102,7 @@ class _DrawerTab extends StatelessWidget {
       child: Material(
         color: isActive
             ? colorScheme.primaryContainer
-            : colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
+            : colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
         borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
         child: InkWell(
           onTap: onTap,
@@ -1159,6 +1187,7 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
               soldierCount: sim.soldierCount,
               nurseCount: sim.nurseCount,
               larvaCount: sim.larvaCount,
+              eggCount: sim.eggCount,
               foodCount: sim.colony0Food.value,
             ),
             const SizedBox(height: 16),
@@ -1172,6 +1201,7 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
               soldierCount: sim.enemy1SoldierCount,
               nurseCount: sim.enemy1NurseCount,
               larvaCount: sim.enemy1LarvaCount,
+              eggCount: sim.enemy1EggCount,
               foodCount: sim.colony1Food.value,
             ),
           ],
@@ -1189,9 +1219,10 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
     required int soldierCount,
     required int nurseCount,
     required int larvaCount,
+    required int eggCount,
     required int foodCount,
   }) {
-    final totalAnts = queenCount + workerCount + soldierCount + nurseCount + larvaCount;
+    final totalAnts = queenCount + workerCount + soldierCount + nurseCount + larvaCount + eggCount;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1228,6 +1259,8 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
             _StatItem(icon: Icons.child_care, label: 'Nurses', value: '$nurseCount', color: Colors.pinkAccent),
             if (larvaCount > 0)
               _StatItem(icon: Icons.egg_alt, label: 'Larvae', value: '$larvaCount', color: Colors.white70),
+            if (eggCount > 0)
+              _StatItem(icon: Icons.circle, label: 'Eggs', value: '$eggCount', color: Colors.yellow.shade200),
           ],
         ),
       ],
@@ -1300,7 +1333,7 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
       builder: (context, _) {
         final ant = widget.ant;
         return Card(
-          color: theme.colorScheme.surface.withValues(alpha: 0.95),
+          color: theme.colorScheme.surface.withValues(alpha: 0.7),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: SizedBox(
@@ -1314,18 +1347,21 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
                       Icon(
                         ant.colonyId == 0 ? Icons.bug_report : Icons.pest_control,
                         color: ant.colonyId == 0 ? Colors.cyan : Colors.orange,
+                        size: 18,
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Colony ${ant.colonyId} - Ant #${ant.id}',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'C${ant.colonyId} #${ant.id}',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      const Spacer(),
                       IconButton(
-                        icon: const Icon(Icons.close, size: 18),
+                        icon: const Icon(Icons.close, size: 16),
                         onPressed: widget.onClose,
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
@@ -1335,17 +1371,22 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
                   const SizedBox(height: 8),
                   _buildProperty('Caste', _casteLabel(ant.caste)),
                   _buildProperty('State', _stateLabel(ant)),
+                  _buildProperty('Age', '${ant.age.toStringAsFixed(0)}s / ${ant.maxLifespan.toStringAsFixed(0)}s'),
+                  if (ant.caste == AntCaste.egg || ant.caste == AntCaste.larva)
+                    _buildProperty('Growth', '${(ant.developmentProgress * 100).toStringAsFixed(0)}%'),
                   _buildProperty('Position', '(${ant.position.x.toStringAsFixed(1)}, ${ant.position.y.toStringAsFixed(1)})'),
                   _buildProperty('Energy', '${ant.energy.toStringAsFixed(1)} / ${widget.simulation.config.energyCapacity}'),
                   _buildProperty('HP', '${ant.hp.toStringAsFixed(1)} / ${ant.maxHp.toStringAsFixed(1)}'),
-                  _buildProperty('Attack', ant.attack.toStringAsFixed(1)),
-                  _buildProperty('Defense', ant.defense.toStringAsFixed(1)),
-                  _buildProperty('Carrying Food', ant.hasFood ? 'Yes' : 'No'),
-                  _buildProperty('Explorer', '${(ant.explorerTendency * 100).toStringAsFixed(0)}%'),
-                  if (ant.needsRest) _buildProperty('Needs Rest', 'Yes'),
-                  _buildProperty('Stuck Time', ant.stuckTime > 0.1
-                      ? '${ant.stuckTime.toStringAsFixed(1)}s'
-                      : 'N/A'),
+                  if (ant.caste != AntCaste.egg && ant.caste != AntCaste.larva) ...[
+                    _buildProperty('Attack', ant.attack.toStringAsFixed(1)),
+                    _buildProperty('Defense', ant.defense.toStringAsFixed(1)),
+                    _buildProperty('Carrying Food', ant.hasFood ? 'Yes' : 'No'),
+                    _buildProperty('Explorer', '${(ant.explorerTendency * 100).toStringAsFixed(0)}%'),
+                    if (ant.needsRest) _buildProperty('Needs Rest', 'Yes'),
+                    _buildProperty('Stuck Time', ant.stuckTime > 0.1
+                        ? '${ant.stuckTime.toStringAsFixed(1)}s'
+                        : 'N/A'),
+                  ],
                 ],
               ),
             ),
@@ -1393,6 +1434,8 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
         return 'Queen';
       case AntCaste.larva:
         return 'Larva';
+      case AntCaste.egg:
+        return 'Egg';
     }
   }
 }

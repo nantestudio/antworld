@@ -127,7 +127,7 @@ class WorldGenerator {
     return foodPositions;
   }
 
-  /// Carves a 2-cell-wide tunnel from nest to the nearest food source
+  /// Carves a 2-cell-wide tunnel with sharp corners from nest to the nearest food source
   void _carveTunnelToFood(WorldGrid grid, Vector2 nest, List<Vector2> foodPositions) {
     if (foodPositions.isEmpty) return;
 
@@ -144,30 +144,63 @@ class WorldGenerator {
 
     if (nearestFood == null) return;
 
-    // Carve 2-cell-wide tunnel from nest toward food (for two-way traffic)
-    var x = nest.x;
-    var y = nest.y;
-    final dx = nearestFood.x - nest.x;
-    final dy = nearestFood.y - nest.y;
+    final rng = math.Random(nest.x.toInt() ^ nest.y.toInt());
+
+    // Generate 4-6 waypoints with sharp corners between nest and food
+    final waypoints = <Vector2>[nest.clone()];
+    final numCorners = rng.nextInt(3) + 4; // 4-6 corners
+
+    for (var i = 1; i <= numCorners; i++) {
+      final t = i / (numCorners + 1); // Progress from 0 to 1
+      // Base position along direct line
+      final baseX = nest.x + (nearestFood.x - nest.x) * t;
+      final baseY = nest.y + (nearestFood.y - nest.y) * t;
+
+      // Add significant perpendicular offset for sharp corners
+      final perpX = -(nearestFood.y - nest.y);
+      final perpY = nearestFood.x - nest.x;
+      final perpLen = math.sqrt(perpX * perpX + perpY * perpY);
+      if (perpLen > 0) {
+        final offsetStrength = (rng.nextDouble() - 0.5) * nearestDist * 0.4; // Up to 40% of distance
+        final wx = baseX + (perpX / perpLen) * offsetStrength;
+        final wy = baseY + (perpY / perpLen) * offsetStrength;
+        waypoints.add(Vector2(wx, wy));
+      } else {
+        waypoints.add(Vector2(baseX, baseY));
+      }
+    }
+    waypoints.add(nearestFood.clone());
+
+    // Carve tunnel through all waypoints
+    for (var i = 0; i < waypoints.length - 1; i++) {
+      _carveSegment(grid, waypoints[i], waypoints[i + 1]);
+    }
+  }
+
+  /// Carves a 2-cell-wide straight segment between two points
+  void _carveSegment(WorldGrid grid, Vector2 from, Vector2 to) {
+    final dx = to.x - from.x;
+    final dy = to.y - from.y;
     final dist = math.sqrt(dx * dx + dy * dy);
     if (dist < 1) return;
 
     final stepX = dx / dist;
     final stepY = dy / dist;
-    // Perpendicular direction for width
     final perpX = -stepY;
     final perpY = stepX;
     final steps = dist.ceil();
 
-    for (var i = 0; i < steps; i++) {
-      // Carve 2 cells wide (center + one perpendicular)
+    var x = from.x;
+    var y = from.y;
+
+    for (var i = 0; i <= steps; i++) {
+      // Carve 2 cells wide
       for (var w = 0; w < 2; w++) {
         final gx = (x + perpX * w).round();
         final gy = (y + perpY * w).round();
 
         if (grid.isInsideIndex(gx, gy)) {
           final cellType = grid.cellTypeAt(gx, gy);
-          // Only carve through dirt, not rock
           if (cellType == CellType.dirt) {
             grid.setCell(gx, gy, CellType.air);
           }

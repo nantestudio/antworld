@@ -18,7 +18,7 @@ class SimulationConfig {
     this.decayThreshold = 0.01,
     this.digBrushRadius = 1,
     this.foodBrushRadius = 2,
-    this.dirtMaxHealth = 100,
+    this.dirtMaxHealth = 20,
     this.digEnergyCost = 0.5,
     this.digDamagePerEnergy = 1,
     this.foodSenseRange = 150, // Large range for 400x400 maps

@@ -21,15 +21,21 @@ class AntWorldGame extends FlameGame
   final ColonySimulation simulation;
   final ValueNotifier<BrushMode> brushMode;
   final ValueNotifier<Ant?> selectedAnt;
+  final ValueNotifier<bool> editMode = ValueNotifier<bool>(false); // Default: navigation mode
 
   double _worldScale = 1;
   double _baseScale = 1;
   double _zoomFactor = 1;
   final Vector2 _worldOffset = Vector2.zero();
+  final Vector2 _panOffset = Vector2.zero(); // User pan offset
   Vector2 _canvasSize = Vector2.zero();
   bool _draggingDig = false;
   bool _draggingFood = false;
   static const double _antSelectRadius = 2.0; // cells
+
+  // Pinch zoom / pan state (called from Flutter widget)
+  double _scaleStartZoom = 1;
+  final Vector2 _scaleStartPan = Vector2.zero();
 
   final Paint _screenBgPaint = Paint()..color = const Color(0xFF0F0F0F);
   final Paint _dirtPaint = Paint()..color = const Color(0xFF5D4037);
@@ -61,6 +67,9 @@ class AntWorldGame extends FlameGame
   // Larva paint (smaller, lighter)
   final Paint _larva0Paint = Paint()..color = const Color(0x99B2EBF2); // Light cyan, semi-transparent
   final Paint _larva1Paint = Paint()..color = const Color(0x99FFCCBC); // Light orange, semi-transparent
+  // Egg paint (tiny, yellowish)
+  final Paint _egg0Paint = Paint()..color = const Color(0xCCFFF9C4); // Pale yellow, semi-transparent
+  final Paint _egg1Paint = Paint()..color = const Color(0xCCFFE082); // Light amber, semi-transparent
   Picture? _terrainPicture;
   int _cachedTerrainVersion = -1;
   Picture? _pheromonePicture;
@@ -115,6 +124,9 @@ class AntWorldGame extends FlameGame
     // Clear selection when tapping elsewhere
     selectedAnt.value = null;
 
+    // Only apply brush in edit mode
+    if (!editMode.value) return;
+
     final placeFood = _shouldPlaceFood(event.deviceKind);
     _setDragMode(placeFood);
     _applyBrush(event.canvasPosition, placeFood);
@@ -132,6 +144,7 @@ class AntWorldGame extends FlameGame
 
   @override
   void onSecondaryTapDown(SecondaryTapDownEvent event) {
+    if (!editMode.value) return;
     _setDragMode(true);
     _applyBrush(event.canvasPosition, true);
   }
@@ -149,11 +162,13 @@ class AntWorldGame extends FlameGame
   @override
   void onDragStart(DragStartEvent event) {
     super.onDragStart(event);
+    if (!editMode.value) return;
     _applyBrush(event.canvasPosition, _draggingFood);
   }
 
   @override
   void onDragUpdate(DragUpdateEvent event) {
+    if (!editMode.value) return;
     if (_draggingFood || _draggingDig) {
       _applyBrush(event.canvasEndPosition, _draggingFood);
     }
@@ -165,12 +180,32 @@ class AntWorldGame extends FlameGame
     _stopDrag();
   }
 
+  /// Called when pinch/pan gesture starts (from Flutter GestureDetector)
+  void onPinchStart() {
+    _scaleStartZoom = _zoomFactor;
+    _scaleStartPan.setFrom(_panOffset);
+  }
+
+  /// Called during pinch/pan gesture (from Flutter GestureDetector)
+  void onPinchUpdate(double scale, Offset delta) {
+    // Pinch zoom
+    final newZoom = (_scaleStartZoom * scale).clamp(0.5, 5.0);
+    _zoomFactor = newZoom;
+
+    // Two-finger pan
+    _panOffset.x = _scaleStartPan.x + delta.dx;
+    _panOffset.y = _scaleStartPan.y + delta.dy;
+
+    _updateViewport();
+  }
+
   void setBrushMode(BrushMode mode) {
     brushMode.value = mode;
   }
 
   void refreshViewport() {
     _zoomFactor = 1.0; // Reset zoom to fit whole map
+    _panOffset.setZero(); // Reset pan
     _recalculateBaseScale();
     _updateViewport();
     invalidateTerrainLayer();
@@ -364,29 +399,47 @@ class AntWorldGame extends FlameGame
     final colony0Path = Path();
     final colony0CarryingPath = Path();
     final larva0Path = Path();
+    final egg0Path = Path();
     // Colony 1 paths (orange/red tones)
     final colony1Path = Path();
     final colony1CarryingPath = Path();
     final larva1Path = Path();
+    final egg1Path = Path();
 
     var colony0HasContent = false;
     var colony0CarryingHasContent = false;
     var larva0HasContent = false;
+    var egg0HasContent = false;
     var colony1HasContent = false;
     var colony1CarryingHasContent = false;
     var larva1HasContent = false;
+    var egg1HasContent = false;
 
     // Collect queens to draw separately (on top, with aura)
     final queens = <Ant>[];
 
     final radius = cellSize * 0.35;
     final larvaRadius = cellSize * 0.2; // Smaller for larvae
+    final eggRadius = cellSize * 0.12; // Tiny for eggs
     for (final Ant ant in simulation.ants) {
       final center = Offset(ant.position.x * cellSize, ant.position.y * cellSize);
 
       // Queens drawn separately with aura
       if (ant.caste == AntCaste.queen) {
         queens.add(ant);
+        continue;
+      }
+
+      // Eggs are tiny
+      if (ant.caste == AntCaste.egg) {
+        final rect = Rect.fromCircle(center: center, radius: eggRadius);
+        if (ant.colonyId == 0) {
+          egg0Path.addOval(rect);
+          egg0HasContent = true;
+        } else {
+          egg1Path.addOval(rect);
+          egg1HasContent = true;
+        }
         continue;
       }
 
@@ -424,7 +477,15 @@ class AntWorldGame extends FlameGame
       }
     }
 
-    // Draw larvae first (background)
+    // Draw eggs first (background, smallest)
+    if (egg0HasContent) {
+      canvas.drawPath(egg0Path, _egg0Paint);
+    }
+    if (egg1HasContent) {
+      canvas.drawPath(egg1Path, _egg1Paint);
+    }
+
+    // Draw larvae (background, small)
     if (larva0HasContent) {
       canvas.drawPath(larva0Path, _larva0Paint);
     }
@@ -465,9 +526,16 @@ class AntWorldGame extends FlameGame
     // Draw selection highlight
     final selected = selectedAnt.value;
     if (selected != null) {
-      final selectionRadius = selected.caste == AntCaste.queen
-          ? cellSize * 1.0 // Larger selection for queen
-          : cellSize * 0.6;
+      double selectionRadius;
+      if (selected.caste == AntCaste.queen) {
+        selectionRadius = cellSize * 1.0; // Larger selection for queen
+      } else if (selected.caste == AntCaste.egg) {
+        selectionRadius = cellSize * 0.3; // Small selection for egg
+      } else if (selected.caste == AntCaste.larva) {
+        selectionRadius = cellSize * 0.4; // Smaller selection for larva
+      } else {
+        selectionRadius = cellSize * 0.6; // Regular ants
+      }
       canvas.drawCircle(
         Offset(selected.position.x * cellSize, selected.position.y * cellSize),
         selectionRadius,
@@ -553,9 +621,10 @@ class AntWorldGame extends FlameGame
     _worldScale = _baseScale * _zoomFactor;
     final scaledWidth = width * _worldScale;
     final scaledHeight = height * _worldScale;
+    // Center offset + user pan offset
     _worldOffset
-      ..x = (_canvasSize.x - scaledWidth) / 2
-      ..y = (_canvasSize.y - scaledHeight) / 2;
+      ..x = (_canvasSize.x - scaledWidth) / 2 + _panOffset.x
+      ..y = (_canvasSize.y - scaledHeight) / 2 + _panOffset.y;
   }
 
   Ant? _findAntNear(Vector2 cellPos) {

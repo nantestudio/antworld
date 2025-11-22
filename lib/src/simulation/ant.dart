@@ -15,6 +15,7 @@ enum AntCaste {
   drone,    // Male, reproductive only
   queen,    // Produces eggs, stays in nest center
   larva,    // Immobile, needs feeding to mature
+  egg,      // Immobile, hatches into larva after development
 }
 
 /// Caste-specific stats and modifiers
@@ -92,6 +93,15 @@ class CasteStats {
       explorerRange: (0.0, 0.0),
       baseAggression: 0.0, // Defenseless
     ),
+    AntCaste.egg: CasteStats(
+      speedMultiplier: 0.0,
+      baseHp: 20,
+      baseAttack: 0,
+      baseDefense: 0,
+      canForage: false,
+      explorerRange: (0.0, 0.0),
+      baseAggression: 0.0, // Completely defenseless
+    ),
   };
 }
 
@@ -136,6 +146,7 @@ class Ant {
     double growthProgress = 0.0,
     int carryingLarvaId = -1,
     double eggLayTimer = 0.0,
+    double age = 0.0,
   })  : position = position.clone(),
         _carryingFood = carryingFood,
         _stateBeforeRest = stateBeforeRest,
@@ -144,7 +155,8 @@ class Ant {
         hp = (hp ?? maxHpValue).clamp(0, maxHpValue),
         _growthProgress = growthProgress,
         _carryingLarvaId = carryingLarvaId,
-        _eggLayTimer = eggLayTimer;
+        _eggLayTimer = eggLayTimer,
+        _age = age;
 
   static double _generateExplorerTendency(AntCaste caste, math.Random rng) {
     final range = CasteStats.stats[caste]!.explorerRange;
@@ -171,9 +183,23 @@ class Ant {
   double hp;
   bool _needsRest = false;
 
-  // Larva growth (only used when caste == larva)
+  // Egg/Larva growth (used when caste == egg or larva)
   double _growthProgress = 0.0;
-  static const double _growthTimeToMature = 60.0; // seconds to mature
+  static const double _eggHatchTime = 15.0; // seconds for egg to hatch into larva
+  static const double _growthTimeToMature = 45.0; // seconds for larva to mature into adult
+
+  // Age and lifespan (in seconds)
+  double _age = 0.0;
+  // Max lifespan per caste (in game seconds - roughly 3-10 minutes of play)
+  static const Map<AntCaste, double> _maxLifespan = {
+    AntCaste.worker: 300.0,   // 5 minutes
+    AntCaste.soldier: 240.0,  // 4 minutes (fighting is dangerous)
+    AntCaste.nurse: 360.0,    // 6 minutes (safer in nest)
+    AntCaste.drone: 180.0,    // 3 minutes (short-lived)
+    AntCaste.queen: 900.0,    // 15 minutes (long-lived)
+    AntCaste.larva: 120.0,    // 2 minutes (will mature before this)
+    AntCaste.egg: 60.0,       // 1 minute (will hatch before this)
+  };
 
   // Nurse carrying larva (reference by ID, -1 = not carrying)
   int _carryingLarvaId = -1;
@@ -206,8 +232,22 @@ class Ant {
   double get growthProgress => _growthProgress;
   bool get isCarryingLarva => _carryingLarvaId >= 0;
   int get carryingLarvaId => _carryingLarvaId;
+  bool get isReadyToHatch => caste == AntCaste.egg && _growthProgress >= _eggHatchTime;
   bool get isReadyToMature => caste == AntCaste.larva && _growthProgress >= _growthTimeToMature;
   bool get wantsToLayEgg => caste == AntCaste.queen && _eggLayTimer >= _eggLayInterval;
+  double get age => _age;
+  double get maxLifespan => _maxLifespan[caste] ?? 300.0;
+  bool get isDyingOfOldAge => _age >= maxLifespan;
+
+  /// Get progress as 0.0-1.0 for display purposes
+  double get developmentProgress {
+    if (caste == AntCaste.egg) {
+      return (_growthProgress / _eggHatchTime).clamp(0.0, 1.0);
+    } else if (caste == AntCaste.larva) {
+      return (_growthProgress / _growthTimeToMature).clamp(0.0, 1.0);
+    }
+    return 1.0;
+  }
 
   void applyDamage(double amount) {
     hp = math.max(0, hp - amount);
@@ -230,6 +270,9 @@ class Ant {
     {Vector2? attackTarget}
   ) {
     if (dt == 0) return false;
+
+    // Track age for lifespan/natural death
+    _age += dt;
 
     // Handle collision pause - ant stops briefly after hitting something
     if (_collisionPauseTimer > 0) {
@@ -262,6 +305,8 @@ class Ant {
 
     // Caste-specific behaviors
     switch (caste) {
+      case AntCaste.egg:
+        return _updateEgg(dt);
       case AntCaste.larva:
         return _updateLarva(dt);
       case AntCaste.queen:
@@ -795,6 +840,14 @@ class Ant {
 
   // Caste-specific behaviors
 
+  /// Egg behavior: immobile, develop until hatching
+  bool _updateEgg(double dt) {
+    _growthProgress += dt;
+    // Eggs don't move, just develop
+    // Colony simulation handles the actual hatching via isReadyToHatch
+    return false;
+  }
+
   /// Larva behavior: immobile, just grow over time
   bool _updateLarva(double dt) {
     _growthProgress += dt;
@@ -1052,6 +1105,7 @@ class Ant {
       'growthProgress': _growthProgress,
       'carryingLarvaId': _carryingLarvaId,
       'eggLayTimer': _eggLayTimer,
+      'age': _age,
     };
   }
 
@@ -1089,6 +1143,7 @@ class Ant {
       growthProgress: (json['growthProgress'] as num?)?.toDouble() ?? 0.0,
       carryingLarvaId: (json['carryingLarvaId'] as num?)?.toInt() ?? -1,
       eggLayTimer: (json['eggLayTimer'] as num?)?.toDouble() ?? 0.0,
+      age: (json['age'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }

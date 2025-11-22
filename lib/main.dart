@@ -52,6 +52,7 @@ class _AntWorldAppState extends State<AntWorldApp> {
         brightness: Brightness.dark,
       ),
       useMaterial3: true,
+      fontFamily: 'monospace', // Pixel-style monospace font
     );
 
     return MaterialApp(
@@ -70,15 +71,27 @@ class _AntWorldAppState extends State<AntWorldApp> {
     );
   }
 
+  Offset _scaleStartFocalPoint = Offset.zero;
+
   Widget _buildGameView() {
     final sim = _simulation!;
     final game = _game!;
     return Stack(
       children: [
-        GameWidget(
-          game: game,
-          focusNode: _focusNode,
-          autofocus: true,
+        GestureDetector(
+          onScaleStart: (details) {
+            _scaleStartFocalPoint = details.focalPoint;
+            game.onPinchStart();
+          },
+          onScaleUpdate: (details) {
+            final delta = details.focalPoint - _scaleStartFocalPoint;
+            game.onPinchUpdate(details.scale, delta);
+          },
+          child: GameWidget(
+            game: game,
+            focusNode: _focusNode,
+            autofocus: true,
+          ),
         ),
         AntHud(
           key: ValueKey(sim),

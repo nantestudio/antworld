@@ -57,6 +57,7 @@ class ColonySimulation {
   int get soldierCount => ants.where((a) => a.colonyId == 0 && a.caste == AntCaste.soldier).length;
   int get nurseCount => ants.where((a) => a.colonyId == 0 && a.caste == AntCaste.nurse).length;
   int get larvaCount => ants.where((a) => a.colonyId == 0 && a.caste == AntCaste.larva).length;
+  int get eggCount => ants.where((a) => a.colonyId == 0 && a.caste == AntCaste.egg).length;
   int get queenCount => ants.where((a) => a.colonyId == 0 && a.caste == AntCaste.queen).length;
 
   // Colony 1 stats
@@ -64,6 +65,7 @@ class ColonySimulation {
   int get enemy1SoldierCount => ants.where((a) => a.colonyId == 1 && a.caste == AntCaste.soldier).length;
   int get enemy1NurseCount => ants.where((a) => a.colonyId == 1 && a.caste == AntCaste.nurse).length;
   int get enemy1LarvaCount => ants.where((a) => a.colonyId == 1 && a.caste == AntCaste.larva).length;
+  int get enemy1EggCount => ants.where((a) => a.colonyId == 1 && a.caste == AntCaste.egg).length;
   int get enemy1QueenCount => ants.where((a) => a.colonyId == 1 && a.caste == AntCaste.queen).length;
 
   void initialize() {
@@ -134,6 +136,7 @@ class ColonySimulation {
       daysPassed.value = newDays;
     }
 
+    final eggsToHatch = <Ant>[];
     final larvaeToMature = <Ant>[];
     final queensLayingEggs = <Ant>[];
     for (final ant in ants) {
@@ -143,8 +146,11 @@ class ColonySimulation {
       if (ant.caste == AntCaste.queen && result) {
         // Queen wants to lay an egg - defer spawning until after iteration
         queensLayingEggs.add(ant);
+      } else if (ant.caste == AntCaste.egg && ant.isReadyToHatch) {
+        // Egg ready to hatch into larva
+        eggsToHatch.add(ant);
       } else if (ant.caste == AntCaste.larva && ant.isReadyToMature) {
-        // Larva ready to become a worker
+        // Larva ready to become an adult
         larvaeToMature.add(ant);
       } else if (result && ant.caste == AntCaste.worker) {
         // Worker delivered food - track per colony for reproduction
@@ -157,18 +163,24 @@ class ColonySimulation {
         } else {
           colony1Food.value = _colonyFood[1];
         }
+        // Food enables egg production - queue eggs instead of adults
         if (_colonyFood[ant.colonyId] % config.foodPerNewAnt == 0) {
           _colonyQueuedAnts[ant.colonyId] += 1;
         }
       }
     }
 
-    // Spawn larvae from queens (after iteration to avoid concurrent modification)
+    // Spawn eggs from queens (after iteration to avoid concurrent modification)
     for (final queen in queensLayingEggs) {
-      _spawnLarvaAtQueen(queen);
+      _spawnEggAtQueen(queen);
     }
 
-    // Mature larvae into workers
+    // Hatch eggs into larvae
+    for (final egg in eggsToHatch) {
+      _hatchEgg(egg);
+    }
+
+    // Mature larvae into adults
     for (final larva in larvaeToMature) {
       _matureLarva(larva);
     }
@@ -184,6 +196,7 @@ class ColonySimulation {
     }
     if (_physicsFrame % 60 == 0) {
       _removeStuckAnts();
+      _removeOldAnts();
     }
     _flushSpawnQueue();
 
@@ -270,7 +283,7 @@ class ColonySimulation {
   }
 
   void setFoodSenseRange(double value) {
-    final clamped = value.clamp(5.0, 100.0).toDouble();
+    final clamped = value.clamp(5.0, 200.0).toDouble();
     config = config.copyWith(foodSenseRange: clamped);
   }
 
@@ -491,8 +504,8 @@ class ColonySimulation {
     _updateAntCount();
   }
 
-  void _spawnLarvaAtQueen(Ant queen) {
-    // Spawn larva near the queen's position (in queen chamber)
+  void _spawnEggAtQueen(Ant queen) {
+    // Spawn egg near the queen's position (in queen chamber)
     final offset = Vector2(
       (_rng.nextDouble() - 0.5) * 2,
       (_rng.nextDouble() - 0.5) * 2,
@@ -504,11 +517,27 @@ class ColonySimulation {
         angle: _rng.nextDouble() * math.pi * 2,
         energy: config.energyCapacity,
         rng: _rng,
-        caste: AntCaste.larva,
+        caste: AntCaste.egg,
         colonyId: queen.colonyId,
       ),
     );
     _updateAntCount();
+  }
+
+  void _hatchEgg(Ant egg) {
+    // Transform egg into larva at the same position
+    ants.remove(egg);
+    ants.add(
+      Ant(
+        startPosition: egg.position,
+        angle: _rng.nextDouble() * math.pi * 2,
+        energy: config.energyCapacity,
+        rng: _rng,
+        caste: AntCaste.larva,
+        colonyId: egg.colonyId,
+      ),
+    );
+    // No need to update count - same number of ants
   }
 
   void _matureLarva(Ant larva) {
@@ -563,16 +592,45 @@ class ColonySimulation {
   }
 
   void _flushSpawnQueue() {
-    // Spawn queued ants for each colony based on their food deliveries
+    // Spawn queued eggs for each colony based on their food deliveries
+    // Food enables reproduction through the proper lifecycle: egg -> larva -> adult
     for (var colonyId = 0; colonyId < 2; colonyId++) {
       final queued = _colonyQueuedAnts[colonyId];
       if (queued > 0) {
+        // Find the queen to spawn eggs near her
+        final queen = ants.where((a) => a.colonyId == colonyId && a.caste == AntCaste.queen).firstOrNull;
         for (var i = 0; i < queued; i++) {
-          _spawnAnt(colonyId: colonyId);
+          if (queen != null) {
+            // Spawn egg at queen's position
+            _spawnEggAtQueen(queen);
+          } else {
+            // No queen - spawn egg at nest center (colony can survive but slower)
+            _spawnEggAtNest(colonyId);
+          }
         }
         _colonyQueuedAnts[colonyId] = 0;
       }
     }
+  }
+
+  void _spawnEggAtNest(int colonyId) {
+    // Spawn egg at nest center (fallback when no queen)
+    final nestPos = world.getNestPosition(colonyId);
+    final offset = Vector2(
+      (_rng.nextDouble() - 0.5) * 3,
+      (_rng.nextDouble() - 0.5) * 3,
+    );
+    ants.add(
+      Ant(
+        startPosition: nestPos + offset,
+        angle: _rng.nextDouble() * math.pi * 2,
+        energy: config.energyCapacity,
+        rng: _rng,
+        caste: AntCaste.egg,
+        colonyId: colonyId,
+      ),
+    );
+    _updateAntCount();
   }
 
   void _updateAntCount() {
@@ -615,7 +673,7 @@ class ColonySimulation {
     // Build spatial hash - only add to own cell (not 9 cells) for performance
     final Map<int, List<Ant>> spatialHash = {};
     for (final ant in ants) {
-      if (ant.isDead || ant.caste == AntCaste.larva || ant.caste == AntCaste.queen) continue;
+      if (ant.isDead || ant.caste == AntCaste.larva || ant.caste == AntCaste.queen || ant.caste == AntCaste.egg) continue;
       final gx = ant.position.x.floor();
       final gy = ant.position.y.floor();
       if (!world.isInsideIndex(gx, gy)) continue;
@@ -748,7 +806,7 @@ class ColonySimulation {
     // Build spatial hash for O(n) combat detection instead of O(n²)
     final Map<int, List<Ant>> spatialHash = {};
     for (final ant in ants) {
-      if (ant.isDead || ant.caste == AntCaste.larva) continue;
+      if (ant.isDead || ant.caste == AntCaste.larva || ant.caste == AntCaste.egg) continue;
       final gx = ant.position.x.floor();
       final gy = ant.position.y.floor();
       if (!world.isInsideIndex(gx, gy)) continue;
@@ -815,14 +873,25 @@ class ColonySimulation {
   }
 
   void _removeStuckAnts() {
-    // Don't remove queens or larvae - they don't move much by design
+    // Don't remove queens, larvae, or eggs - they don't move by design
     final stuckAnts = ants.where((a) =>
       a.isStuck &&
       a.caste != AntCaste.queen &&
-      a.caste != AntCaste.larva
+      a.caste != AntCaste.larva &&
+      a.caste != AntCaste.egg
     ).toList();
     if (stuckAnts.isNotEmpty) {
       ants.removeWhere(stuckAnts.contains);
+      _updateAntCount();
+    }
+  }
+
+  void _removeOldAnts() {
+    // Remove ants that have died of old age (natural lifespan)
+    // This controls population growth and ensures continuous turnover
+    final oldAnts = ants.where((a) => a.isDyingOfOldAge).toList();
+    if (oldAnts.isNotEmpty) {
+      ants.removeWhere(oldAnts.contains);
       _updateAntCount();
     }
   }
