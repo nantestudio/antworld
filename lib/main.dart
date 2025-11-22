@@ -19,20 +19,22 @@ class AntWorldApp extends StatefulWidget {
   State<AntWorldApp> createState() => _AntWorldAppState();
 }
 
+enum _AppScreen { menu, playing }
+
 class _AntWorldAppState extends State<AntWorldApp> {
-  late final ColonySimulation _simulation;
-  late final AntWorldGame _game;
+  ColonySimulation? _simulation;
+  AntWorldGame? _game;
   late final FocusNode _focusNode;
   late final SimulationStorage _storage;
+  _AppScreen _screen = _AppScreen.menu;
+  bool _loading = false;
+  String? _menuError;
 
   @override
   void initState() {
     super.initState();
     _storage = SimulationStorage();
-    _simulation = ColonySimulation(defaultSimulationConfig)..initialize();
-    _game = AntWorldGame(_simulation);
     _focusNode = FocusNode();
-    _restoreWorld();
   }
 
   @override
@@ -58,31 +60,117 @@ class _AntWorldAppState extends State<AntWorldApp> {
       home: Scaffold(
         backgroundColor: Colors.black,
         body: SafeArea(
-          child: Stack(
-            children: [
-              GameWidget(
-                game: _game,
-                focusNode: _focusNode,
-                autofocus: true,
-              ),
-              AntHud(
-                simulation: _simulation,
-                game: _game,
-                storage: _storage,
-              ),
-            ],
-          ),
+          child: _screen == _AppScreen.playing &&
+                  _simulation != null &&
+                  _game != null
+              ? _buildGameView()
+              : _buildMenu(),
         ),
       ),
     );
   }
 
-  Future<void> _restoreWorld() async {
-    final restored = await _storage.restore(_simulation);
-    if (!mounted || !restored) {
+  Widget _buildGameView() {
+    final sim = _simulation!;
+    final game = _game!;
+    return Stack(
+      children: [
+        GameWidget(
+          game: game,
+          focusNode: _focusNode,
+          autofocus: true,
+        ),
+        AntHud(
+          key: ValueKey(sim),
+          simulation: sim,
+          game: game,
+          storage: _storage,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMenu() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'AntWorld',
+              style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: _loading ? null : _startNewGame,
+              child: _loading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Start New Colony'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: _loading ? null : _continueGame,
+              child: const Text('Continue Last Colony'),
+            ),
+            if (_menuError != null) ...[
+              const SizedBox(height: 16),
+              Text(
+                _menuError!,
+                style: const TextStyle(color: Colors.redAccent),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startNewGame() async {
+    setState(() {
+      _loading = true;
+      _menuError = null;
+    });
+
+    final simulation = ColonySimulation(defaultSimulationConfig);
+    simulation.initialize();
+    final game = AntWorldGame(simulation);
+
+    setState(() {
+      _simulation = simulation;
+      _game = game;
+      _screen = _AppScreen.playing;
+      _loading = false;
+    });
+  }
+
+  Future<void> _continueGame() async {
+    setState(() {
+      _loading = true;
+      _menuError = null;
+    });
+    final simulation = ColonySimulation(defaultSimulationConfig);
+    final restored = await _storage.restore(simulation);
+    if (!mounted) {
       return;
     }
-    _game.invalidateTerrainLayer();
-    setState(() {});
+    if (!restored) {
+      setState(() {
+        _loading = false;
+        _menuError = 'No saved colony found';
+      });
+      return;
+    }
+    final game = AntWorldGame(simulation);
+    setState(() {
+      _simulation = simulation;
+      _game = game;
+      _screen = _AppScreen.playing;
+      _loading = false;
+    });
   }
 }
