@@ -60,6 +60,11 @@ class Ant {
   final double maxHp;
   double hp;
   bool _needsRest = false;
+  final List<Vector2> _path = [];
+  int _pathIndex = 0;
+  int _pathTerrainVersion = -1;
+  int? _pathTargetX;
+  int? _pathTargetY;
 
   bool get hasFood => _carryingFood;
   bool get isDead => hp <= 0;
@@ -113,7 +118,19 @@ class Ant {
       _speedMultiplier = 0.7 + rng.nextDouble() * 0.6; // 0.7 to 1.3x speed
     }
 
-    _steer(config, world, rng);
+    bool usedPath = false;
+    if (!isEnemy) {
+      final target = _pathTarget(world);
+      if (target != null) {
+        usedPath = _followPath(target, world, antSpeed, dt);
+      } else {
+        _clearPath();
+      }
+    }
+
+    if (!usedPath) {
+      _steer(config, world, rng);
+    }
 
     final distance = antSpeed * dt * _speedMultiplier;
     final vx = math.cos(angle) * distance;
@@ -502,6 +519,67 @@ class Ant {
       normalized += math.pi * 2;
     }
     return normalized;
+  }
+
+  Vector2? _pathTarget(WorldGrid world) {
+    if (_needsRest || state == AntState.returnHome || hasFood) {
+      return world.nestPosition;
+    }
+    return null;
+  }
+
+  bool _followPath(Vector2 target, WorldGrid world, double antSpeed, double dt) {
+    _ensurePath(target, world);
+    if (_path.isEmpty || _pathIndex >= _path.length) {
+      return false;
+    }
+    while (_pathIndex < _path.length) {
+      final waypoint = _path[_pathIndex];
+      final offset = waypoint - position;
+      if (offset.length2 < 0.12) {
+        _pathIndex++;
+        continue;
+      }
+      angle = math.atan2(offset.y, offset.x);
+      return true;
+    }
+    _clearPath();
+    return false;
+  }
+
+  void _ensurePath(Vector2 target, WorldGrid world) {
+    final tx = target.x.floor();
+    final ty = target.y.floor();
+    if (
+      _path.isNotEmpty &&
+      _pathTargetX == tx &&
+      _pathTargetY == ty &&
+      _pathTerrainVersion == world.terrainVersion
+    ) {
+      return;
+    }
+    final result = world.findPath(position, target);
+    _path.clear();
+    if (result == null || result.isEmpty) {
+      _pathIndex = 0;
+      _pathTargetX = null;
+      _pathTargetY = null;
+      _pathTerrainVersion = -1;
+      return;
+    }
+    _path.addAll(result);
+    _pathIndex = 0;
+    _pathTargetX = tx;
+    _pathTargetY = ty;
+    _pathTerrainVersion = world.terrainVersion;
+  }
+
+  void _clearPath() {
+    _pathIndex = 0;
+    _path.clear();
+    _pathTargetX = null;
+    _pathTargetY = null;
+    _pathTerrainVersion = -1;
   }
 
   void _handleRockCollision(math.Random rng) {

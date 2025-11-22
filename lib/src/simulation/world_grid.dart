@@ -68,7 +68,13 @@ class WorldGrid {
     final gx = x.floor();
     final gy = y.floor();
     if (!isInsideIndex(gx, gy)) return false;
-    return cellTypeAt(gx, gy) != CellType.dirt;
+    return isWalkableCell(gx, gy);
+  }
+
+  bool isWalkableCell(int x, int y) {
+    if (!isInsideIndex(x, y)) return false;
+    final type = cellTypeAt(x, y);
+    return type == CellType.air || type == CellType.food;
   }
 
   bool isInsideIndex(int x, int y) => x >= 0 && x < cols && y >= 0 && y < rows;
@@ -295,5 +301,73 @@ class WorldGrid {
       }
     }
     return best;
+  }
+
+  List<Vector2>? findPath(
+    Vector2 start,
+    Vector2 goal, {
+    int maxSteps = 2000,
+  }) {
+    final sx = start.x.floor().clamp(0, cols - 1);
+    final sy = start.y.floor().clamp(0, rows - 1);
+    final tx = goal.x.floor().clamp(0, cols - 1);
+    final ty = goal.y.floor().clamp(0, rows - 1);
+    if (!isWalkableCell(tx, ty)) {
+      return null;
+    }
+    final startIdx = index(sx, sy);
+    final goalIdx = index(tx, ty);
+    final queue = Queue<int>()..add(startIdx);
+    final visited = HashSet<int>()..add(startIdx);
+    final parents = <int, int>{};
+    var steps = 0;
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    while (queue.isNotEmpty && steps < maxSteps) {
+      final current = queue.removeFirst();
+      steps++;
+      if (current == goalIdx) {
+        return _reconstructPath(parents, current, startIdx);
+      }
+      final cx = current % cols;
+      final cy = current ~/ cols;
+      for (final dir in dirs) {
+        final nx = cx + dir[0];
+        final ny = cy + dir[1];
+        if (!isWalkableCell(nx, ny)) {
+          continue;
+        }
+        final nIdx = index(nx, ny);
+        if (visited.add(nIdx)) {
+          parents[nIdx] = current;
+          queue.add(nIdx);
+        }
+      }
+    }
+    return null;
+  }
+
+  List<Vector2> _reconstructPath(
+    Map<int, int> parents,
+    int node,
+    int startIdx,
+  ) {
+    final path = <Vector2>[];
+    var current = node;
+    while (current != startIdx) {
+      final x = current % cols;
+      final y = current ~/ cols;
+      path.add(Vector2(x + 0.5, y + 0.5));
+      final parent = parents[current];
+      if (parent == null) {
+        break;
+      }
+      current = parent;
+    }
+    return path.reversed.toList();
   }
 }
