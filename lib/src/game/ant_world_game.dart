@@ -43,12 +43,24 @@ class AntWorldGame extends FlameGame
   final Paint _colony1CarryingPaint = Paint()..color = const Color(0xFFFFEB3B); // Yellow (carrying food)
   final Paint _nestPaint = Paint()..color = const Color(0xFF4DD0E1); // Cyan (matches colony 0)
   final Paint _nest1Paint = Paint()..color = const Color(0xFFFF7043); // Orange (matches colony 1)
-  final Paint _foodPheromonePaint = Paint()..color = const Color(0xFF0064FF);
-  final Paint _homePheromonePaint = Paint()..color = const Color(0xFF888888);
+  // Colony 0 pheromone paints (blue/gray)
+  final Paint _foodPheromone0Paint = Paint()..color = const Color(0xFF0064FF);
+  final Paint _homePheromone0Paint = Paint()..color = const Color(0xFF888888);
+  // Colony 1 pheromone paints (orange/purple)
+  final Paint _foodPheromone1Paint = Paint()..color = const Color(0xFFFF6400);
+  final Paint _homePheromone1Paint = Paint()..color = const Color(0xFF884488);
   final Paint _selectionPaint = Paint()
     ..color = const Color(0xFFFFFF00)
     ..style = PaintingStyle.stroke
     ..strokeWidth = 2.0;
+  // Queen paints (larger, with aura)
+  final Paint _queen0Paint = Paint()..color = const Color(0xFF00BCD4); // Darker cyan
+  final Paint _queen1Paint = Paint()..color = const Color(0xFFFF5722); // Darker orange
+  final Paint _queenAura0Paint = Paint()..color = const Color(0x3300BCD4); // Transparent cyan
+  final Paint _queenAura1Paint = Paint()..color = const Color(0x33FF5722); // Transparent orange
+  // Larva paint (smaller, lighter)
+  final Paint _larva0Paint = Paint()..color = const Color(0x99B2EBF2); // Light cyan, semi-transparent
+  final Paint _larva1Paint = Paint()..color = const Color(0x99FFCCBC); // Light orange, semi-transparent
   Picture? _terrainPicture;
   int _cachedTerrainVersion = -1;
   Picture? _pheromonePicture;
@@ -287,14 +299,20 @@ class AntWorldGame extends FlameGame
 
   void _drawPheromones(Canvas canvas, WorldGrid world, double cellSize) {
     final cols = world.cols;
-    // Only iterate over cells with active pheromones (~200 cells instead of 7,500)
+    // Only iterate over cells with active pheromones
     for (final idx in world.activePheromoneCells) {
       if (world.cells[idx] != CellType.air.index) {
         continue;
       }
-      final foodStrength = world.foodPheromones[idx];
-      final homeStrength = world.homePheromones[idx];
-      if (foodStrength <= 0.05 && homeStrength <= 0.05) {
+
+      // Get pheromone strengths for both colonies
+      final food0 = world.foodPheromones0[idx];
+      final home0 = world.homePheromones0[idx];
+      final food1 = world.foodPheromones1[idx];
+      final home1 = world.homePheromones1[idx];
+
+      // Skip if all pheromones are too weak
+      if (food0 <= 0.05 && home0 <= 0.05 && food1 <= 0.05 && home1 <= 0.05) {
         continue;
       }
 
@@ -303,18 +321,40 @@ class AntWorldGame extends FlameGame
       final y = idx ~/ cols;
       final dx = x * cellSize;
       final dy = y * cellSize;
-
       final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
-      if (foodStrength >= homeStrength) {
-        final alpha = foodStrength.clamp(0, 1).toDouble();
-        _foodPheromonePaint.color =
-            const Color(0xFF0064FF).withValues(alpha: alpha);
-        canvas.drawRect(rect, _foodPheromonePaint);
-      } else {
-        final alpha = homeStrength.clamp(0, 0.6).toDouble();
-        _homePheromonePaint.color =
-            const Color(0xFF888888).withValues(alpha: alpha);
-        canvas.drawRect(rect, _homePheromonePaint);
+
+      // Draw strongest pheromone for each colony (blend if both present)
+      // Colony 0: blue for food, gray for home
+      final max0 = food0 > home0 ? food0 : home0;
+      // Colony 1: orange for food, purple for home
+      final max1 = food1 > home1 ? food1 : home1;
+
+      if (max0 >= max1 && max0 > 0.05) {
+        // Colony 0 dominates
+        if (food0 >= home0) {
+          final alpha = food0.clamp(0, 1).toDouble();
+          _foodPheromone0Paint.color =
+              const Color(0xFF0064FF).withValues(alpha: alpha);
+          canvas.drawRect(rect, _foodPheromone0Paint);
+        } else {
+          final alpha = home0.clamp(0, 0.6).toDouble();
+          _homePheromone0Paint.color =
+              const Color(0xFF888888).withValues(alpha: alpha);
+          canvas.drawRect(rect, _homePheromone0Paint);
+        }
+      } else if (max1 > 0.05) {
+        // Colony 1 dominates
+        if (food1 >= home1) {
+          final alpha = food1.clamp(0, 1).toDouble();
+          _foodPheromone1Paint.color =
+              const Color(0xFFFF6400).withValues(alpha: alpha);
+          canvas.drawRect(rect, _foodPheromone1Paint);
+        } else {
+          final alpha = home1.clamp(0, 0.6).toDouble();
+          _homePheromone1Paint.color =
+              const Color(0xFF884488).withValues(alpha: alpha);
+          canvas.drawRect(rect, _homePheromone1Paint);
+        }
       }
     }
   }
@@ -323,21 +363,48 @@ class AntWorldGame extends FlameGame
     // Colony 0 paths (cyan/green tones)
     final colony0Path = Path();
     final colony0CarryingPath = Path();
+    final larva0Path = Path();
     // Colony 1 paths (orange/red tones)
     final colony1Path = Path();
     final colony1CarryingPath = Path();
+    final larva1Path = Path();
 
     var colony0HasContent = false;
     var colony0CarryingHasContent = false;
+    var larva0HasContent = false;
     var colony1HasContent = false;
     var colony1CarryingHasContent = false;
+    var larva1HasContent = false;
+
+    // Collect queens to draw separately (on top, with aura)
+    final queens = <Ant>[];
 
     final radius = cellSize * 0.35;
+    final larvaRadius = cellSize * 0.2; // Smaller for larvae
     for (final Ant ant in simulation.ants) {
-      final rect = Rect.fromCircle(
-        center: Offset(ant.position.x * cellSize, ant.position.y * cellSize),
-        radius: radius,
-      );
+      final center = Offset(ant.position.x * cellSize, ant.position.y * cellSize);
+
+      // Queens drawn separately with aura
+      if (ant.caste == AntCaste.queen) {
+        queens.add(ant);
+        continue;
+      }
+
+      // Larvae are smaller
+      if (ant.caste == AntCaste.larva) {
+        final rect = Rect.fromCircle(center: center, radius: larvaRadius);
+        if (ant.colonyId == 0) {
+          larva0Path.addOval(rect);
+          larva0HasContent = true;
+        } else {
+          larva1Path.addOval(rect);
+          larva1HasContent = true;
+        }
+        continue;
+      }
+
+      // Regular ants
+      final rect = Rect.fromCircle(center: center, radius: radius);
       if (ant.colonyId == 0) {
         if (ant.hasFood) {
           colony0CarryingPath.addOval(rect);
@@ -357,6 +424,14 @@ class AntWorldGame extends FlameGame
       }
     }
 
+    // Draw larvae first (background)
+    if (larva0HasContent) {
+      canvas.drawPath(larva0Path, _larva0Paint);
+    }
+    if (larva1HasContent) {
+      canvas.drawPath(larva1Path, _larva1Paint);
+    }
+
     // Draw colony 0 ants (cyan/green)
     if (colony0HasContent) {
       canvas.drawPath(colony0Path, _antPaint); // Cyan
@@ -372,10 +447,27 @@ class AntWorldGame extends FlameGame
       canvas.drawPath(colony1CarryingPath, _colony1CarryingPaint); // Yellow
     }
 
+    // Draw queens last (on top) with aura and 2x size
+    final queenRadius = cellSize * 0.7; // 2x normal size
+    final auraRadius = cellSize * 2.5;  // Large transparent aura
+    for (final queen in queens) {
+      final center = Offset(queen.position.x * cellSize, queen.position.y * cellSize);
+      // Draw aura first (behind queen)
+      if (queen.colonyId == 0) {
+        canvas.drawCircle(center, auraRadius, _queenAura0Paint);
+        canvas.drawCircle(center, queenRadius, _queen0Paint);
+      } else {
+        canvas.drawCircle(center, auraRadius, _queenAura1Paint);
+        canvas.drawCircle(center, queenRadius, _queen1Paint);
+      }
+    }
+
     // Draw selection highlight
     final selected = selectedAnt.value;
     if (selected != null) {
-      final selectionRadius = cellSize * 0.6;
+      final selectionRadius = selected.caste == AntCaste.queen
+          ? cellSize * 1.0 // Larger selection for queen
+          : cellSize * 0.6;
       canvas.drawCircle(
         Offset(selected.position.x * cellSize, selected.position.y * cellSize),
         selectionRadius,

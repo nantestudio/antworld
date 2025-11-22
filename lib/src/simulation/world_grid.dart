@@ -21,12 +21,15 @@ class WorldGrid {
   WorldGrid(this.config, {Vector2? nestOverride, Vector2? nest1Override})
     : cells = Uint8List(config.cols * config.rows),
       zones = Uint8List(config.cols * config.rows),
-      foodPheromones = Float32List(config.cols * config.rows),
-      homePheromones = Float32List(config.cols * config.rows),
+      foodPheromones0 = Float32List(config.cols * config.rows),
+      foodPheromones1 = Float32List(config.cols * config.rows),
+      homePheromones0 = Float32List(config.cols * config.rows),
+      homePheromones1 = Float32List(config.cols * config.rows),
       blockedPheromones = Float32List(config.cols * config.rows),
       dirtHealth = Float32List(config.cols * config.rows),
       foodAmount = Uint8List(config.cols * config.rows),
-      _homeDistances = Int32List(config.cols * config.rows),
+      _homeDistances0 = Int32List(config.cols * config.rows),
+      _homeDistances1 = Int32List(config.cols * config.rows),
       nestPosition = (nestOverride ?? Vector2(config.cols / 2, config.rows / 2))
           .clone(),
       nest1Position = (nest1Override ?? Vector2(config.cols / 2, config.rows * 0.2))
@@ -37,9 +40,12 @@ class WorldGrid {
   final SimulationConfig config;
   final Uint8List cells;
   final Uint8List zones; // NestZone for each cell
-  final Float32List foodPheromones;
-  final Float32List homePheromones;
-  final Float32List blockedPheromones; // Warning pheromone for dead ends/obstacles
+  // Per-colony pheromone layers - each colony only senses its own trails
+  final Float32List foodPheromones0; // Colony 0 food trails
+  final Float32List foodPheromones1; // Colony 1 food trails
+  final Float32List homePheromones0; // Colony 0 home trails
+  final Float32List homePheromones1; // Colony 1 home trails
+  final Float32List blockedPheromones; // Warning pheromone for dead ends/obstacles (shared)
   final Vector2 nestPosition;  // Colony 0 nest
   final Vector2 nest1Position; // Colony 1 nest
   final Float32List dirtHealth;
@@ -48,8 +54,10 @@ class WorldGrid {
   final Set<int> _activePheromoneCells = <int>{};
   late final UnmodifiableSetView<int> _activePheromoneCellsView =
       UnmodifiableSetView(_activePheromoneCells);
-  final Int32List _homeDistances;
-  bool _homeDistanceDirty = true;
+  final Int32List _homeDistances0; // BFS distances to colony 0 nest
+  final Int32List _homeDistances1; // BFS distances to colony 1 nest
+  bool _homeDistance0Dirty = true;
+  bool _homeDistance1Dirty = true;
   int _terrainVersion = 0;
 
   int get cols => config.cols;
@@ -64,13 +72,16 @@ class WorldGrid {
       zones[i] = NestZone.none.index;
       dirtHealth[i] = config.dirtMaxHealth;
       foodAmount[i] = 0;
-      foodPheromones[i] = 0;
-      homePheromones[i] = 0;
+      foodPheromones0[i] = 0;
+      foodPheromones1[i] = 0;
+      homePheromones0[i] = 0;
+      homePheromones1[i] = 0;
       blockedPheromones[i] = 0;
     }
     _foodCells.clear();
     _activePheromoneCells.clear();
-    _homeDistanceDirty = true;
+    _homeDistance0Dirty = true;
+    _homeDistance1Dirty = true;
     _terrainVersion++;
   }
 
@@ -81,11 +92,11 @@ class WorldGrid {
 
   /// Carve both colony nests
   void carveNest() {
-    _carveNestAt(nestPosition);
-    _carveNestAt(nest1Position);
+    _carveNestAt(nestPosition, 0);
+    _carveNestAt(nest1Position, 1);
   }
 
-  void _carveNestAt(Vector2 position) {
+  void _carveNestAt(Vector2 position, int colonyId) {
     final cx = position.x.floor();
     final cy = position.y.floor();
     final totalRadius = config.nestRadius + 0.5;
@@ -97,6 +108,9 @@ class WorldGrid {
     final queenRadius = totalRadius * 0.3;
     final nurseryRadius = totalRadius * 0.6;
 
+    // Select correct pheromone layer for this colony
+    final homeLayer = colonyId == 0 ? homePheromones0 : homePheromones1;
+
     for (var dx = -config.nestRadius; dx <= config.nestRadius; dx++) {
       for (var dy = -config.nestRadius; dy <= config.nestRadius; dy++) {
         final nx = cx + dx;
@@ -107,7 +121,7 @@ class WorldGrid {
         if (dist <= totalRadius) {
           setCell(nx, ny, CellType.air);
           final idx = index(nx, ny);
-          homePheromones[idx] = 1.0;
+          homeLayer[idx] = 1.0;
           _activePheromoneCells.add(idx);
 
           // Assign zone based on distance from center
@@ -163,21 +177,25 @@ class WorldGrid {
     }
 
     if (type != CellType.air) {
-      foodPheromones[idx] = 0;
-      homePheromones[idx] = 0;
+      foodPheromones0[idx] = 0;
+      foodPheromones1[idx] = 0;
+      homePheromones0[idx] = 0;
+      homePheromones1[idx] = 0;
       _activePheromoneCells.remove(idx);
     }
     _terrainVersion++;
-    _homeDistanceDirty = true;
+    _homeDistance0Dirty = true;
+    _homeDistance1Dirty = true;
   }
 
   void decay(double factor, double threshold) {
+    final nest0Idx = index(nestPosition.x.floor(), nestPosition.y.floor());
+    final nest1Idx = index(nest1Position.x.floor(), nest1Position.y.floor());
+
     if (_activePheromoneCells.isEmpty) {
-      // Both nests radiate home pheromone
-      final nest0Idx = index(nestPosition.x.floor(), nestPosition.y.floor());
-      final nest1Idx = index(nest1Position.x.floor(), nest1Position.y.floor());
-      homePheromones[nest0Idx] = 1.0;
-      homePheromones[nest1Idx] = 1.0;
+      // Both nests radiate home pheromone to their own layer
+      homePheromones0[nest0Idx] = 1.0;
+      homePheromones1[nest1Idx] = 1.0;
       _activePheromoneCells.add(nest0Idx);
       _activePheromoneCells.add(nest1Idx);
       return;
@@ -188,22 +206,43 @@ class WorldGrid {
 
     final toRemove = <int>[];
     for (final idx in _activePheromoneCells) {
-      var f = foodPheromones[idx];
-      if (f > threshold) {
-        f *= factor;
-        foodPheromones[idx] = f > threshold ? f : 0;
+      // Colony 0 food pheromones
+      var f0 = foodPheromones0[idx];
+      if (f0 > threshold) {
+        f0 *= factor;
+        foodPheromones0[idx] = f0 > threshold ? f0 : 0;
       } else {
-        foodPheromones[idx] = 0;
+        foodPheromones0[idx] = 0;
       }
 
-      var h = homePheromones[idx];
-      if (h > threshold) {
-        h *= factor;
-        homePheromones[idx] = h > threshold ? h : 0;
+      // Colony 1 food pheromones
+      var f1 = foodPheromones1[idx];
+      if (f1 > threshold) {
+        f1 *= factor;
+        foodPheromones1[idx] = f1 > threshold ? f1 : 0;
       } else {
-        homePheromones[idx] = 0;
+        foodPheromones1[idx] = 0;
       }
 
+      // Colony 0 home pheromones
+      var h0 = homePheromones0[idx];
+      if (h0 > threshold) {
+        h0 *= factor;
+        homePheromones0[idx] = h0 > threshold ? h0 : 0;
+      } else {
+        homePheromones0[idx] = 0;
+      }
+
+      // Colony 1 home pheromones
+      var h1 = homePheromones1[idx];
+      if (h1 > threshold) {
+        h1 *= factor;
+        homePheromones1[idx] = h1 > threshold ? h1 : 0;
+      } else {
+        homePheromones1[idx] = 0;
+      }
+
+      // Shared blocked pheromones
       var b = blockedPheromones[idx];
       if (b > threshold) {
         b *= blockedFactor;
@@ -212,7 +251,10 @@ class WorldGrid {
         blockedPheromones[idx] = 0;
       }
 
-      if (foodPheromones[idx] == 0 && homePheromones[idx] == 0 && blockedPheromones[idx] == 0) {
+      // Remove from active set if all pheromones decayed
+      if (foodPheromones0[idx] == 0 && foodPheromones1[idx] == 0 &&
+          homePheromones0[idx] == 0 && homePheromones1[idx] == 0 &&
+          blockedPheromones[idx] == 0) {
         toRemove.add(idx);
       }
     }
@@ -221,11 +263,9 @@ class WorldGrid {
       _activePheromoneCells.remove(idx);
     }
 
-    // Both nests always radiate max home pheromone
-    final nest0Idx = index(nestPosition.x.floor(), nestPosition.y.floor());
-    final nest1Idx = index(nest1Position.x.floor(), nest1Position.y.floor());
-    homePheromones[nest0Idx] = 1.0;
-    homePheromones[nest1Idx] = 1.0;
+    // Each nest radiates max home pheromone to its own layer
+    homePheromones0[nest0Idx] = 1.0;
+    homePheromones1[nest1Idx] = 1.0;
     _activePheromoneCells.add(nest0Idx);
     _activePheromoneCells.add(nest1Idx);
   }
@@ -312,16 +352,42 @@ class WorldGrid {
   void loadState({
     required Uint8List cellsData,
     required Float32List dirtHealthData,
-    required Float32List foodPheromoneData,
-    required Float32List homePheromoneData,
+    Float32List? foodPheromoneData,  // Legacy: single layer
+    Float32List? homePheromoneData,  // Legacy: single layer
+    Float32List? foodPheromone0Data, // New: per-colony
+    Float32List? foodPheromone1Data,
+    Float32List? homePheromone0Data,
+    Float32List? homePheromone1Data,
     Uint8List? zonesData,
     Float32List? blockedPheromoneData,
     Uint8List? foodAmountData,
   }) {
     cells.setAll(0, cellsData);
     dirtHealth.setAll(0, dirtHealthData);
-    foodPheromones.setAll(0, foodPheromoneData);
-    homePheromones.setAll(0, homePheromoneData);
+
+    // Support both legacy (single layer) and new (per-colony) formats
+    if (foodPheromone0Data != null && foodPheromone0Data.length == foodPheromones0.length) {
+      foodPheromones0.setAll(0, foodPheromone0Data);
+    } else if (foodPheromoneData != null && foodPheromoneData.length == foodPheromones0.length) {
+      // Legacy: copy to colony 0 layer
+      foodPheromones0.setAll(0, foodPheromoneData);
+    }
+
+    if (foodPheromone1Data != null && foodPheromone1Data.length == foodPheromones1.length) {
+      foodPheromones1.setAll(0, foodPheromone1Data);
+    }
+
+    if (homePheromone0Data != null && homePheromone0Data.length == homePheromones0.length) {
+      homePheromones0.setAll(0, homePheromone0Data);
+    } else if (homePheromoneData != null && homePheromoneData.length == homePheromones0.length) {
+      // Legacy: copy to colony 0 layer
+      homePheromones0.setAll(0, homePheromoneData);
+    }
+
+    if (homePheromone1Data != null && homePheromone1Data.length == homePheromones1.length) {
+      homePheromones1.setAll(0, homePheromone1Data);
+    }
+
     if (zonesData != null && zonesData.length == zones.length) {
       zones.setAll(0, zonesData);
     }
@@ -354,27 +420,35 @@ class WorldGrid {
   void depositFoodPheromone(int x, int y, double amount, [int colonyId = 0]) {
     if (!isInsideIndex(x, y)) return;
     final idx = index(x, y);
-    // TODO: Phase 3 - use per-colony pheromone layers
-    foodPheromones[idx] = math.min(1.0, foodPheromones[idx] + amount);
+    if (colonyId == 0) {
+      foodPheromones0[idx] = math.min(1.0, foodPheromones0[idx] + amount);
+    } else {
+      foodPheromones1[idx] = math.min(1.0, foodPheromones1[idx] + amount);
+    }
     _activePheromoneCells.add(idx);
   }
 
   void depositHomePheromone(int x, int y, double amount, [int colonyId = 0]) {
     if (!isInsideIndex(x, y)) return;
     final idx = index(x, y);
-    // TODO: Phase 3 - use per-colony pheromone layers
-    homePheromones[idx] = math.min(1.0, homePheromones[idx] + amount);
+    if (colonyId == 0) {
+      homePheromones0[idx] = math.min(1.0, homePheromones0[idx] + amount);
+    } else {
+      homePheromones1[idx] = math.min(1.0, homePheromones1[idx] + amount);
+    }
     _activePheromoneCells.add(idx);
   }
 
-  double foodPheromoneAt(int x, int y) {
+  double foodPheromoneAt(int x, int y, [int colonyId = 0]) {
     if (!isInsideIndex(x, y)) return 0;
-    return foodPheromones[index(x, y)];
+    final idx = index(x, y);
+    return colonyId == 0 ? foodPheromones0[idx] : foodPheromones1[idx];
   }
 
-  double homePheromoneAt(int x, int y) {
+  double homePheromoneAt(int x, int y, [int colonyId = 0]) {
     if (!isInsideIndex(x, y)) return 0;
-    return homePheromones[index(x, y)];
+    final idx = index(x, y);
+    return colonyId == 0 ? homePheromones0[idx] : homePheromones1[idx];
   }
 
   void depositBlockedPheromone(int x, int y, double amount) {
@@ -405,7 +479,9 @@ class WorldGrid {
   void _rebuildPheromoneCache() {
     _activePheromoneCells.clear();
     for (var i = 0; i < cells.length; i++) {
-      if (foodPheromones[i] > 0 || homePheromones[i] > 0) {
+      if (foodPheromones0[i] > 0 || foodPheromones1[i] > 0 ||
+          homePheromones0[i] > 0 || homePheromones1[i] > 0 ||
+          blockedPheromones[i] > 0) {
         _activePheromoneCells.add(i);
       }
     }
@@ -434,21 +510,17 @@ class WorldGrid {
     return best;
   }
 
-  /// Returns direction to the nest for colony 0 using BFS pathfinding.
-  /// For colony 1, returns null (caller should use direct vector fallback).
+  /// Returns direction to the nest using BFS pathfinding.
   Vector2? directionToNest(Vector2 from, {int colonyId = 0}) {
-    // Colony 1 doesn't have BFS pathfinding yet - caller uses direct vector
-    if (colonyId != 0) {
-      return null;
-    }
-    _ensureHomeDistances();
+    _ensureHomeDistances(colonyId);
+    final distances = colonyId == 0 ? _homeDistances0 : _homeDistances1;
     final gx = from.x.floor();
     final gy = from.y.floor();
     if (!isInsideIndex(gx, gy)) {
       return null;
     }
     final idx = index(gx, gy);
-    final current = _homeDistances[idx];
+    final current = distances[idx];
     if (current <= 0) {
       return null;
     }
@@ -463,7 +535,7 @@ class WorldGrid {
       final ny = gy + dir[1];
       if (!isInsideIndex(nx, ny)) continue;
       final neighborIdx = index(nx, ny);
-      final dist = _homeDistances[neighborIdx];
+      final dist = distances[neighborIdx];
       if (dist >= 0 && dist < current && isWalkableCell(nx, ny)) {
         final center = Vector2(nx + 0.5, ny + 0.5);
         return center - from;
@@ -473,25 +545,37 @@ class WorldGrid {
   }
 
   void markHomeDistancesDirty() {
-    _homeDistanceDirty = true;
+    _homeDistance0Dirty = true;
+    _homeDistance1Dirty = true;
   }
 
-  void _ensureHomeDistances() {
-    if (!_homeDistanceDirty) {
+  void _ensureHomeDistances(int colonyId) {
+    final isDirty = colonyId == 0 ? _homeDistance0Dirty : _homeDistance1Dirty;
+    if (!isDirty) {
       return;
     }
-    _homeDistanceDirty = false;
-    for (var i = 0; i < _homeDistances.length; i++) {
-      _homeDistances[i] = -1;
+
+    // Mark as clean
+    if (colonyId == 0) {
+      _homeDistance0Dirty = false;
+    } else {
+      _homeDistance1Dirty = false;
     }
-    final startX = nestPosition.x.floor().clamp(0, cols - 1);
-    final startY = nestPosition.y.floor().clamp(0, rows - 1);
+
+    final distances = colonyId == 0 ? _homeDistances0 : _homeDistances1;
+    final nestPos = colonyId == 0 ? nestPosition : nest1Position;
+
+    for (var i = 0; i < distances.length; i++) {
+      distances[i] = -1;
+    }
+    final startX = nestPos.x.floor().clamp(0, cols - 1);
+    final startY = nestPos.y.floor().clamp(0, rows - 1);
     if (!isInsideIndex(startX, startY) || !isWalkableCell(startX, startY)) {
       return;
     }
     final queue = Queue<int>();
     final startIdx = index(startX, startY);
-    _homeDistances[startIdx] = 0;
+    distances[startIdx] = 0;
     queue.add(startIdx);
     const dirs = [
       [1, 0],
@@ -503,15 +587,15 @@ class WorldGrid {
       final current = queue.removeFirst();
       final cx = current % cols;
       final cy = current ~/ cols;
-      final nextDist = _homeDistances[current] + 1;
+      final nextDist = distances[current] + 1;
       for (final dir in dirs) {
         final nx = cx + dir[0];
         final ny = cy + dir[1];
         if (!isInsideIndex(nx, ny)) continue;
         if (!isWalkableCell(nx, ny)) continue;
         final idx = index(nx, ny);
-        if (_homeDistances[idx] != -1) continue;
-        _homeDistances[idx] = nextDist;
+        if (distances[idx] != -1) continue;
+        distances[idx] = nextDist;
         queue.add(idx);
       }
     }

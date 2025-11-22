@@ -339,15 +339,26 @@ class ColonySimulation {
       final zonesStr = worldData['zones'] as String?;
       final blockedStr = worldData['blockedPheromones'] as String?;
       final foodAmountStr = worldData['foodAmount'] as String?;
+
+      // Support both legacy (single layer) and new (per-colony) pheromone formats
+      final legacyFoodStr = worldData['foodPheromones'] as String?;
+      final legacyHomeStr = worldData['homePheromones'] as String?;
+      final food0Str = worldData['foodPheromones0'] as String?;
+      final food1Str = worldData['foodPheromones1'] as String?;
+      final home0Str = worldData['homePheromones0'] as String?;
+      final home1Str = worldData['homePheromones1'] as String?;
+
       world.loadState(
         cellsData: _decodeUint8(worldData['cells'] as String),
         dirtHealthData: _decodeFloat32(worldData['dirtHealth'] as String),
-        foodPheromoneData: _decodeFloat32(
-          worldData['foodPheromones'] as String,
-        ),
-        homePheromoneData: _decodeFloat32(
-          worldData['homePheromones'] as String,
-        ),
+        // Legacy pheromone data (will be copied to colony 0 layer)
+        foodPheromoneData: legacyFoodStr != null ? _decodeFloat32(legacyFoodStr) : null,
+        homePheromoneData: legacyHomeStr != null ? _decodeFloat32(legacyHomeStr) : null,
+        // Per-colony pheromone data
+        foodPheromone0Data: food0Str != null ? _decodeFloat32(food0Str) : null,
+        foodPheromone1Data: food1Str != null ? _decodeFloat32(food1Str) : null,
+        homePheromone0Data: home0Str != null ? _decodeFloat32(home0Str) : null,
+        homePheromone1Data: home1Str != null ? _decodeFloat32(home1Str) : null,
         zonesData: zonesStr != null ? _decodeUint8(zonesStr) : null,
         blockedPheromoneData: blockedStr != null ? _decodeFloat32(blockedStr) : null,
         foodAmountData: foodAmountStr != null ? _decodeUint8(foodAmountStr) : null,
@@ -377,6 +388,19 @@ class ColonySimulation {
     _lastSeed = (snapshot['seed'] as num?)?.toInt();
     _elapsedTime = (snapshot['elapsedTime'] as num?)?.toDouble() ?? 0.0;
     daysPassed.value = (snapshot['daysPassed'] as num?)?.toInt() ?? 0;
+
+    // Ensure both colonies have a queen (for migrating old saves)
+    _ensureQueensExist();
+  }
+
+  /// Ensures both colonies have at least one queen
+  void _ensureQueensExist() {
+    for (var colonyId = 0; colonyId < 2; colonyId++) {
+      final hasQueen = ants.any((a) => a.colonyId == colonyId && a.caste == AntCaste.queen);
+      if (!hasQueen) {
+        _spawnAnt(caste: AntCaste.queen, colonyId: colonyId);
+      }
+    }
   }
 
   void addAnts(int count) {
@@ -679,7 +703,12 @@ class ColonySimulation {
   }
 
   void _removeStuckAnts() {
-    final stuckAnts = ants.where((a) => a.isStuck).toList();
+    // Don't remove queens or larvae - they don't move much by design
+    final stuckAnts = ants.where((a) =>
+      a.isStuck &&
+      a.caste != AntCaste.queen &&
+      a.caste != AntCaste.larva
+    ).toList();
     if (stuckAnts.isNotEmpty) {
       ants.removeWhere(stuckAnts.contains);
       _updateAntCount();
@@ -729,8 +758,11 @@ class ColonySimulation {
       'zones': _encodeUint8(Uint8List.fromList(world.zones)),
       'dirtHealth': _encodeFloat32(world.dirtHealth),
       'foodAmount': _encodeUint8(Uint8List.fromList(world.foodAmount)),
-      'foodPheromones': _encodeFloat32(world.foodPheromones),
-      'homePheromones': _encodeFloat32(world.homePheromones),
+      // Per-colony pheromone layers
+      'foodPheromones0': _encodeFloat32(world.foodPheromones0),
+      'foodPheromones1': _encodeFloat32(world.foodPheromones1),
+      'homePheromones0': _encodeFloat32(world.homePheromones0),
+      'homePheromones1': _encodeFloat32(world.homePheromones1),
       'blockedPheromones': _encodeFloat32(world.blockedPheromones),
       'nest': {'x': world.nestPosition.x, 'y': world.nestPosition.y},
       'nest1': {'x': world.nest1Position.x, 'y': world.nest1Position.y},

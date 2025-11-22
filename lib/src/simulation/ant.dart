@@ -412,24 +412,15 @@ class Ant {
         : state;
 
     if (behavior == AntState.returnHome || _needsRest || hasFood) {
-      // Try BFS pathfinding first (only works for colony 0)
-      final dir = world.directionToNest(position, colonyId: colonyId);
-      if (dir != null && dir.length2 > 0.0001) {
-        final desiredAngle = math.atan2(dir.y, dir.x);
-        final delta = _normalizeAngle(desiredAngle - angle);
-        angle += delta.clamp(-0.5, 0.5) * (0.7 + rng.nextDouble() * 0.2);
-        angle += (rng.nextDouble() - 0.5) * 0.05;
-        return;
-      }
-
-      // No BFS path - use home pheromone sensing (3-sensor system)
+      // PRIORITY 1: Follow home pheromone trails (the path we came from)
+      // This creates consistent "ant highways" where ants return on the same path
       final sensorRight = _sense(angle + config.sensorAngle, config, world, rng);
       final sensorFront = _sense(angle, config, world, rng);
       final sensorLeft = _sense(angle - config.sensorAngle, config, world, rng);
 
       final maxSignal = math.max(sensorFront, math.max(sensorLeft, sensorRight));
-      if (maxSignal > 0.01) {
-        // Follow home pheromone gradient
+      if (maxSignal > 0.05) {
+        // Follow home pheromone gradient - stay on the trail
         if (sensorFront >= sensorLeft && sensorFront >= sensorRight) {
           // Front strongest - go straight with tiny noise
           angle += (rng.nextDouble() - 0.5) * 0.05;
@@ -443,7 +434,17 @@ class Ant {
         return;
       }
 
-      // No pheromones - fall back to direct vector toward nest
+      // PRIORITY 2: No pheromone trail - use BFS pathfinding
+      final dir = world.directionToNest(position, colonyId: colonyId);
+      if (dir != null && dir.length2 > 0.0001) {
+        final desiredAngle = math.atan2(dir.y, dir.x);
+        final delta = _normalizeAngle(desiredAngle - angle);
+        angle += delta.clamp(-0.5, 0.5) * (0.7 + rng.nextDouble() * 0.2);
+        angle += (rng.nextDouble() - 0.5) * 0.05;
+        return;
+      }
+
+      // PRIORITY 3: No BFS path - fall back to direct vector toward nest
       final myNest = world.getNestPosition(colonyId);
       final nestDir = myNest - position;
       if (nestDir.length2 > 0) {
@@ -553,7 +554,8 @@ class Ant {
         : state;
 
     if (behavior == AntState.forage) {
-      var value = world.foodPheromoneAt(gx, gy);
+      // Sense own colony's food pheromones (trails to food sources)
+      var value = world.foodPheromoneAt(gx, gy, colonyId);
       if (world.cellTypeAt(gx, gy) == CellType.food) {
         value += 10;
       }
@@ -564,7 +566,8 @@ class Ant {
       return value;
     }
 
-    var value = world.homePheromoneAt(gx, gy);
+    // Sense own colony's home pheromones (trails back to nest)
+    var value = world.homePheromoneAt(gx, gy, colonyId);
     // Add perceptual noise: ±15% variation
     value *= (0.85 + rng.nextDouble() * 0.3);
     // Subtract blocked pheromone penalty
@@ -777,6 +780,10 @@ class Ant {
   bool _updateQueen(double dt, SimulationConfig config, WorldGrid world, math.Random rng) {
     _eggLayTimer += dt;
 
+    final myNest = world.getNestPosition(colonyId);
+    final distToNest = position.distanceTo(myNest);
+    final wanderRadius = config.nestRadius * 0.4; // Stay within inner 40% of nest
+
     // Check if we're in the queen chamber
     final currentZone = world.zoneAtPosition(position);
     if (currentZone != NestZone.queenChamber) {
@@ -787,13 +794,37 @@ class Ant {
         final delta = _normalizeAngle(desired - angle);
         angle += delta.clamp(-0.2, 0.2);
         // Queen moves very slowly
-        final speed = config.antSpeed * 0.1 * dt;
+        final speed = config.antSpeed * 0.15 * dt;
         position.x += math.cos(angle) * speed;
         position.y += math.sin(angle) * speed;
       }
     } else {
-      // In chamber - just wiggle slightly in place
-      angle += (rng.nextDouble() - 0.5) * 0.1;
+      // In chamber - slowly wander around within a small radius
+      // Gentle random direction changes
+      angle += (rng.nextDouble() - 0.5) * 0.3;
+
+      // If too far from nest center, bias back toward it
+      if (distToNest > wanderRadius) {
+        final toCenter = math.atan2(myNest.y - position.y, myNest.x - position.x);
+        final delta = _normalizeAngle(toCenter - angle);
+        angle += delta * 0.1; // Gentle pull back to center
+      }
+
+      // Very slow wandering movement
+      final speed = config.antSpeed * 0.05 * dt;
+      final nextX = position.x + math.cos(angle) * speed;
+      final nextY = position.y + math.sin(angle) * speed;
+
+      // Only move if destination is walkable
+      final gx = nextX.floor();
+      final gy = nextY.floor();
+      if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
+        position.x = nextX;
+        position.y = nextY;
+      } else {
+        // Turn around if blocked
+        angle += math.pi * 0.5 + (rng.nextDouble() - 0.5) * 0.5;
+      }
     }
 
     // Return true if queen wants to lay an egg (colony handles spawning)
