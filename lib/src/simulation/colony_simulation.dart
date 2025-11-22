@@ -36,6 +36,8 @@ class ColonySimulation {
   double _elapsedTime = 0.0;
   double _raidTimer = 0.0;
   double _nextRaidIn = 45.0;
+  double _foodCheckTimer = 0.0;
+  double _nextFoodCheck = 20.0;
 
   bool get showPheromones => pheromonesVisible.value;
   int? get lastSeed => _lastSeed;
@@ -49,6 +51,7 @@ class ColonySimulation {
     _queuedAnts = 0;
     _elapsedTime = 0.0;
     _scheduleNextRaid();
+    _scheduleNextFoodCheck();
     foodCollected.value = 0;
     daysPassed.value = 1;
 
@@ -96,6 +99,7 @@ class ColonySimulation {
       );
     }
 
+    _applySeparation();
     _resolveCombat();
     _flushSpawnQueue();
 
@@ -103,6 +107,11 @@ class ColonySimulation {
     if (_raidTimer >= _nextRaidIn && ants.isNotEmpty) {
       _spawnEnemyRaid();
       _scheduleNextRaid();
+    }
+    _foodCheckTimer += clampedDt;
+    if (_foodCheckTimer >= _nextFoodCheck) {
+      _maintainFoodSupply();
+      _scheduleNextFoodCheck();
     }
   }
 
@@ -222,6 +231,7 @@ class ColonySimulation {
     _queuedAnts = 0;
     _elapsedTime = 0.0;
     _scheduleNextRaid();
+    _scheduleNextFoodCheck();
     foodCollected.value = 0;
     daysPassed.value = 1;
     // Replace world with minimal placeholder to free memory from old arrays
@@ -236,6 +246,7 @@ class ColonySimulation {
     _lastSeed = generated.seed;
     enemyAnts.clear();
     _scheduleNextRaid();
+    _scheduleNextFoodCheck();
     for (var i = 0; i < config.startingAnts; i++) {
       _spawnAnt();
     }
@@ -388,11 +399,16 @@ class ColonySimulation {
     _nextRaidIn = 35 + _rng.nextDouble() * 40;
   }
 
+  void _scheduleNextFoodCheck() {
+    _foodCheckTimer = 0;
+    _nextFoodCheck = 12 + _rng.nextDouble() * 10;
+  }
+
   void _spawnEnemyRaid() {
     if (ants.isEmpty) {
       return;
     }
-    final ratio = 0.1 + _rng.nextDouble() * 1.4;
+    final ratio = 0.01 + _rng.nextDouble() * 0.19;
     final desired = math.max(1, (ants.length * ratio).round());
     final spawnPoint = _pickRaidSpawnPoint();
     world.digCircle(spawnPoint, 3);
@@ -422,6 +438,110 @@ class ColonySimulation {
     }
   }
 
+  void _maintainFoodSupply() {
+    final current = world.foodCount;
+    final area = world.cols * world.rows;
+    final baseline = math.max(80, (area * 0.012).round());
+    final antTarget = ants.length * 4;
+    final target = math.max(baseline, antTarget);
+    if (current >= target) {
+      return;
+    }
+    final deficit = target - current;
+    final clusters = math.min(6, math.max(1, (deficit / 25).ceil()));
+    for (var i = 0; i < clusters; i++) {
+      final spot = _randomOpenCell();
+      if (spot == null) {
+        break;
+      }
+      final radius = 2 + _rng.nextInt(3);
+      world.placeFood(spot, radius);
+    }
+  }
+
+  void _applySeparation() {
+    const double minSpacing = 0.45;
+    final Map<int, List<Ant>> occupancy = {};
+    void addGroup(List<Ant> group) {
+      for (final ant in group) {
+        if (ant.isDead) continue;
+        final gx = ant.position.x.floor();
+        final gy = ant.position.y.floor();
+        if (!world.isInsideIndex(gx, gy)) {
+          continue;
+        }
+        final key = world.index(gx, gy);
+        occupancy.putIfAbsent(key, () => []).add(ant);
+      }
+    }
+
+    addGroup(ants);
+    addGroup(enemyAnts);
+    if (occupancy.isEmpty) {
+      return;
+    }
+
+    final Map<Ant, Vector2> adjustments = {};
+    for (final entry in occupancy.entries) {
+      final occupants = entry.value;
+      if (occupants.length < 2) {
+        continue;
+      }
+      for (var i = 0; i < occupants.length; i++) {
+        for (var j = i + 1; j < occupants.length; j++) {
+          final a = occupants[i];
+          final b = occupants[j];
+          final dx = a.position.x - b.position.x;
+          final dy = a.position.y - b.position.y;
+          var distSq = dx * dx + dy * dy;
+          if (distSq < 1e-4) {
+            final jitter = _rng.nextDouble() * 0.1 + 0.05;
+            final angle = _rng.nextDouble() * math.pi * 2;
+            final pushX = math.cos(angle) * jitter;
+            final pushY = math.sin(angle) * jitter;
+            _accumulateAdjustment(adjustments, a, pushX, pushY);
+            _accumulateAdjustment(adjustments, b, -pushX, -pushY);
+            continue;
+          }
+          final dist = math.sqrt(distSq);
+          final overlap = minSpacing - dist;
+          if (overlap <= 0) {
+            continue;
+          }
+          final push = overlap * 0.5;
+          final invDist = 1 / dist;
+          final pushX = dx * invDist * push;
+          final pushY = dy * invDist * push;
+          _accumulateAdjustment(adjustments, a, pushX, pushY);
+          _accumulateAdjustment(adjustments, b, -pushX, -pushY);
+        }
+      }
+    }
+
+    for (final entry in adjustments.entries) {
+      final ant = entry.key;
+      final delta = entry.value;
+      final newX = (ant.position.x + delta.x).clamp(1.0, world.cols - 2.0);
+      final newY = (ant.position.y + delta.y).clamp(1.0, world.rows - 2.0);
+      ant.position.setValues(newX.toDouble(), newY.toDouble());
+    }
+  }
+
+  void _accumulateAdjustment(
+    Map<Ant, Vector2> adjustments,
+    Ant ant,
+    double dx,
+    double dy,
+  ) {
+    final existing = adjustments[ant];
+    if (existing != null) {
+      existing.x += dx;
+      existing.y += dy;
+    } else {
+      adjustments[ant] = Vector2(dx, dy);
+    }
+  }
+
   Vector2 _pickRaidSpawnPoint() {
     final edge = _rng.nextInt(4);
     final cols = world.cols;
@@ -436,6 +556,20 @@ class ColonySimulation {
       default: // Right
         return Vector2(cols - 2, _rng.nextInt(rows - 4).toDouble() + 2);
     }
+  }
+
+  Vector2? _randomOpenCell() {
+    if (world.cols < 4 || world.rows < 4) {
+      return null;
+    }
+    for (var attempt = 0; attempt < 40; attempt++) {
+      final x = _rng.nextInt(world.cols - 4) + 2;
+      final y = _rng.nextInt(world.rows - 4) + 2;
+      if (world.cellTypeAt(x, y) == CellType.air) {
+        return Vector2(x.toDouble(), y.toDouble());
+      }
+    }
+    return null;
   }
 
   void _resolveCombat() {

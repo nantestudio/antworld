@@ -33,6 +33,7 @@ class WorldGrid {
   int get rows => config.rows;
   int get terrainVersion => _terrainVersion;
   Iterable<int> get activePheromoneCells => _activePheromoneCellsView;
+  int get foodCount => _foodCells.length;
 
   void reset() {
     for (var i = 0; i < cells.length; i++) {
