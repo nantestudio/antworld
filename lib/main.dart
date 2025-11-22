@@ -52,7 +52,7 @@ class _AntWorldAppState extends State<AntWorldApp> {
         brightness: Brightness.dark,
       ),
       useMaterial3: true,
-      fontFamily: 'monospace', // Pixel-style monospace font
+      fontFamily: 'Silkscreen', // Pixel-style font
     );
 
     return MaterialApp(
