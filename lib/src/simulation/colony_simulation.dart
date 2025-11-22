@@ -143,6 +143,7 @@ class ColonySimulation {
     final eggsToHatch = <Ant>[];
     final larvaeToMature = <Ant>[];
     final queensLayingEggs = <Ant>[];
+    final nursesSignaling = <Ant>[];
     for (final ant in ants) {
       final result =
           ant.update(clampedDt, config, world, _rng, antSpeed, attackTarget: null);
@@ -150,9 +151,16 @@ class ColonySimulation {
       if (ant.caste == AntCaste.queen && result) {
         // Queen wants to lay an egg - defer spawning until after iteration
         queensLayingEggs.add(ant);
+      } else if (ant.caste == AntCaste.nurse && result) {
+        // Nurse signals wanting to pick up or drop an egg
+        nursesSignaling.add(ant);
       } else if (ant.caste == AntCaste.egg && ant.isReadyToHatch) {
-        // Egg ready to hatch into larva
-        eggsToHatch.add(ant);
+        // Egg ready to hatch into larva - but only if in nursery room
+        final nurseryRoom = world.getNurseryRoom(ant.colonyId);
+        if (nurseryRoom != null && nurseryRoom.contains(ant.position)) {
+          eggsToHatch.add(ant);
+        }
+        // Eggs not in nursery will wait until moved by a nurse
       } else if (ant.caste == AntCaste.larva && ant.isReadyToMature) {
         // Larva ready to become an adult
         larvaeToMature.add(ant);
@@ -188,6 +196,12 @@ class ColonySimulation {
     for (final larva in larvaeToMature) {
       _matureLarva(larva);
     }
+
+    // Handle nurse egg pickup/drop
+    _processNurseEggTransfer(nursesSignaling);
+
+    // Update egg positions to follow carrying nurses
+    _updateCarriedEggs();
 
     // Run physics/collision less frequently for performance
     // Separation and combat don't need to run every single frame
@@ -419,6 +433,14 @@ class ColonySimulation {
         blockedPheromoneData: blockedStr != null ? _decodeFloat32(blockedStr) : null,
         foodAmountData: foodAmountStr != null ? _decodeUint8(foodAmountStr) : null,
       );
+
+      // Load rooms
+      final roomsData = worldData['rooms'] as List<dynamic>?;
+      if (roomsData != null) {
+        for (final roomJson in roomsData) {
+          world.rooms.add(Room.fromJson(Map<String, dynamic>.from(roomJson)));
+        }
+      }
     }
 
     ants
@@ -567,6 +589,60 @@ class ColonySimulation {
       ),
     );
     // No need to update count - same number of ants
+  }
+
+  /// Process nurses that are signaling egg pickup or drop
+  void _processNurseEggTransfer(List<Ant> nurses) {
+    for (final nurse in nurses) {
+      final homeRoom = world.getHomeRoom(nurse.colonyId);
+      final nurseryRoom = world.getNurseryRoom(nurse.colonyId);
+
+      if (nurse.isCarryingEgg) {
+        // Nurse is carrying and in nursery - drop the egg
+        if (nurseryRoom != null && nurseryRoom.contains(nurse.position)) {
+          nurse.dropEgg();
+        }
+      } else {
+        // Nurse wants to pick up - find an egg in home room
+        if (homeRoom != null && homeRoom.contains(nurse.position)) {
+          final eggInHome = ants.cast<Ant?>().firstWhere(
+            (a) => a!.caste == AntCaste.egg &&
+                   a.colonyId == nurse.colonyId &&
+                   homeRoom.contains(a.position) &&
+                   !_isEggBeingCarried(a.id),
+            orElse: () => null,
+          );
+          if (eggInHome != null) {
+            nurse.pickUpEgg(eggInHome.id);
+          }
+        }
+      }
+    }
+  }
+
+  /// Check if an egg is already being carried by a nurse
+  bool _isEggBeingCarried(int eggId) {
+    return ants.any((a) => a.caste == AntCaste.nurse && a.carryingEggId == eggId);
+  }
+
+  /// Update positions of eggs being carried by nurses
+  void _updateCarriedEggs() {
+    for (final nurse in ants) {
+      if (nurse.caste != AntCaste.nurse || !nurse.isCarryingEgg) continue;
+
+      // Find the egg this nurse is carrying
+      final egg = ants.cast<Ant?>().firstWhere(
+        (a) => a!.id == nurse.carryingEggId,
+        orElse: () => null,
+      );
+      if (egg != null) {
+        // Move egg to nurse's position
+        egg.position.setFrom(nurse.position);
+      } else {
+        // Egg no longer exists (hatched or died), drop reference
+        nurse.dropEgg();
+      }
+    }
   }
 
   /// Determines what caste the colony needs most based on current composition.
@@ -958,6 +1034,7 @@ class ColonySimulation {
       'blockedPheromones': _encodeFloat32(world.blockedPheromones),
       'nest': {'x': world.nestPosition.x, 'y': world.nestPosition.y},
       'nest1': {'x': world.nest1Position.x, 'y': world.nest1Position.y},
+      'rooms': world.rooms.map((r) => r.toJson()).toList(),
     };
   }
 }

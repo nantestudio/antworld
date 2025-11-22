@@ -526,7 +526,6 @@ class WorldGenerator {
     int rows,
   ) {
     final safeMargin = 25; // Distance from edges
-    final nestRadius = grid.config.nestRadius;
 
     // Colony 0 nest: bottom-left area
     final nest0X = safeMargin + rng.nextInt(20);
@@ -542,15 +541,87 @@ class WorldGenerator {
     grid.nestPosition.setFrom(nest0);
     grid.nest1Position.setFrom(nest1);
 
-    // Dig initial chambers
-    grid.digCircle(nest0, nestRadius + 4);
-    grid.digCircle(nest1, nestRadius + 4);
+    // Create rooms for each colony
+    _createColonyRooms(grid, nest0, 0, rng);
+    _createColonyRooms(grid, nest1, 1, rng);
 
-    // Carve zone rings for both nests
-    grid.carveNest();
     grid.markHomeDistancesDirty();
 
     return (nest0, nest1);
+  }
+
+  /// Create home and nursery rooms for a colony
+  void _createColonyRooms(
+    WorldGrid grid,
+    Vector2 nestCenter,
+    int colonyId,
+    math.Random rng,
+  ) {
+    const homeRadius = 4.0;
+    const nurseryRadius = 3.0;
+    const roomGap = 2.0; // Gap between rooms
+
+    // Create home room at nest center
+    final homeRoom = Room(
+      type: RoomType.home,
+      center: nestCenter.clone(),
+      radius: homeRadius,
+      colonyId: colonyId,
+    );
+    grid.addRoom(homeRoom);
+
+    // Calculate nursery position - offset from home
+    // Random direction but ensure it's within bounds
+    final angle = rng.nextDouble() * 2 * math.pi;
+    final distance = homeRadius + roomGap + nurseryRadius;
+    var nurseryCenter = Vector2(
+      nestCenter.x + math.cos(angle) * distance,
+      nestCenter.y + math.sin(angle) * distance,
+    );
+
+    // Clamp to map bounds with margin
+    const margin = 8.0;
+    nurseryCenter.x = nurseryCenter.x.clamp(margin, grid.cols - margin);
+    nurseryCenter.y = nurseryCenter.y.clamp(margin, grid.rows - margin);
+
+    // Create nursery room
+    final nurseryRoom = Room(
+      type: RoomType.nursery,
+      center: nurseryCenter,
+      radius: nurseryRadius,
+      colonyId: colonyId,
+    );
+    grid.addRoom(nurseryRoom);
+
+    // Dig a connecting tunnel between rooms
+    _digTunnel(grid, homeRoom.center, nurseryRoom.center);
+  }
+
+  /// Dig a tunnel connecting two points
+  void _digTunnel(WorldGrid grid, Vector2 from, Vector2 to) {
+    final dx = to.x - from.x;
+    final dy = to.y - from.y;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    final steps = (dist * 2).ceil();
+
+    for (var i = 0; i <= steps; i++) {
+      final t = i / steps;
+      final x = (from.x + dx * t).floor();
+      final y = (from.y + dy * t).floor();
+
+      // Dig a 2-cell wide tunnel
+      for (var ox = -1; ox <= 1; ox++) {
+        for (var oy = -1; oy <= 1; oy++) {
+          if (grid.isInsideIndex(x + ox, y + oy)) {
+            final idx = grid.index(x + ox, y + oy);
+            if (grid.cells[idx] != CellType.air.index) {
+              grid.cells[idx] = CellType.air.index;
+              grid.zones[idx] = NestZone.general.index;
+            }
+          }
+        }
+      }
+    }
   }
 
   /// Ensures a solid dirt border around the entire map edges

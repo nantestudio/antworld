@@ -145,6 +145,7 @@ class Ant {
     double? hp,
     double growthProgress = 0.0,
     int carryingLarvaId = -1,
+    int carryingEggId = -1,
     double eggLayTimer = 0.0,
     double age = 0.0,
   })  : position = position.clone(),
@@ -155,6 +156,7 @@ class Ant {
         hp = (hp ?? maxHpValue).clamp(0, maxHpValue),
         _growthProgress = growthProgress,
         _carryingLarvaId = carryingLarvaId,
+        _carryingEggId = carryingEggId,
         _eggLayTimer = eggLayTimer,
         _age = age;
 
@@ -203,6 +205,8 @@ class Ant {
 
   // Nurse carrying larva (reference by ID, -1 = not carrying)
   int _carryingLarvaId = -1;
+  // Nurse carrying egg (reference by ID, -1 = not carrying)
+  int _carryingEggId = -1;
 
   // Queen egg laying timer
   double _eggLayTimer = 0.0;
@@ -232,6 +236,8 @@ class Ant {
   double get growthProgress => _growthProgress;
   bool get isCarryingLarva => _carryingLarvaId >= 0;
   int get carryingLarvaId => _carryingLarvaId;
+  bool get isCarryingEgg => _carryingEggId >= 0;
+  int get carryingEggId => _carryingEggId;
   bool get isReadyToHatch => caste == AntCaste.egg && _growthProgress >= _eggHatchTime;
   bool get isReadyToMature => caste == AntCaste.larva && _growthProgress >= _growthTimeToMature;
   bool get wantsToLayEgg => caste == AntCaste.queen && _eggLayTimer >= _eggLayInterval;
@@ -915,7 +921,8 @@ class Ant {
     return false;
   }
 
-  /// Nurse behavior: stay near nursery, patrol nursery area
+  /// Nurse behavior: move eggs from home to nursery, patrol nursery area
+  /// Returns true if nurse wants to pick up an egg in home room
   bool _updateNurse(double dt, SimulationConfig config, WorldGrid world, math.Random rng, double antSpeed) {
     // Handle resting
     if (state == AntState.rest) {
@@ -934,19 +941,47 @@ class Ant {
       }
     }
 
-    final currentZone = world.zoneAtPosition(position);
+    final homeRoom = world.getHomeRoom(colonyId);
+    final nurseryRoom = world.getNurseryRoom(colonyId);
 
-    // If outside nursery/queen area, move back toward nursery
-    if (currentZone == NestZone.none || currentZone == NestZone.general) {
-      final target = world.nearestZoneCell(position, NestZone.nursery, 50);
-      if (target != null) {
-        final desired = math.atan2(target.y - position.y, target.x - position.x);
+    // If carrying an egg, navigate to nursery
+    if (isCarryingEgg) {
+      if (nurseryRoom != null) {
+        // Check if we're in the nursery
+        if (nurseryRoom.contains(position)) {
+          // Signal to drop egg (simulation will handle it)
+          return true; // true = ready to drop egg in nursery
+        }
+        // Navigate toward nursery center
+        final desired = math.atan2(
+          nurseryRoom.center.y - position.y,
+          nurseryRoom.center.x - position.x,
+        );
         final delta = _normalizeAngle(desired - angle);
-        angle += delta.clamp(-0.3, 0.3);
+        angle += delta.clamp(-0.4, 0.4);
       }
     } else {
-      // In nursery or queen chamber - patrol slowly
-      angle += (rng.nextDouble() - 0.5) * 0.3;
+      // Not carrying - check if we should look for eggs in home room
+      if (homeRoom != null && homeRoom.contains(position)) {
+        // In home room, signal we want to pick up an egg
+        return true; // true = want to pick up egg
+      }
+
+      // If in nursery, patrol
+      if (nurseryRoom != null && nurseryRoom.contains(position)) {
+        angle += (rng.nextDouble() - 0.5) * 0.3;
+      } else {
+        // Navigate toward home room to find eggs, or nursery if no eggs
+        final targetRoom = homeRoom ?? nurseryRoom;
+        if (targetRoom != null) {
+          final desired = math.atan2(
+            targetRoom.center.y - position.y,
+            targetRoom.center.x - position.x,
+          );
+          final delta = _normalizeAngle(desired - angle);
+          angle += delta.clamp(-0.3, 0.3);
+        }
+      }
     }
 
     // Move at reduced speed (nurses are slower)
@@ -1079,6 +1114,15 @@ class Ant {
     _carryingLarvaId = -1;
   }
 
+  /// Nurse methods for carrying eggs
+  void pickUpEgg(int eggId) {
+    _carryingEggId = eggId;
+  }
+
+  void dropEgg() {
+    _carryingEggId = -1;
+  }
+
   /// Reset egg timer (called after spawning larva)
   void resetEggTimer() {
     _eggLayTimer = 0;
@@ -1104,6 +1148,7 @@ class Ant {
       'hp': hp,
       'growthProgress': _growthProgress,
       'carryingLarvaId': _carryingLarvaId,
+      'carryingEggId': _carryingEggId,
       'eggLayTimer': _eggLayTimer,
       'age': _age,
     };
@@ -1142,6 +1187,7 @@ class Ant {
       hp: (json['hp'] as num?)?.toDouble(),
       growthProgress: (json['growthProgress'] as num?)?.toDouble() ?? 0.0,
       carryingLarvaId: (json['carryingLarvaId'] as num?)?.toInt() ?? -1,
+      carryingEggId: (json['carryingEggId'] as num?)?.toInt() ?? -1,
       eggLayTimer: (json['eggLayTimer'] as num?)?.toDouble() ?? 0.0,
       age: (json['age'] as num?)?.toDouble() ?? 0.0,
     );

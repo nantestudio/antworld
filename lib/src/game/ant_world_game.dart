@@ -75,6 +75,29 @@ class AntWorldGame extends FlameGame
   // Egg paint (tiny, yellowish)
   final Paint _egg0Paint = Paint()..color = const Color(0xCCFFF9C4); // Pale yellow, semi-transparent
   final Paint _egg1Paint = Paint()..color = const Color(0xCCFFE082); // Light amber, semi-transparent
+
+  // Room overlay paints (semi-transparent)
+  final Paint _homeRoom0Paint = Paint()..color = const Color(0x1A4DD0E1); // Cyan 10%
+  final Paint _homeRoom1Paint = Paint()..color = const Color(0x1AFF7043); // Orange 10%
+  final Paint _nurseryRoom0Paint = Paint()..color = const Color(0x1AE91E63); // Pink 10%
+  final Paint _nurseryRoom1Paint = Paint()..color = const Color(0x1AFF9800); // Amber 10%
+  final Paint _homeRoomBorder0Paint = Paint()
+    ..color = const Color(0x334DD0E1)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
+  final Paint _homeRoomBorder1Paint = Paint()
+    ..color = const Color(0x33FF7043)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
+  final Paint _nurseryRoomBorder0Paint = Paint()
+    ..color = const Color(0x33E91E63)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
+  final Paint _nurseryRoomBorder1Paint = Paint()
+    ..color = const Color(0x33FF9800)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
+
   Picture? _terrainPicture;
   int _cachedTerrainVersion = -1;
   Picture? _pheromonePicture;
@@ -243,6 +266,9 @@ class AntWorldGame extends FlameGame
       _renderPheromonesLayer(canvas, world, cellSize);
     }
 
+    // Draw room overlays
+    _drawRooms(canvas, world, cellSize);
+
     // Render colony 0 nest (cyan)
     final nest0 = world.nestPosition;
     final nest0Offset = Offset(nest0.x * cellSize, nest0.y * cellSize);
@@ -269,6 +295,46 @@ class AntWorldGame extends FlameGame
       textDirection: TextDirection.ltr,
     )..layout();
     final offset = nestOffset - Offset(painter.width / 2, painter.height + 6);
+    painter.paint(canvas, offset);
+  }
+
+  void _drawRooms(Canvas canvas, WorldGrid world, double cellSize) {
+    for (final room in world.rooms) {
+      final centerOffset = Offset(room.center.x * cellSize, room.center.y * cellSize);
+      final radiusPixels = room.radius * cellSize;
+
+      // Select paints based on room type and colony
+      Paint fillPaint;
+      Paint borderPaint;
+      if (room.type == RoomType.home) {
+        fillPaint = room.colonyId == 0 ? _homeRoom0Paint : _homeRoom1Paint;
+        borderPaint = room.colonyId == 0 ? _homeRoomBorder0Paint : _homeRoomBorder1Paint;
+      } else {
+        fillPaint = room.colonyId == 0 ? _nurseryRoom0Paint : _nurseryRoom1Paint;
+        borderPaint = room.colonyId == 0 ? _nurseryRoomBorder0Paint : _nurseryRoomBorder1Paint;
+      }
+
+      // Draw filled circle
+      canvas.drawCircle(centerOffset, radiusPixels, fillPaint);
+      // Draw border
+      canvas.drawCircle(centerOffset, radiusPixels, borderPaint);
+
+      // Draw room label
+      _drawRoomLabel(canvas, centerOffset, room);
+    }
+  }
+
+  void _drawRoomLabel(Canvas canvas, Offset centerOffset, Room room) {
+    final label = room.type == RoomType.home ? 'Home' : 'Nursery';
+    const labelStyle = TextStyle(
+      color: Color(0x88FFFFFF),
+      fontSize: 8,
+    );
+    final painter = TextPainter(
+      text: TextSpan(text: label, style: labelStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final offset = centerOffset - Offset(painter.width / 2, painter.height / 2);
     painter.paint(canvas, offset);
   }
 

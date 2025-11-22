@@ -35,6 +35,53 @@ enum NestZone {
   foodStorage,  // Food storage area (future use)
 }
 
+/// Room types for discrete colony chambers
+enum RoomType {
+  home,         // Queen's chamber, food delivery point
+  nursery,      // Egg/larva care area
+  foodStorage,  // Food stockpile (future)
+}
+
+/// A discrete room in the colony
+class Room {
+  Room({
+    required this.type,
+    required this.center,
+    required this.radius,
+    required this.colonyId,
+  });
+
+  final RoomType type;
+  final Vector2 center;
+  final double radius;
+  final int colonyId;
+
+  /// Check if a position is inside this room
+  bool contains(Vector2 pos) {
+    return pos.distanceTo(center) <= radius;
+  }
+
+  /// Convert to JSON for saving
+  Map<String, dynamic> toJson() => {
+    'type': type.index,
+    'centerX': center.x,
+    'centerY': center.y,
+    'radius': radius,
+    'colonyId': colonyId,
+  };
+
+  /// Create from JSON for loading
+  factory Room.fromJson(Map<String, dynamic> json) => Room(
+    type: RoomType.values[json['type'] as int],
+    center: Vector2(
+      (json['centerX'] as num).toDouble(),
+      (json['centerY'] as num).toDouble(),
+    ),
+    radius: (json['radius'] as num).toDouble(),
+    colonyId: json['colonyId'] as int,
+  );
+}
+
 class WorldGrid {
   WorldGrid(this.config, {Vector2? nestOverride, Vector2? nest1Override})
     : cells = Uint8List(config.cols * config.rows),
@@ -79,6 +126,7 @@ class WorldGrid {
   bool _homeDistance0Dirty = true;
   bool _homeDistance1Dirty = true;
   int _terrainVersion = 0;
+  final List<Room> rooms = []; // Discrete colony chambers
 
   int get cols => config.cols;
   int get rows => config.rows;
@@ -101,6 +149,7 @@ class WorldGrid {
     }
     _foodCells.clear();
     _activePheromoneCells.clear();
+    rooms.clear();
     _homeDistance0Dirty = true;
     _homeDistance1Dirty = true;
     _terrainVersion++;
@@ -714,5 +763,75 @@ class WorldGrid {
       }
     }
     return result;
+  }
+
+  // Room management methods
+
+  /// Get the room at a position, if any
+  Room? getRoomAt(Vector2 pos) {
+    for (final room in rooms) {
+      if (room.contains(pos)) {
+        return room;
+      }
+    }
+    return null;
+  }
+
+  /// Get all rooms of a specific type for a colony
+  List<Room> getRoomsOfType(RoomType type, int colonyId) {
+    return rooms.where((r) => r.type == type && r.colonyId == colonyId).toList();
+  }
+
+  /// Get the home room for a colony
+  Room? getHomeRoom(int colonyId) {
+    return rooms.cast<Room?>().firstWhere(
+      (r) => r!.type == RoomType.home && r.colonyId == colonyId,
+      orElse: () => null,
+    );
+  }
+
+  /// Get the nursery room for a colony
+  Room? getNurseryRoom(int colonyId) {
+    return rooms.cast<Room?>().firstWhere(
+      (r) => r!.type == RoomType.nursery && r.colonyId == colonyId,
+      orElse: () => null,
+    );
+  }
+
+  /// Check if position is inside a specific room type for a colony
+  bool isInRoomType(Vector2 pos, RoomType type, int colonyId) {
+    final room = getRoomAt(pos);
+    return room != null && room.type == type && room.colonyId == colonyId;
+  }
+
+  /// Add a room and carve out the space
+  void addRoom(Room room) {
+    rooms.add(room);
+    // Carve out the room as air
+    final cx = room.center.x.floor();
+    final cy = room.center.y.floor();
+    final r = room.radius.ceil() + 1;
+    for (var dx = -r; dx <= r; dx++) {
+      for (var dy = -r; dy <= r; dy++) {
+        final x = cx + dx;
+        final y = cy + dy;
+        if (!isInsideIndex(x, y)) continue;
+        final dist = math.sqrt(dx * dx + dy * dy);
+        if (dist <= room.radius) {
+          final idx = index(x, y);
+          cells[idx] = CellType.air.index;
+          // Assign zone based on room type
+          switch (room.type) {
+            case RoomType.home:
+              zones[idx] = NestZone.queenChamber.index;
+            case RoomType.nursery:
+              zones[idx] = NestZone.nursery.index;
+            case RoomType.foodStorage:
+              zones[idx] = NestZone.foodStorage.index;
+          }
+        }
+      }
+    }
+    _terrainVersion++;
   }
 }
