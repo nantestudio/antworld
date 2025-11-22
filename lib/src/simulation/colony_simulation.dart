@@ -13,6 +13,8 @@ class ColonySimulation {
   ColonySimulation(this.config)
     : antCount = ValueNotifier<int>(0),
       foodCollected = ValueNotifier<int>(0),
+      colony0Food = ValueNotifier<int>(0),
+      colony1Food = ValueNotifier<int>(0),
       pheromonesVisible = ValueNotifier<bool>(true),
       antSpeedMultiplier = ValueNotifier<double>(0.2),
       daysPassed = ValueNotifier<int>(1),
@@ -25,6 +27,8 @@ class ColonySimulation {
   final List<Ant> ants = []; // Contains ants from all colonies
   final ValueNotifier<int> antCount;
   final ValueNotifier<int> foodCollected;
+  final ValueNotifier<int> colony0Food;
+  final ValueNotifier<int> colony1Food;
   final ValueNotifier<bool> pheromonesVisible;
   final ValueNotifier<double> antSpeedMultiplier;
   final ValueNotifier<int> daysPassed;
@@ -32,7 +36,10 @@ class ColonySimulation {
 
   final math.Random _rng = math.Random();
   int _storedFood = 0;
-  int _queuedAnts = 0;
+  // Per-colony food tracking for reproduction
+  final List<int> _colonyFood = [0, 0];
+  final List<int> _colonyQueuedAnts = [0, 0];
+  int _physicsFrame = 0;
   int? _lastSeed;
   double _elapsedTime = 0.0;
   double _foodCheckTimer = 0.0;
@@ -65,11 +72,16 @@ class ColonySimulation {
     ants.clear();
     Ant.resetIdCounter();
     _storedFood = 0;
-    _queuedAnts = 0;
+    _colonyFood[0] = 0;
+    _colonyFood[1] = 0;
+    _colonyQueuedAnts[0] = 0;
+    _colonyQueuedAnts[1] = 0;
     _elapsedTime = 0.0;
     elapsedTime.value = 0.0;
     _scheduleNextFoodCheck();
     foodCollected.value = 0;
+    colony0Food.value = 0;
+    colony1Food.value = 0;
     daysPassed.value = 1;
 
     _spawnInitialColony();
@@ -135,11 +147,18 @@ class ColonySimulation {
         // Larva ready to become a worker
         larvaeToMature.add(ant);
       } else if (result && ant.caste == AntCaste.worker) {
-        // Worker delivered food
+        // Worker delivered food - track per colony for reproduction
         _storedFood += 1;
         foodCollected.value = _storedFood;
-        if (_storedFood % config.foodPerNewAnt == 0) {
-          _queuedAnts += 1;
+        _colonyFood[ant.colonyId] += 1;
+        // Update per-colony food ValueNotifiers for UI
+        if (ant.colonyId == 0) {
+          colony0Food.value = _colonyFood[0];
+        } else {
+          colony1Food.value = _colonyFood[1];
+        }
+        if (_colonyFood[ant.colonyId] % config.foodPerNewAnt == 0) {
+          _colonyQueuedAnts[ant.colonyId] += 1;
         }
       }
     }
@@ -154,9 +173,18 @@ class ColonySimulation {
       _matureLarva(larva);
     }
 
-    _applySeparation();
-    _resolveCombat();
-    _removeStuckAnts();
+    // Run physics/collision less frequently for performance
+    // Separation and combat don't need to run every single frame
+    _physicsFrame++;
+    if (_physicsFrame % 2 == 0) {
+      _applySeparation();
+    }
+    if (_physicsFrame % 3 == 0) {
+      _resolveCombat();
+    }
+    if (_physicsFrame % 60 == 0) {
+      _removeStuckAnts();
+    }
     _flushSpawnQueue();
 
     _foodCheckTimer += clampedDt;
@@ -274,10 +302,15 @@ class ColonySimulation {
     Ant.resetIdCounter();
     _updateAntCount();
     _storedFood = 0;
-    _queuedAnts = 0;
+    _colonyFood[0] = 0;
+    _colonyFood[1] = 0;
+    _colonyQueuedAnts[0] = 0;
+    _colonyQueuedAnts[1] = 0;
     _elapsedTime = 0.0;
     _scheduleNextFoodCheck();
     foodCollected.value = 0;
+    colony0Food.value = 0;
+    colony1Food.value = 0;
     daysPassed.value = 1;
     // Replace world with minimal placeholder to free memory from old arrays
     final minConfig = config.copyWith(cols: 2, rows: 2);
@@ -381,7 +414,12 @@ class ColonySimulation {
 
     _storedFood = (snapshot['foodCollected'] as num?)?.toInt() ?? 0;
     foodCollected.value = _storedFood;
-    _queuedAnts = 0;
+    _colonyFood[0] = 0;
+    _colonyFood[1] = 0;
+    _colonyQueuedAnts[0] = 0;
+    _colonyQueuedAnts[1] = 0;
+    colony0Food.value = 0;
+    colony1Food.value = 0;
     antSpeedMultiplier.value =
         (snapshot['antSpeedMultiplier'] as num?)?.toDouble() ?? 0.2;
     pheromonesVisible.value = snapshot['pheromonesVisible'] as bool? ?? true;
@@ -405,8 +443,10 @@ class ColonySimulation {
 
   void addAnts(int count) {
     if (count <= 0) return;
+    // Add ants to both colonies equally
     for (var i = 0; i < count; i++) {
-      _spawnAnt();
+      _spawnAnt(colonyId: 0);
+      _spawnAnt(colonyId: 1);
     }
   }
 
@@ -523,13 +563,16 @@ class ColonySimulation {
   }
 
   void _flushSpawnQueue() {
-    if (_queuedAnts == 0) {
-      return;
+    // Spawn queued ants for each colony based on their food deliveries
+    for (var colonyId = 0; colonyId < 2; colonyId++) {
+      final queued = _colonyQueuedAnts[colonyId];
+      if (queued > 0) {
+        for (var i = 0; i < queued; i++) {
+          _spawnAnt(colonyId: colonyId);
+        }
+        _colonyQueuedAnts[colonyId] = 0;
+      }
     }
-    for (var i = 0; i < _queuedAnts; i++) {
-      _spawnAnt();
-    }
-    _queuedAnts = 0;
   }
 
   void _updateAntCount() {
@@ -564,69 +607,108 @@ class ColonySimulation {
   }
 
   void _applySeparation() {
-    const double minSpacing = 0.45;
-    final Map<int, List<Ant>> occupancy = {};
-    void addGroup(List<Ant> group) {
-      for (final ant in group) {
-        if (ant.isDead) continue;
-        final gx = ant.position.x.floor();
-        final gy = ant.position.y.floor();
-        if (!world.isInsideIndex(gx, gy)) {
-          continue;
-        }
-        final key = world.index(gx, gy);
-        occupancy.putIfAbsent(key, () => []).add(ant);
-      }
+    // Ant collision radius - ants cannot overlap within this distance
+    const double antRadius = 0.35;
+    const double minSpacing = antRadius * 2; // Two ants touching = 0.7 cells apart
+    const double minSpacingSq = minSpacing * minSpacing;
+
+    // Build spatial hash - only add to own cell (not 9 cells) for performance
+    final Map<int, List<Ant>> spatialHash = {};
+    for (final ant in ants) {
+      if (ant.isDead || ant.caste == AntCaste.larva || ant.caste == AntCaste.queen) continue;
+      final gx = ant.position.x.floor();
+      final gy = ant.position.y.floor();
+      if (!world.isInsideIndex(gx, gy)) continue;
+      final key = world.index(gx, gy);
+      spatialHash.putIfAbsent(key, () => []).add(ant);
     }
 
-    addGroup(ants);
-    if (occupancy.isEmpty) {
-      return;
-    }
+    if (spatialHash.isEmpty) return;
 
     final Map<Ant, Vector2> adjustments = {};
-    for (final entry in occupancy.entries) {
-      final occupants = entry.value;
-      if (occupants.length < 2) {
-        continue;
-      }
-      for (var i = 0; i < occupants.length; i++) {
-        for (var j = i + 1; j < occupants.length; j++) {
-          final a = occupants[i];
-          final b = occupants[j];
-          final dx = a.position.x - b.position.x;
-          final dy = a.position.y - b.position.y;
-          var distSq = dx * dx + dy * dy;
-          if (distSq < 1e-4) {
-            final jitter = _rng.nextDouble() * 0.1 + 0.05;
-            final angle = _rng.nextDouble() * math.pi * 2;
-            final pushX = math.cos(angle) * jitter;
-            final pushY = math.sin(angle) * jitter;
-            _accumulateAdjustment(adjustments, a, pushX, pushY);
-            _accumulateAdjustment(adjustments, b, -pushX, -pushY);
-            continue;
+
+    // Check each cell and its neighbors
+    for (final entry in spatialHash.entries) {
+      final cellIdx = entry.key;
+      final cellX = cellIdx % world.cols;
+      final cellY = cellIdx ~/ world.cols;
+      final cellAnts = entry.value;
+
+      // Check against ants in same cell and adjacent cells
+      for (var dx = 0; dx <= 1; dx++) {
+        for (var dy = (dx == 0 ? 0 : -1); dy <= 1; dy++) {
+          final nx = cellX + dx;
+          final ny = cellY + dy;
+          if (!world.isInsideIndex(nx, ny)) continue;
+
+          final neighborKey = world.index(nx, ny);
+          final neighborAnts = spatialHash[neighborKey];
+          if (neighborAnts == null) continue;
+
+          final isSameCell = (dx == 0 && dy == 0);
+
+          for (var i = 0; i < cellAnts.length; i++) {
+            final a = cellAnts[i];
+            final startJ = isSameCell ? i + 1 : 0;
+
+            for (var j = startJ; j < neighborAnts.length; j++) {
+              final b = neighborAnts[j];
+              if (a == b) continue;
+
+              final ddx = a.position.x - b.position.x;
+              final ddy = a.position.y - b.position.y;
+              final distSq = ddx * ddx + ddy * ddy;
+
+              if (distSq >= minSpacingSq) continue;
+
+              // Ants are overlapping - push them apart
+              if (distSq < 1e-6) {
+                final jitter = 0.15;
+                final angle = _rng.nextDouble() * math.pi * 2;
+                final pushX = math.cos(angle) * jitter;
+                final pushY = math.sin(angle) * jitter;
+                _accumulateAdjustment(adjustments, a, pushX, pushY);
+                _accumulateAdjustment(adjustments, b, -pushX, -pushY);
+                // Trigger pause on heavy collision
+                a.triggerCollisionPause();
+                b.triggerCollisionPause();
+                continue;
+              }
+
+              final dist = math.sqrt(distSq);
+              final overlap = minSpacing - dist;
+              final pushStrength = overlap * 0.6;
+              final invDist = 1 / dist;
+              final pushX = ddx * invDist * pushStrength;
+              final pushY = ddy * invDist * pushStrength;
+
+              _accumulateAdjustment(adjustments, a, pushX, pushY);
+              _accumulateAdjustment(adjustments, b, -pushX, -pushY);
+
+              // Trigger pause if significant overlap
+              if (overlap > minSpacing * 0.3) {
+                a.triggerCollisionPause();
+                b.triggerCollisionPause();
+              }
+            }
           }
-          final dist = math.sqrt(distSq);
-          final overlap = minSpacing - dist;
-          if (overlap <= 0) {
-            continue;
-          }
-          final push = overlap * 0.5;
-          final invDist = 1 / dist;
-          final pushX = dx * invDist * push;
-          final pushY = dy * invDist * push;
-          _accumulateAdjustment(adjustments, a, pushX, pushY);
-          _accumulateAdjustment(adjustments, b, -pushX, -pushY);
         }
       }
     }
 
+    // Apply adjustments
     for (final entry in adjustments.entries) {
       final ant = entry.key;
       final delta = entry.value;
-      final newX = (ant.position.x + delta.x).clamp(1.0, world.cols - 2.0);
-      final newY = (ant.position.y + delta.y).clamp(1.0, world.rows - 2.0);
-      ant.position.setValues(newX.toDouble(), newY.toDouble());
+
+      var newX = (ant.position.x + delta.x).clamp(1.0, world.cols - 2.0);
+      var newY = (ant.position.y + delta.y).clamp(1.0, world.rows - 2.0);
+
+      final gx = newX.floor();
+      final gy = newY.floor();
+      if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
+        ant.position.setValues(newX.toDouble(), newY.toDouble());
+      }
     }
   }
 
@@ -662,35 +744,65 @@ class ColonySimulation {
   void _resolveCombat() {
     const double fightRadius = 0.6;
     const double fightRadiusSq = fightRadius * fightRadius;
+
+    // Build spatial hash for O(n) combat detection instead of O(n²)
+    final Map<int, List<Ant>> spatialHash = {};
+    for (final ant in ants) {
+      if (ant.isDead || ant.caste == AntCaste.larva) continue;
+      final gx = ant.position.x.floor();
+      final gy = ant.position.y.floor();
+      if (!world.isInsideIndex(gx, gy)) continue;
+      final key = world.index(gx, gy);
+      spatialHash.putIfAbsent(key, () => []).add(ant);
+    }
+
     final deadAnts = <Ant>{};
+    final checkedPairs = <int>{};
 
-    // Check for combat between ants from different colonies
-    for (var i = 0; i < ants.length; i++) {
-      final a = ants[i];
-      if (a.isDead || deadAnts.contains(a)) continue;
+    // Only check ants in same cell and adjacent cells
+    for (final entry in spatialHash.entries) {
+      final cellIdx = entry.key;
+      final cellX = cellIdx % world.cols;
+      final cellY = cellIdx ~/ world.cols;
 
-      for (var j = i + 1; j < ants.length; j++) {
-        final b = ants[j];
-        if (b.isDead || deadAnts.contains(b)) continue;
+      // Check this cell and neighbors
+      for (var dx = -1; dx <= 1; dx++) {
+        for (var dy = -1; dy <= 1; dy++) {
+          final nx = cellX + dx;
+          final ny = cellY + dy;
+          if (!world.isInsideIndex(nx, ny)) continue;
+          final neighborKey = world.index(nx, ny);
+          final neighbors = spatialHash[neighborKey];
+          if (neighbors == null) continue;
 
-        // Only fight if from different colonies
-        if (a.colonyId == b.colonyId) continue;
+          for (final a in entry.value) {
+            if (a.isDead || deadAnts.contains(a)) continue;
 
-        final distSq = a.position.distanceToSquared(b.position);
-        if (distSq <= fightRadiusSq) {
-          // Both ants deal damage based on aggression check
-          final aWillFight = _rng.nextDouble() < a.aggression;
-          final bWillFight = _rng.nextDouble() < b.aggression;
+            for (final b in neighbors) {
+              if (a == b || b.isDead || deadAnts.contains(b)) continue;
+              if (a.colonyId == b.colonyId) continue;
 
-          if (aWillFight || bWillFight) {
-            // Once combat starts, both fight
-            final damageToA = _computeDamage(b, a);
-            final damageToB = _computeDamage(a, b);
-            a.applyDamage(damageToA);
-            b.applyDamage(damageToB);
+              // Avoid checking same pair twice
+              final pairKey = a.id < b.id ? a.id * 100000 + b.id : b.id * 100000 + a.id;
+              if (checkedPairs.contains(pairKey)) continue;
+              checkedPairs.add(pairKey);
 
-            if (a.isDead) deadAnts.add(a);
-            if (b.isDead) deadAnts.add(b);
+              final distSq = a.position.distanceToSquared(b.position);
+              if (distSq <= fightRadiusSq) {
+                final aWillFight = _rng.nextDouble() < a.aggression;
+                final bWillFight = _rng.nextDouble() < b.aggression;
+
+                if (aWillFight || bWillFight) {
+                  final damageToA = _computeDamage(b, a);
+                  final damageToB = _computeDamage(a, b);
+                  a.applyDamage(damageToA);
+                  b.applyDamage(damageToB);
+
+                  if (a.isDead) deadAnts.add(a);
+                  if (b.isDead) deadAnts.add(b);
+                }
+              }
+            }
           }
         }
       }

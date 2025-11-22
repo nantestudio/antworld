@@ -193,7 +193,6 @@ class WorldGrid {
     final nest1Idx = index(nest1Position.x.floor(), nest1Position.y.floor());
 
     if (_activePheromoneCells.isEmpty) {
-      // Both nests radiate home pheromone to their own layer
       homePheromones0[nest0Idx] = 1.0;
       homePheromones1[nest1Idx] = 1.0;
       _activePheromoneCells.add(nest0Idx);
@@ -201,60 +200,49 @@ class WorldGrid {
       return;
     }
 
-    // Blocked pheromones decay faster (squared factor)
     final blockedFactor = factor * factor;
-
     final toRemove = <int>[];
+
     for (final idx in _activePheromoneCells) {
-      // Colony 0 food pheromones
+      var hasAny = false;
+
+      // Decay each array only if it has a value
       var f0 = foodPheromones0[idx];
-      if (f0 > threshold) {
+      if (f0 > 0) {
         f0 *= factor;
         foodPheromones0[idx] = f0 > threshold ? f0 : 0;
-      } else {
-        foodPheromones0[idx] = 0;
+        hasAny = hasAny || foodPheromones0[idx] > 0;
       }
 
-      // Colony 1 food pheromones
       var f1 = foodPheromones1[idx];
-      if (f1 > threshold) {
+      if (f1 > 0) {
         f1 *= factor;
         foodPheromones1[idx] = f1 > threshold ? f1 : 0;
-      } else {
-        foodPheromones1[idx] = 0;
+        hasAny = hasAny || foodPheromones1[idx] > 0;
       }
 
-      // Colony 0 home pheromones
       var h0 = homePheromones0[idx];
-      if (h0 > threshold) {
+      if (h0 > 0) {
         h0 *= factor;
         homePheromones0[idx] = h0 > threshold ? h0 : 0;
-      } else {
-        homePheromones0[idx] = 0;
+        hasAny = hasAny || homePheromones0[idx] > 0;
       }
 
-      // Colony 1 home pheromones
       var h1 = homePheromones1[idx];
-      if (h1 > threshold) {
+      if (h1 > 0) {
         h1 *= factor;
         homePheromones1[idx] = h1 > threshold ? h1 : 0;
-      } else {
-        homePheromones1[idx] = 0;
+        hasAny = hasAny || homePheromones1[idx] > 0;
       }
 
-      // Shared blocked pheromones
       var b = blockedPheromones[idx];
-      if (b > threshold) {
+      if (b > 0) {
         b *= blockedFactor;
         blockedPheromones[idx] = b > threshold ? b : 0;
-      } else {
-        blockedPheromones[idx] = 0;
+        hasAny = hasAny || blockedPheromones[idx] > 0;
       }
 
-      // Remove from active set if all pheromones decayed
-      if (foodPheromones0[idx] == 0 && foodPheromones1[idx] == 0 &&
-          homePheromones0[idx] == 0 && homePheromones1[idx] == 0 &&
-          blockedPheromones[idx] == 0) {
+      if (!hasAny) {
         toRemove.add(idx);
       }
     }
@@ -263,7 +251,7 @@ class WorldGrid {
       _activePheromoneCells.remove(idx);
     }
 
-    // Each nest radiates max home pheromone to its own layer
+    // Nests always radiate max home pheromone
     homePheromones0[nest0Idx] = 1.0;
     homePheromones1[nest1Idx] = 1.0;
     _activePheromoneCells.add(nest0Idx);

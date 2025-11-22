@@ -25,13 +25,12 @@ class AntHud extends StatefulWidget {
 }
 
 class _AntHudState extends State<AntHud> {
-  bool _showSettings = false;
+  // Which drawer is currently open (null = all closed)
+  int? _openDrawer; // 0 = stats, 1 = controls, 2 = settings
   late int _pendingCols;
   late int _pendingRows;
   bool _saving = false;
   bool _generatingMap = false;
-  bool _controlsCollapsed = true; // Hidden by default
-  bool _statsCollapsed = true; // Stats panel hidden by default
   String _selectedMapSize = 'Medium';
 
   @override
@@ -41,274 +40,272 @@ class _AntHudState extends State<AntHud> {
     _pendingRows = widget.simulation.config.rows;
   }
 
+  void _toggleDrawer(int index) {
+    setState(() {
+      _openDrawer = _openDrawer == index ? null : index;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Positioned.fill(
       child: Stack(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                _buildTopBar(context),
-                const Spacer(),
-                _buildControls(context),
-              ],
-            ),
-          ),
-          _buildSettingsPanel(context),
+          // Left-side drawer tabs
+          _buildDrawerTabs(context),
+          // Drawer panels
+          _buildStatsDrawer(context),
+          _buildControlsDrawer(context),
+          _buildSettingsDrawer(context),
+          // Selected ant panel (stays separate)
           _buildSelectedAntPanel(context),
         ],
       ),
     );
   }
 
-  Widget _buildTopBar(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: _buildStatsRow(context)),
-        const SizedBox(width: 12),
-        FilledButton.tonalIcon(
-          onPressed: () => setState(() => _showSettings = !_showSettings),
-          icon: Icon(_showSettings ? Icons.close : Icons.tune),
-          label: Text(_showSettings ? 'Close' : 'Settings'),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatsRow(BuildContext context) {
+  Widget _buildDrawerTabs(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    // Collapsed state - just show a small expand button
-    if (_statsCollapsed) {
-      return Align(
-        alignment: Alignment.topLeft,
-        child: FloatingActionButton.small(
-          heroTag: 'showStats',
-          onPressed: () => setState(() => _statsCollapsed = false),
-          backgroundColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
-          child: const Icon(Icons.bar_chart),
-        ),
-      );
-    }
-
-    // Expanded state - show full stats panel with collapse button
-    return Align(
-      alignment: Alignment.topLeft,
-      child: Stack(
+    return Positioned(
+      left: 0,
+      top: 16,
+      child: Column(
         children: [
-          _StatsPanel(simulation: widget.simulation),
-          Positioned(
-            top: 4,
-            right: 4,
-            child: IconButton(
-              icon: const Icon(Icons.close, size: 18),
-              onPressed: () => setState(() => _statsCollapsed = true),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              tooltip: 'Hide stats',
-            ),
+          _DrawerTab(
+            icon: Icons.bar_chart,
+            label: 'Stats',
+            isActive: _openDrawer == 0,
+            onTap: () => _toggleDrawer(0),
+            colorScheme: colorScheme,
+          ),
+          const SizedBox(height: 8),
+          _DrawerTab(
+            icon: Icons.gamepad,
+            label: 'Controls',
+            isActive: _openDrawer == 1,
+            onTap: () => _toggleDrawer(1),
+            colorScheme: colorScheme,
+          ),
+          const SizedBox(height: 8),
+          _DrawerTab(
+            icon: Icons.tune,
+            label: 'Settings',
+            isActive: _openDrawer == 2,
+            onTap: () => _toggleDrawer(2),
+            colorScheme: colorScheme,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildControls(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final panel = Align(
-      alignment: Alignment.bottomCenter,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 640),
-        child: IgnorePointer(
-          ignoring: _controlsCollapsed,
-          child: AnimatedSlide(
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeInOut,
-            offset: _controlsCollapsed ? const Offset(0, 0.4) : Offset.zero,
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 200),
-              opacity: _controlsCollapsed ? 0 : 1,
-              child: Card(
-                color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          const Text(
-                            'Quick Controls',
-                            style: TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          const Spacer(),
-                          IconButton(
-                            tooltip: 'Hide controls',
-                            icon: const Icon(Icons.expand_more),
-                            onPressed: () =>
-                                setState(() => _controlsCollapsed = true),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        alignment: WrapAlignment.spaceBetween,
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: [
-                          ValueListenableBuilder<BrushMode>(
-                            valueListenable: widget.game.brushMode,
-                            builder: (context, mode, _) {
-                              return SegmentedButton<BrushMode>(
-                                segments: const [
-                                  ButtonSegment(
-                                    value: BrushMode.dig,
-                                    label: Text('Dig'),
-                                    icon: Icon(Icons.construction),
-                                  ),
-                                  ButtonSegment(
-                                    value: BrushMode.food,
-                                    label: Text('Food'),
-                                    icon: Icon(Icons.fastfood_outlined),
-                                  ),
-                                  ButtonSegment(
-                                    value: BrushMode.rock,
-                                    label: Text('Rock'),
-                                    icon: Icon(Icons.landscape_outlined),
-                                  ),
-                                ],
-                                selected: {mode},
-                                onSelectionChanged: (selection) {
-                                  if (selection.isNotEmpty) {
-                                    widget.game.setBrushMode(selection.first);
-                                  }
-                                },
-                              );
-                            },
-                          ),
-                          ValueListenableBuilder<bool>(
-                            valueListenable: widget.simulation.pheromonesVisible,
-                            builder: (context, visible, _) {
-                              return FilledButton.icon(
-                                onPressed: widget.simulation.togglePheromones,
-                                icon: Icon(
-                                  visible
-                                      ? Icons.visibility
-                                      : Icons.visibility_off,
-                                ),
-                                label: Text(
-                                  visible
-                                      ? 'Hide Pheromones'
-                                      : 'Show Pheromones',
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    final fab = Align(
-      alignment: Alignment.bottomLeft,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: AnimatedSlide(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-          offset: _controlsCollapsed ? Offset.zero : const Offset(-0.6, 0.4),
-          child: AnimatedOpacity(
-            duration: const Duration(milliseconds: 200),
-            opacity: _controlsCollapsed ? 1 : 0,
-            child: IgnorePointer(
-              ignoring: !_controlsCollapsed,
-              child: FloatingActionButton(
-                heroTag: 'showControls',
-                onPressed: () => setState(() => _controlsCollapsed = false),
-                child: const Icon(Icons.more_horiz),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    return Stack(children: [panel, fab]);
-  }
-
-  Widget _buildSettingsPanel(BuildContext context) {
+  Widget _buildStatsDrawer(BuildContext context) {
     final theme = Theme.of(context);
+    final isOpen = _openDrawer == 0;
+
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
+      left: isOpen ? 48 : -320,
       top: 16,
       bottom: 16,
-      right: _showSettings ? 16 : -360,
       child: SizedBox(
         width: 320,
         child: Card(
           color: theme.colorScheme.surface.withValues(alpha: 0.95),
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.tune),
-                      const SizedBox(width: 8),
-                      const Text(
-                        'Settings',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        onPressed: () => setState(() => _showSettings = false),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDrawerHeader('Stats', Icons.bar_chart, () => _toggleDrawer(0)),
+                const Divider(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: _StatsPanelContent(simulation: widget.simulation),
                   ),
-                  const Divider(),
-                  _buildPopulationControls(theme),
-                  const Divider(),
-                  _buildSpeedControls(theme),
-                  const Divider(),
-                  _buildBehaviorControls(theme),
-                  const Divider(),
-                  _buildTuningControls(theme),
-                  const Divider(),
-                  _buildViewControls(theme),
-                  const Divider(),
-                  _buildDocsSection(theme),
-                  const Divider(),
-                  _buildGenerationControls(theme),
-                  const Divider(),
-                  _buildFoodControls(),
-                  const Divider(),
-                  _buildPersistenceControls(),
-                  const Divider(),
-                  _buildGridControls(theme),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildControlsDrawer(BuildContext context) {
+    final theme = Theme.of(context);
+    final isOpen = _openDrawer == 1;
+
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+      left: isOpen ? 48 : -320,
+      top: 16,
+      bottom: 16,
+      child: SizedBox(
+        width: 320,
+        child: Card(
+          color: theme.colorScheme.surface.withValues(alpha: 0.95),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDrawerHeader('Controls', Icons.gamepad, () => _toggleDrawer(1)),
+                const Divider(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: _buildControlsContent(theme),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSettingsDrawer(BuildContext context) {
+    final theme = Theme.of(context);
+    final isOpen = _openDrawer == 2;
+
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+      left: isOpen ? 48 : -320,
+      top: 16,
+      bottom: 16,
+      child: SizedBox(
+        width: 320,
+        child: Card(
+          color: theme.colorScheme.surface.withValues(alpha: 0.95),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDrawerHeader('Settings', Icons.tune, () => _toggleDrawer(2)),
+                const Divider(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildPopulationControls(theme),
+                        const Divider(),
+                        _buildSpeedControls(theme),
+                        const Divider(),
+                        _buildBehaviorControls(theme),
+                        const Divider(),
+                        _buildTuningControls(theme),
+                        const Divider(),
+                        _buildViewControls(theme),
+                        const Divider(),
+                        _buildDocsSection(theme),
+                        const Divider(),
+                        _buildGenerationControls(theme),
+                        const Divider(),
+                        _buildFoodControls(),
+                        const Divider(),
+                        _buildPersistenceControls(),
+                        const Divider(),
+                        _buildGridControls(theme),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrawerHeader(String title, IconData icon, VoidCallback onClose) {
+    return Row(
+      children: [
+        Icon(icon),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const Spacer(),
+        IconButton(
+          onPressed: onClose,
+          icon: const Icon(Icons.close),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildControlsContent(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Brush Mode', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        ValueListenableBuilder<BrushMode>(
+          valueListenable: widget.game.brushMode,
+          builder: (context, mode, _) {
+            return SegmentedButton<BrushMode>(
+              segments: const [
+                ButtonSegment(
+                  value: BrushMode.dig,
+                  label: Text('Dig'),
+                  icon: Icon(Icons.construction),
+                ),
+                ButtonSegment(
+                  value: BrushMode.food,
+                  label: Text('Food'),
+                  icon: Icon(Icons.fastfood_outlined),
+                ),
+                ButtonSegment(
+                  value: BrushMode.rock,
+                  label: Text('Rock'),
+                  icon: Icon(Icons.landscape_outlined),
+                ),
+              ],
+              selected: {mode},
+              onSelectionChanged: (selection) {
+                if (selection.isNotEmpty) {
+                  widget.game.setBrushMode(selection.first);
+                }
+              },
+            );
+          },
+        ),
+        const SizedBox(height: 16),
+        Text('Pheromones', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        ValueListenableBuilder<bool>(
+          valueListenable: widget.simulation.pheromonesVisible,
+          builder: (context, visible, _) {
+            return FilledButton.icon(
+              onPressed: widget.simulation.togglePheromones,
+              icon: Icon(
+                visible ? Icons.visibility : Icons.visibility_off,
+              ),
+              label: Text(
+                visible ? 'Hide Pheromones' : 'Show Pheromones',
+              ),
+            );
+          },
+        ),
+        const Divider(height: 32),
+        _buildFoodControls(),
+        const Divider(height: 32),
+        _buildGenerationControls(theme),
+        const Divider(height: 32),
+        _buildPersistenceControls(),
+      ],
     );
   }
 
@@ -1054,16 +1051,59 @@ class _ConfigSlider extends StatelessWidget {
   }
 }
 
-class _StatsPanel extends StatefulWidget {
-  const _StatsPanel({required this.simulation});
+/// Tab button that sits half-outside the left edge of the screen
+class _DrawerTab extends StatelessWidget {
+  const _DrawerTab({
+    required this.icon,
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+    required this.colorScheme,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+  final ColorScheme colorScheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.translate(
+      offset: const Offset(-24, 0), // Half outside the screen
+      child: Material(
+        color: isActive
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
+        borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+            child: Icon(
+              icon,
+              color: isActive ? colorScheme.onPrimaryContainer : colorScheme.onSurface,
+              size: 24,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Stats panel content for use inside a drawer
+class _StatsPanelContent extends StatefulWidget {
+  const _StatsPanelContent({required this.simulation});
 
   final ColonySimulation simulation;
 
   @override
-  State<_StatsPanel> createState() => _StatsPanelState();
+  State<_StatsPanelContent> createState() => _StatsPanelContentState();
 }
 
-class _StatsPanelState extends State<_StatsPanel> {
+class _StatsPanelContentState extends State<_StatsPanelContent> {
   late final Stream<void> _ticker;
 
   @override
@@ -1086,66 +1126,55 @@ class _StatsPanelState extends State<_StatsPanel> {
     return StreamBuilder<void>(
       stream: _ticker,
       builder: (context, _) {
-        return Card(
-          color: theme.colorScheme.surface.withValues(alpha: 0.9),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Time row
+            Row(
               children: [
-                // Time row
-                Row(
-                  children: [
-                    Text(
-                      'Day ${sim.daysPassed.value}',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      _formatTime(sim.elapsedTime.value),
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: Colors.white70,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    _StatItem(
-                      icon: Icons.restaurant,
-                      label: 'Food',
-                      value: '${sim.foodCollected.value}',
-                      color: Colors.lightGreenAccent,
-                    ),
-                  ],
+                Text(
+                  'Day ${sim.daysPassed.value}',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-                const SizedBox(height: 8),
-                // Colony 0 stats (cyan)
-                _buildColonySection(
-                  theme: theme,
-                  colonyName: 'Colony 0',
-                  colonyColor: const Color(0xFF4DD0E1), // Cyan
-                  queenCount: sim.queenCount,
-                  workerCount: sim.workerCount,
-                  soldierCount: sim.soldierCount,
-                  nurseCount: sim.nurseCount,
-                  larvaCount: sim.larvaCount,
-                ),
-                const SizedBox(height: 6),
-                // Colony 1 stats (orange)
-                _buildColonySection(
-                  theme: theme,
-                  colonyName: 'Colony 1',
-                  colonyColor: const Color(0xFFFF7043), // Orange
-                  queenCount: sim.enemy1QueenCount,
-                  workerCount: sim.enemy1WorkerCount,
-                  soldierCount: sim.enemy1SoldierCount,
-                  nurseCount: sim.enemy1NurseCount,
-                  larvaCount: sim.enemy1LarvaCount,
+                const SizedBox(width: 12),
+                Text(
+                  _formatTime(sim.elapsedTime.value),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: Colors.white70,
+                  ),
                 ),
               ],
             ),
-          ),
+            const SizedBox(height: 16),
+            // Colony 0 stats (cyan)
+            _buildColonySection(
+              theme: theme,
+              colonyName: 'Colony 0',
+              colonyColor: const Color(0xFF4DD0E1), // Cyan
+              queenCount: sim.queenCount,
+              workerCount: sim.workerCount,
+              soldierCount: sim.soldierCount,
+              nurseCount: sim.nurseCount,
+              larvaCount: sim.larvaCount,
+              foodCount: sim.colony0Food.value,
+            ),
+            const SizedBox(height: 16),
+            // Colony 1 stats (orange)
+            _buildColonySection(
+              theme: theme,
+              colonyName: 'Colony 1',
+              colonyColor: const Color(0xFFFF7043), // Orange
+              queenCount: sim.enemy1QueenCount,
+              workerCount: sim.enemy1WorkerCount,
+              soldierCount: sim.enemy1SoldierCount,
+              nurseCount: sim.enemy1NurseCount,
+              larvaCount: sim.enemy1LarvaCount,
+              foodCount: sim.colony1Food.value,
+            ),
+          ],
         );
       },
     );
@@ -1160,40 +1189,47 @@ class _StatsPanelState extends State<_StatsPanel> {
     required int soldierCount,
     required int nurseCount,
     required int larvaCount,
+    required int foodCount,
   }) {
     final totalAnts = queenCount + workerCount + soldierCount + nurseCount + larvaCount;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: colonyColor,
-            shape: BoxShape.circle,
-          ),
+        Row(
+          children: [
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: colonyColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$colonyName ($totalAnts ants)',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: colonyColor,
+              ),
+            ),
+          ],
         ),
-        const SizedBox(width: 6),
-        Text(
-          '$colonyName ($totalAnts)',
-          style: theme.textTheme.bodySmall?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: colonyColor,
-          ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            _StatItem(icon: Icons.restaurant, label: 'Food', value: '$foodCount', color: Colors.lightGreenAccent),
+            if (queenCount > 0)
+              _StatItem(icon: Icons.stars, label: 'Queen', value: '$queenCount', color: Colors.purpleAccent),
+            _StatItem(icon: Icons.construction, label: 'Workers', value: '$workerCount'),
+            _StatItem(icon: Icons.shield, label: 'Soldiers', value: '$soldierCount', color: Colors.orangeAccent),
+            _StatItem(icon: Icons.child_care, label: 'Nurses', value: '$nurseCount', color: Colors.pinkAccent),
+            if (larvaCount > 0)
+              _StatItem(icon: Icons.egg_alt, label: 'Larvae', value: '$larvaCount', color: Colors.white70),
+          ],
         ),
-        const SizedBox(width: 8),
-        if (queenCount > 0)
-          _StatItem(icon: Icons.stars, label: 'Q', value: '$queenCount', color: Colors.purpleAccent),
-        const SizedBox(width: 4),
-        _StatItem(icon: Icons.construction, label: 'W', value: '$workerCount'),
-        const SizedBox(width: 4),
-        _StatItem(icon: Icons.shield, label: 'S', value: '$soldierCount', color: Colors.orangeAccent),
-        const SizedBox(width: 4),
-        _StatItem(icon: Icons.child_care, label: 'N', value: '$nurseCount', color: Colors.pinkAccent),
-        if (larvaCount > 0) ...[
-          const SizedBox(width: 4),
-          _StatItem(icon: Icons.egg_alt, label: 'L', value: '$larvaCount', color: Colors.white70),
-        ],
       ],
     );
   }

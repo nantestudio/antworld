@@ -188,6 +188,10 @@ class Ant {
   static const double _stuckThreshold = 30.0; // seconds before considered stuck
   static const double _moveThreshold = 0.5; // minimum distance to count as moved
 
+  // Collision pause - ant stops briefly after hitting something
+  double _collisionPauseTimer = 0;
+  static const double _collisionPauseDuration = 0.8; // seconds to pause after collision
+
   bool get hasFood => _carryingFood;
   bool get isDead => hp <= 0;
   bool get isStuck => _stuckTime >= _stuckThreshold;
@@ -195,6 +199,7 @@ class Ant {
   double get explorerTendency => _explorerTendency;
   bool get isExplorer => _explorerTendency > 0.15; // High tendency = explorer
   bool get needsRest => _needsRest;
+  bool get isPaused => _collisionPauseTimer > 0;
   AntState? get stateBeforeRest => _stateBeforeRest;
   double get casteSpeedMultiplier => CasteStats.stats[caste]!.speedMultiplier;
   bool get canForage => CasteStats.stats[caste]!.canForage;
@@ -208,6 +213,14 @@ class Ant {
     hp = math.max(0, hp - amount);
   }
 
+  /// Trigger a brief pause after colliding with another ant
+  void triggerCollisionPause() {
+    // Only set if not already paused (avoid resetting timer)
+    if (_collisionPauseTimer <= 0) {
+      _collisionPauseTimer = _collisionPauseDuration * 0.5; // Shorter pause for ant collisions
+    }
+  }
+
   bool update(
     double dt,
     SimulationConfig config,
@@ -217,6 +230,14 @@ class Ant {
     {Vector2? attackTarget}
   ) {
     if (dt == 0) return false;
+
+    // Handle collision pause - ant stops briefly after hitting something
+    if (_collisionPauseTimer > 0) {
+      _collisionPauseTimer -= dt;
+      if (_collisionPauseTimer > 0) {
+        return false; // Still paused, don't move
+      }
+    }
 
     // Stuck detection - track if ant has moved (skip for resting ants)
     if (state != AntState.rest) {
@@ -313,6 +334,8 @@ class Ant {
         _dig(world, hitX, hitY, config);
         angle += math.pi / 2 + (rng.nextDouble() - 0.5) * 0.6;
         _consecutiveRockHits = 0; // Reset rock hit counter on dirt collision
+        // Short pause after digging
+        _collisionPauseTimer = _collisionPauseDuration * 0.3;
       } else if (hitBlock == CellType.rock) {
         // Deposit blocked pheromone to warn other ants about this obstacle
         world.depositBlockedPheromone(hitX, hitY, 0.3);
@@ -327,6 +350,8 @@ class Ant {
           // 90% just bounce back
           angle += math.pi + (rng.nextDouble() - 0.5) * 0.3;
         }
+        // Pause after hitting rock
+        _collisionPauseTimer = _collisionPauseDuration;
       }
       return false;
     }
@@ -336,6 +361,8 @@ class Ant {
     final gy = nextY.floor();
     if (!world.isInsideIndex(gx, gy)) {
       angle += math.pi;
+      // Pause after hitting boundary
+      _collisionPauseTimer = _collisionPauseDuration;
       return false;
     }
 

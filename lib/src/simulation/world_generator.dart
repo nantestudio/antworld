@@ -5,15 +5,6 @@ import 'package:flame/components.dart';
 import 'simulation_config.dart';
 import 'world_grid.dart';
 
-class _WalkTask {
-  _WalkTask(this.x, this.y, this.angle, this.steps, this.radius);
-  final double x;
-  final double y;
-  final double angle;
-  final int steps;
-  final int radius;
-}
-
 class GeneratedWorld {
   GeneratedWorld({
     required this.config,
@@ -59,14 +50,18 @@ class WorldGenerator {
     // Carve both nest chambers on opposite corners
     final (nest0, nest1) = _carveDualNestChambers(grid, rng, actualCols, actualRows);
 
-    // Carve tunnels from both nests
-    _carveMainTunnels(grid, rng, nest0, actualCols, actualRows);
-    _carveMainTunnels(grid, rng, nest1, actualCols, actualRows);
-    _carveCaverns(grid, rng, actualCols, actualRows);
-
-    // Add obstacles and food in carved areas
+    // 1. First place rock formations (obstacles)
     _createRockFormations(grid, rng, actualCols, actualRows);
-    _scatterFood(grid, rng, actualCols, actualRows);
+
+    // 2. Generate food positions first (so tunnels can connect to them)
+    final foodPositions = _scatterFood(grid, rng, actualCols, actualRows);
+
+    // 3. Carve tunnels from each nest to nearest food source
+    _carveTunnelToFood(grid, nest0, foodPositions);
+    _carveTunnelToFood(grid, nest1, foodPositions);
+
+    // 4. Small caverns for exploration
+    _carveCaverns(grid, rng, actualCols, actualRows);
 
     // Ensure solid dirt border around entire map
     _ensureDirtBorder(grid, 3);
@@ -80,60 +75,108 @@ class WorldGenerator {
     );
   }
 
-  void _carveMainTunnels(
-    WorldGrid grid,
-    math.Random rng,
-    Vector2 nest,
-    int cols,
-    int rows,
-  ) {
-    // Reduced: 15-25 tunnels with smaller radius to preserve more dirt
-    final tunnelCount = rng.nextInt(10) + 15;
-    for (var i = 0; i < tunnelCount; i++) {
-      final start = nest + Vector2(
-        (rng.nextDouble() - 0.5) * 10,
-        (rng.nextDouble() - 0.5) * 10,
-      );
-      // Shorter tunnels with smaller radius
-      _randomWalk(grid, rng, start, cols, rows,
-          steps: rng.nextInt(180) + 150, radius: rng.nextInt(2) + 1);
-    }
-  }
-
   void _carveCaverns(
     WorldGrid grid,
     math.Random rng,
     int cols,
     int rows,
   ) {
-    // Reduced: 20-45 caverns with smaller radius
-    final cavernCount = rng.nextInt(25) + 20;
+    // Minimal caverns - small pockets for ants to discover
+    final cavernCount = rng.nextInt(8) + 5; // Only 5-12 small caverns
     for (var i = 0; i < cavernCount; i++) {
       final pos = _randomPoint(rng, cols, rows);
-      final radius = rng.nextInt(4) + 2;
+      final radius = rng.nextInt(2) + 1; // Small radius 1-2
       grid.digCircle(pos, radius);
     }
   }
 
-  void _scatterFood(
+  /// Scatters food clusters and returns their positions
+  List<Vector2> _scatterFood(
     WorldGrid grid,
     math.Random rng,
     int cols,
     int rows,
   ) {
-    // Single large food source - forces ants to form clear pheromone highways
-    // Place it away from nest (upper half of map) for interesting pathing
-    final nestY = grid.nestPosition.y;
-    final minDistFromNest = rows * 0.3; // At least 30% of map away from nest
+    final foodPositions = <Vector2>[];
 
-    Vector2 pos;
-    do {
-      pos = _randomPoint(rng, cols, rows);
-    } while ((pos.y - nestY).abs() < minDistFromNest);
+    // Place food sources away from both nests
+    final nest0 = grid.nestPosition;
+    final nest1 = grid.nest1Position;
+    final minDistFromNest = rows * 0.2; // At least 20% of map away from nests
 
-    // Large radius (8-12) for a substantial food pile
-    final radius = rng.nextInt(5) + 8;
-    grid.placeFood(pos, radius);
+    // Place 2-3 food clusters
+    final foodCount = rng.nextInt(2) + 2;
+    for (var i = 0; i < foodCount; i++) {
+      Vector2 pos;
+      var attempts = 0;
+      do {
+        pos = _randomPoint(rng, cols, rows);
+        attempts++;
+      } while (attempts < 50 &&
+               (pos.distanceTo(nest0) < minDistFromNest ||
+                pos.distanceTo(nest1) < minDistFromNest));
+
+      // Carve out space first so food can be placed
+      final radius = rng.nextInt(3) + 4; // Radius 4-6
+      grid.digCircle(pos, radius);
+      // Now place food in the carved space
+      grid.placeFood(pos, radius);
+      foodPositions.add(pos);
+    }
+
+    return foodPositions;
+  }
+
+  /// Carves a 2-cell-wide tunnel from nest to the nearest food source
+  void _carveTunnelToFood(WorldGrid grid, Vector2 nest, List<Vector2> foodPositions) {
+    if (foodPositions.isEmpty) return;
+
+    // Find nearest food
+    Vector2? nearestFood;
+    var nearestDist = double.infinity;
+    for (final food in foodPositions) {
+      final dist = nest.distanceTo(food);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestFood = food;
+      }
+    }
+
+    if (nearestFood == null) return;
+
+    // Carve 2-cell-wide tunnel from nest toward food (for two-way traffic)
+    var x = nest.x;
+    var y = nest.y;
+    final dx = nearestFood.x - nest.x;
+    final dy = nearestFood.y - nest.y;
+    final dist = math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) return;
+
+    final stepX = dx / dist;
+    final stepY = dy / dist;
+    // Perpendicular direction for width
+    final perpX = -stepY;
+    final perpY = stepX;
+    final steps = dist.ceil();
+
+    for (var i = 0; i < steps; i++) {
+      // Carve 2 cells wide (center + one perpendicular)
+      for (var w = 0; w < 2; w++) {
+        final gx = (x + perpX * w).round();
+        final gy = (y + perpY * w).round();
+
+        if (grid.isInsideIndex(gx, gy)) {
+          final cellType = grid.cellTypeAt(gx, gy);
+          // Only carve through dirt, not rock
+          if (cellType == CellType.dirt) {
+            grid.setCell(gx, gy, CellType.air);
+          }
+        }
+      }
+
+      x += stepX;
+      y += stepY;
+    }
   }
 
   /// Creates varied organic rock formations: roots, boulder clusters, and veins
@@ -174,29 +217,15 @@ class WorldGenerator {
     var x = start.x;
     var y = start.y;
     var angle = rng.nextDouble() * math.pi * 2;
-    final length = rng.nextInt(25) + 15; // 15-40 cells long (was 30-80)
-    final thickness = 1; // Single cell thickness for less blocking
+    final length = rng.nextInt(25) + 15; // 15-40 cells long
 
     for (var i = 0; i < length; i++) {
       final gx = x.round();
       final gy = y.round();
 
       if (grid.isInsideIndex(gx, gy)) {
-        // Place main root
-        grid.setCell(gx, gy, CellType.rock);
-
-        // Add thickness variation
-        if (thickness > 1 || rng.nextDouble() < 0.4) {
-          for (var t = 0; t < thickness; t++) {
-            final ox = (rng.nextDouble() - 0.5) * 2;
-            final oy = (rng.nextDouble() - 0.5) * 2;
-            final nx = (gx + ox).round();
-            final ny = (gy + oy).round();
-            if (grid.isInsideIndex(nx, ny)) {
-              grid.setCell(nx, ny, CellType.rock);
-            }
-          }
-        }
+        // Place main root with 2-cell thickness perpendicular to direction
+        _placeThickLine(grid, gx, gy, angle);
       }
 
       // Create branch occasionally (reduced from 8% to 3%)
@@ -223,6 +252,18 @@ class WorldGenerator {
     }
   }
 
+  /// Places a 2-cell thick rock perpendicular to the given angle
+  void _placeThickLine(WorldGrid grid, int gx, int gy, double angle) {
+    grid.setCell(gx, gy, CellType.rock);
+    // Add perpendicular cell for 2-block thickness
+    final perpAngle = angle + math.pi / 2;
+    final nx = (gx + math.cos(perpAngle)).round();
+    final ny = (gy + math.sin(perpAngle)).round();
+    if (grid.isInsideIndex(nx, ny)) {
+      grid.setCell(nx, ny, CellType.rock);
+    }
+  }
+
   /// Creates a branch off a root formation
   void _createRootBranch(
     WorldGrid grid,
@@ -243,18 +284,8 @@ class WorldGenerator {
       final gy = y.round();
 
       if (grid.isInsideIndex(gx, gy)) {
-        grid.setCell(gx, gy, CellType.rock);
-
-        // Occasional thickening
-        if (rng.nextDouble() < 0.25) {
-          final ox = (rng.nextDouble() - 0.5) * 1.5;
-          final oy = (rng.nextDouble() - 0.5) * 1.5;
-          final nx = (gx + ox).round();
-          final ny = (gy + oy).round();
-          if (grid.isInsideIndex(nx, ny)) {
-            grid.setCell(nx, ny, CellType.rock);
-          }
-        }
+        // 2-cell thick branch
+        _placeThickLine(grid, gx, gy, angle);
       }
 
       // Sub-branch rarely
@@ -289,7 +320,8 @@ class WorldGenerator {
       final gx = x.round();
       final gy = y.round();
       if (grid.isInsideIndex(gx, gy)) {
-        grid.setCell(gx, gy, CellType.rock);
+        // 2-cell thick even for tiny branches
+        _placeThickLine(grid, gx, gy, angle);
       }
       angle += (rng.nextDouble() - 0.5) * 0.6;
       x += math.cos(angle);
@@ -322,7 +354,7 @@ class WorldGenerator {
     var x = start.x;
     var y = start.y;
     var angle = rng.nextDouble() * math.pi * 2;
-    final length = rng.nextInt(30) + 20; // 20-50 cells long (was 40-120)
+    final length = rng.nextInt(30) + 20; // 20-50 cells long
     final waviness = rng.nextDouble() * 0.15 + 0.05; // How much it curves
 
     for (var i = 0; i < length; i++) {
@@ -330,13 +362,13 @@ class WorldGenerator {
       final gy = y.round();
 
       if (grid.isInsideIndex(gx, gy)) {
-        grid.setCell(gx, gy, CellType.rock);
+        // Always 2-cell thick vein
+        _placeThickLine(grid, gx, gy, angle);
 
-        // Occasional widening (reduced from 30% to 15%)
+        // Occasional extra widening (makes some sections 3 cells)
         if (rng.nextDouble() < 0.15) {
-          // Perpendicular offset for width
           final perpAngle = angle + math.pi / 2;
-          final side = rng.nextBool() ? 1 : -1;
+          final side = rng.nextBool() ? 2 : -2;
           final nx = (gx + math.cos(perpAngle) * side).round();
           final ny = (gy + math.sin(perpAngle) * side).round();
           if (grid.isInsideIndex(nx, ny)) {
@@ -351,73 +383,6 @@ class WorldGenerator {
       y += math.sin(angle);
       x = x.clamp(2, cols - 3).toDouble();
       y = y.clamp(2, rows - 3).toDouble();
-    }
-  }
-
-  void _randomWalk(
-    WorldGrid grid,
-    math.Random rng,
-    Vector2 start,
-    int cols,
-    int rows, {
-    required int steps,
-    required int radius,
-    double? startAngle,
-  }) {
-    final workQueue = <_WalkTask>[
-      _WalkTask(
-        start.x,
-        start.y,
-        startAngle ?? rng.nextDouble() * math.pi * 2,
-        steps,
-        radius,
-      ),
-    ];
-    final carvePos = Vector2.zero();
-    final maxQueueSize = math.max(64, (cols * rows) ~/ 4);
-    final maxCarveOps = math.max(cols * rows * 2, 2000);
-    var carved = 0;
-
-    while (workQueue.isNotEmpty && carved < maxCarveOps) {
-      final task = workQueue.removeLast();
-      var x = task.x;
-      var y = task.y;
-      var angle = task.angle;
-      final taskRadius = task.radius;
-
-      for (var i = 0; i < task.steps; i++) {
-        carvePos.setValues(x, y);
-        grid.digCircle(carvePos, taskRadius);
-        carved++;
-        if (carved >= maxCarveOps) {
-          workQueue.clear();
-          break;
-        }
-
-        angle += (rng.nextDouble() - 0.5) * 0.5;
-        final distance = rng.nextDouble() * 2 + 0.5;
-        x = (x + math.cos(angle) * distance).clamp(2, cols - 3).toDouble();
-        y = (y + math.sin(angle) * distance).clamp(2, rows - 3).toDouble();
-
-        // Reduced branching
-        final shouldBranch = taskRadius > 1 &&
-            workQueue.length < maxQueueSize &&
-            rng.nextDouble() < 0.06;
-        if (shouldBranch) {
-          final sideSteps = rng.nextInt(40) + 25;
-          final sideAngle =
-              angle + (rng.nextBool() ? math.pi / 2 : -math.pi / 2);
-          workQueue.add(
-            _WalkTask(
-              x,
-              y,
-              sideAngle,
-              sideSteps,
-              math.max(1, taskRadius - 1),
-            ),
-          );
-        }
-      }
     }
   }
 
