@@ -98,6 +98,33 @@ class AntWorldGame extends FlameGame
     ..style = PaintingStyle.stroke
     ..strokeWidth = 2.0;
 
+  // Cached TextPainters for labels (avoid per-frame allocation)
+  static const _nestLabelStyle = TextStyle(
+    color: Color(0xFFE0FFB3),
+    fontSize: 10,
+    fontWeight: FontWeight.bold,
+  );
+  static const _roomLabelStyle = TextStyle(
+    color: Color(0x88FFFFFF),
+    fontSize: 8,
+  );
+  late final TextPainter _colony0LabelPainter = TextPainter(
+    text: const TextSpan(text: 'Colony 0', style: _nestLabelStyle),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  late final TextPainter _colony1LabelPainter = TextPainter(
+    text: const TextSpan(text: 'Colony 1', style: _nestLabelStyle),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  late final TextPainter _homeLabelPainter = TextPainter(
+    text: const TextSpan(text: 'Home', style: _roomLabelStyle),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  late final TextPainter _nurseryLabelPainter = TextPainter(
+    text: const TextSpan(text: 'Nursery', style: _roomLabelStyle),
+    textDirection: TextDirection.ltr,
+  )..layout();
+
   Picture? _terrainPicture;
   int _cachedTerrainVersion = -1;
   Picture? _pheromonePicture;
@@ -273,27 +300,19 @@ class AntWorldGame extends FlameGame
     final nest0 = world.nestPosition;
     final nest0Offset = Offset(nest0.x * cellSize, nest0.y * cellSize);
     canvas.drawCircle(nest0Offset, cellSize * 0.75, _nestPaint);
-    _drawNestLabel(canvas, nest0Offset, 'Colony 0');
+    _drawNestLabel(canvas, nest0Offset, 0);
 
     // Render colony 1 nest (orange)
     final nest1 = world.nest1Position;
     final nest1Offset = Offset(nest1.x * cellSize, nest1.y * cellSize);
     canvas.drawCircle(nest1Offset, cellSize * 0.75, _nest1Paint);
-    _drawNestLabel(canvas, nest1Offset, 'Colony 1');
+    _drawNestLabel(canvas, nest1Offset, 1);
 
     _renderAnts(canvas, cellSize);
   }
 
-  void _drawNestLabel(Canvas canvas, Offset nestOffset, String label) {
-    const labelStyle = TextStyle(
-      color: Color(0xFFE0FFB3),
-      fontSize: 10,
-      fontWeight: FontWeight.bold,
-    );
-    final painter = TextPainter(
-      text: TextSpan(text: label, style: labelStyle),
-      textDirection: TextDirection.ltr,
-    )..layout();
+  void _drawNestLabel(Canvas canvas, Offset nestOffset, int colonyId) {
+    final painter = colonyId == 0 ? _colony0LabelPainter : _colony1LabelPainter;
     final offset = nestOffset - Offset(painter.width / 2, painter.height + 6);
     painter.paint(canvas, offset);
   }
@@ -325,15 +344,7 @@ class AntWorldGame extends FlameGame
   }
 
   void _drawRoomLabel(Canvas canvas, Offset centerOffset, Room room) {
-    final label = room.type == RoomType.home ? 'Home' : 'Nursery';
-    const labelStyle = TextStyle(
-      color: Color(0x88FFFFFF),
-      fontSize: 8,
-    );
-    final painter = TextPainter(
-      text: TextSpan(text: label, style: labelStyle),
-      textDirection: TextDirection.ltr,
-    )..layout();
+    final painter = room.type == RoomType.home ? _homeLabelPainter : _nurseryLabelPainter;
     final offset = centerOffset - Offset(painter.width / 2, painter.height / 2);
     painter.paint(canvas, offset);
   }

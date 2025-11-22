@@ -47,28 +47,51 @@ class ColonySimulation {
   double _foodCheckTimer = 0.0;
   double _nextFoodCheck = 300.0; // ~5 minutes between food spawns
 
+  // Reusable structures for separation (avoid per-frame allocation)
+  final Map<int, List<Ant>> _spatialHash = {};
+  final Map<Ant, Vector2> _separationAdjustments = {};
+  final List<List<Ant>> _spatialHashListPool = [];
+
+  // Cached stats (updated in _updateAntCount for O(1) access)
+  int _enemyCount = 0;
+  int _restingCount = 0;
+  int _carryingFoodCount = 0;
+  int _foragingCount = 0;
+  int _workerCount = 0;
+  int _soldierCount = 0;
+  int _nurseCount = 0;
+  int _larvaCount = 0;
+  int _eggCount = 0;
+  int _queenCount = 0;
+  int _enemy1WorkerCount = 0;
+  int _enemy1SoldierCount = 0;
+  int _enemy1NurseCount = 0;
+  int _enemy1LarvaCount = 0;
+  int _enemy1EggCount = 0;
+  int _enemy1QueenCount = 0;
+
   bool get showPheromones => pheromonesVisible.value;
   int? get lastSeed => _lastSeed;
 
-  // Stats getters for UI - colony 0 is "our" colony for display purposes
-  int get enemyCount => ants.where((a) => a.colonyId != 0).length;
-  int get restingCount => ants.where((a) => a.colonyId == 0 && a.state == AntState.rest).length;
-  int get carryingFoodCount => ants.where((a) => a.colonyId == 0 && a.hasFood).length;
-  int get foragingCount => ants.where((a) => a.colonyId == 0 && a.state == AntState.forage && !a.hasFood).length;
-  int get workerCount => ants.where((a) => a.colonyId == 0 && a.caste == AntCaste.worker).length;
-  int get soldierCount => ants.where((a) => a.colonyId == 0 && a.caste == AntCaste.soldier).length;
-  int get nurseCount => ants.where((a) => a.colonyId == 0 && a.caste == AntCaste.nurse).length;
-  int get larvaCount => ants.where((a) => a.colonyId == 0 && a.caste == AntCaste.larva).length;
-  int get eggCount => ants.where((a) => a.colonyId == 0 && a.caste == AntCaste.egg).length;
-  int get queenCount => ants.where((a) => a.colonyId == 0 && a.caste == AntCaste.queen).length;
+  // Stats getters for UI - use cached values (O(1) instead of O(n))
+  int get enemyCount => _enemyCount;
+  int get restingCount => _restingCount;
+  int get carryingFoodCount => _carryingFoodCount;
+  int get foragingCount => _foragingCount;
+  int get workerCount => _workerCount;
+  int get soldierCount => _soldierCount;
+  int get nurseCount => _nurseCount;
+  int get larvaCount => _larvaCount;
+  int get eggCount => _eggCount;
+  int get queenCount => _queenCount;
 
   // Colony 1 stats
-  int get enemy1WorkerCount => ants.where((a) => a.colonyId == 1 && a.caste == AntCaste.worker).length;
-  int get enemy1SoldierCount => ants.where((a) => a.colonyId == 1 && a.caste == AntCaste.soldier).length;
-  int get enemy1NurseCount => ants.where((a) => a.colonyId == 1 && a.caste == AntCaste.nurse).length;
-  int get enemy1LarvaCount => ants.where((a) => a.colonyId == 1 && a.caste == AntCaste.larva).length;
-  int get enemy1EggCount => ants.where((a) => a.colonyId == 1 && a.caste == AntCaste.egg).length;
-  int get enemy1QueenCount => ants.where((a) => a.colonyId == 1 && a.caste == AntCaste.queen).length;
+  int get enemy1WorkerCount => _enemy1WorkerCount;
+  int get enemy1SoldierCount => _enemy1SoldierCount;
+  int get enemy1NurseCount => _enemy1NurseCount;
+  int get enemy1LarvaCount => _enemy1LarvaCount;
+  int get enemy1EggCount => _enemy1EggCount;
+  int get enemy1QueenCount => _enemy1QueenCount;
 
   void initialize() {
     world.reset();
@@ -720,6 +743,71 @@ class ColonySimulation {
   }
 
   void _updateAntCount() {
+    // Reset all counters
+    _enemyCount = 0;
+    _restingCount = 0;
+    _carryingFoodCount = 0;
+    _foragingCount = 0;
+    _workerCount = 0;
+    _soldierCount = 0;
+    _nurseCount = 0;
+    _larvaCount = 0;
+    _eggCount = 0;
+    _queenCount = 0;
+    _enemy1WorkerCount = 0;
+    _enemy1SoldierCount = 0;
+    _enemy1NurseCount = 0;
+    _enemy1LarvaCount = 0;
+    _enemy1EggCount = 0;
+    _enemy1QueenCount = 0;
+
+    // Single pass through all ants
+    for (final ant in ants) {
+      if (ant.colonyId == 0) {
+        // Colony 0 stats
+        if (ant.state == AntState.rest) _restingCount++;
+        if (ant.hasFood) _carryingFoodCount++;
+        if (ant.state == AntState.forage && !ant.hasFood) _foragingCount++;
+        switch (ant.caste) {
+          case AntCaste.worker:
+            _workerCount++;
+          case AntCaste.soldier:
+            _soldierCount++;
+          case AntCaste.nurse:
+            _nurseCount++;
+          case AntCaste.larva:
+            _larvaCount++;
+          case AntCaste.egg:
+            _eggCount++;
+          case AntCaste.queen:
+            _queenCount++;
+          case AntCaste.drone:
+            break;
+        }
+      } else {
+        // Enemy colony stats
+        _enemyCount++;
+        if (ant.colonyId == 1) {
+          switch (ant.caste) {
+            case AntCaste.worker:
+              _enemy1WorkerCount++;
+            case AntCaste.soldier:
+              _enemy1SoldierCount++;
+            case AntCaste.nurse:
+              _enemy1NurseCount++;
+            case AntCaste.larva:
+              _enemy1LarvaCount++;
+            case AntCaste.egg:
+              _enemy1EggCount++;
+            case AntCaste.queen:
+              _enemy1QueenCount++;
+            case AntCaste.drone:
+              break;
+          }
+        }
+      }
+    }
+
     antCount.value = ants.length;
   }
 
@@ -756,23 +844,31 @@ class ColonySimulation {
     const double minSpacing = antRadius * 2; // Two ants touching = 0.7 cells apart
     const double minSpacingSq = minSpacing * minSpacing;
 
-    // Build spatial hash - only add to own cell (not 9 cells) for performance
-    final Map<int, List<Ant>> spatialHash = {};
+    // Return lists to pool and clear spatial hash
+    for (final list in _spatialHash.values) {
+      list.clear();
+      _spatialHashListPool.add(list);
+    }
+    _spatialHash.clear();
+    _separationAdjustments.clear();
+
+    // Build spatial hash - reuse pooled lists
     for (final ant in ants) {
       if (ant.isDead || ant.caste == AntCaste.larva || ant.caste == AntCaste.queen || ant.caste == AntCaste.egg) continue;
       final gx = ant.position.x.floor();
       final gy = ant.position.y.floor();
       if (!world.isInsideIndex(gx, gy)) continue;
       final key = world.index(gx, gy);
-      spatialHash.putIfAbsent(key, () => []).add(ant);
+      final list = _spatialHash.putIfAbsent(key, () {
+        return _spatialHashListPool.isNotEmpty ? _spatialHashListPool.removeLast() : <Ant>[];
+      });
+      list.add(ant);
     }
 
-    if (spatialHash.isEmpty) return;
-
-    final Map<Ant, Vector2> adjustments = {};
+    if (_spatialHash.isEmpty) return;
 
     // Check each cell and its neighbors
-    for (final entry in spatialHash.entries) {
+    for (final entry in _spatialHash.entries) {
       final cellIdx = entry.key;
       final cellX = cellIdx % world.cols;
       final cellY = cellIdx ~/ world.cols;
@@ -786,7 +882,7 @@ class ColonySimulation {
           if (!world.isInsideIndex(nx, ny)) continue;
 
           final neighborKey = world.index(nx, ny);
-          final neighborAnts = spatialHash[neighborKey];
+          final neighborAnts = _spatialHash[neighborKey];
           if (neighborAnts == null) continue;
 
           final isSameCell = (dx == 0 && dy == 0);
@@ -811,8 +907,8 @@ class ColonySimulation {
                 final angle = _rng.nextDouble() * math.pi * 2;
                 final pushX = math.cos(angle) * jitter;
                 final pushY = math.sin(angle) * jitter;
-                _accumulateAdjustment(adjustments, a, pushX, pushY);
-                _accumulateAdjustment(adjustments, b, -pushX, -pushY);
+                _accumulateAdjustment(_separationAdjustments, a, pushX, pushY);
+                _accumulateAdjustment(_separationAdjustments, b, -pushX, -pushY);
                 // Trigger pause on heavy collision
                 a.triggerCollisionPause();
                 b.triggerCollisionPause();
@@ -826,8 +922,8 @@ class ColonySimulation {
               final pushX = ddx * invDist * pushStrength;
               final pushY = ddy * invDist * pushStrength;
 
-              _accumulateAdjustment(adjustments, a, pushX, pushY);
-              _accumulateAdjustment(adjustments, b, -pushX, -pushY);
+              _accumulateAdjustment(_separationAdjustments, a, pushX, pushY);
+              _accumulateAdjustment(_separationAdjustments, b, -pushX, -pushY);
 
               // Trigger pause if significant overlap
               if (overlap > minSpacing * 0.3) {
@@ -841,7 +937,7 @@ class ColonySimulation {
     }
 
     // Apply adjustments
-    for (final entry in adjustments.entries) {
+    for (final entry in _separationAdjustments.entries) {
       final ant = entry.key;
       final delta = entry.value;
 
@@ -889,22 +985,31 @@ class ColonySimulation {
     const double fightRadius = 0.6;
     const double fightRadiusSq = fightRadius * fightRadius;
 
+    // Reuse spatial hash - return lists to pool and clear
+    for (final list in _spatialHash.values) {
+      list.clear();
+      _spatialHashListPool.add(list);
+    }
+    _spatialHash.clear();
+
     // Build spatial hash for O(n) combat detection instead of O(n²)
-    final Map<int, List<Ant>> spatialHash = {};
     for (final ant in ants) {
       if (ant.isDead || ant.caste == AntCaste.larva || ant.caste == AntCaste.egg) continue;
       final gx = ant.position.x.floor();
       final gy = ant.position.y.floor();
       if (!world.isInsideIndex(gx, gy)) continue;
       final key = world.index(gx, gy);
-      spatialHash.putIfAbsent(key, () => []).add(ant);
+      final list = _spatialHash.putIfAbsent(key, () {
+        return _spatialHashListPool.isNotEmpty ? _spatialHashListPool.removeLast() : <Ant>[];
+      });
+      list.add(ant);
     }
 
     final deadAnts = <Ant>{};
     final checkedPairs = <int>{};
 
     // Only check ants in same cell and adjacent cells
-    for (final entry in spatialHash.entries) {
+    for (final entry in _spatialHash.entries) {
       final cellIdx = entry.key;
       final cellX = cellIdx % world.cols;
       final cellY = cellIdx ~/ world.cols;
@@ -916,7 +1021,7 @@ class ColonySimulation {
           final ny = cellY + dy;
           if (!world.isInsideIndex(nx, ny)) continue;
           final neighborKey = world.index(nx, ny);
-          final neighbors = spatialHash[neighborKey];
+          final neighbors = _spatialHash[neighborKey];
           if (neighbors == null) continue;
 
           for (final a in entry.value) {
