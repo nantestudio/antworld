@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "956895943857",
+    "project_id": "nantestudio-7d35c",
+    "storage_bucket": "nantestudio-7d35c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:956895943857:android:92494a7689529269ab9690",
+        "android_client_info": {
+          "package_name": "com.nantestudio.antworld"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBXW7ZB7xIAy9CGPYxLYeFdnHLCE1yRZAw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:956895943857:android:dd0cb1f3d21b3945ab9690",
+        "android_client_info": {
+          "package_name": "com.nantestudio.thriller"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBXW7ZB7xIAy9CGPYxLYeFdnHLCE1yRZAw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

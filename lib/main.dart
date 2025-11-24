@@ -1,14 +1,20 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flame/game.dart';
 import 'package:flutter/material.dart';
 
+import 'firebase_options.dart';
 import 'src/game/ant_world_game.dart';
+import 'src/services/analytics_service.dart';
 import 'src/simulation/colony_simulation.dart';
 import 'src/simulation/simulation_config.dart';
 import 'src/state/simulation_storage.dart';
 import 'src/ui/ant_hud.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const AntWorldApp());
 }
 
@@ -183,6 +189,14 @@ class _AntWorldAppState extends State<AntWorldApp> {
     simulation.generateRandomWorld();
     final game = AntWorldGame(simulation);
 
+    // Track game start
+    AnalyticsService.instance.logGameStart(
+      colonyCount: _selectedColonyCount,
+      mapCols: simulation.config.cols,
+      mapRows: simulation.config.rows,
+    );
+    AnalyticsService.instance.setUserColonyPreference(_selectedColonyCount);
+
     setState(() {
       _simulation = simulation;
       _game = game;
@@ -209,6 +223,14 @@ class _AntWorldAppState extends State<AntWorldApp> {
       return;
     }
     final game = AntWorldGame(simulation);
+
+    // Track game load
+    AnalyticsService.instance.logGameLoad(
+      daysPassed: simulation.daysPassed.value,
+      totalFood: simulation.foodCollected.value,
+      antCount: simulation.ants.length,
+    );
+
     setState(() {
       _simulation = simulation;
       _game = game;

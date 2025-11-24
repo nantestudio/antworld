@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../game/ant_world_game.dart';
+import '../services/analytics_service.dart';
 import '../simulation/ant.dart';
 import '../simulation/colony_simulation.dart';
 import '../simulation/world_generator.dart';
@@ -978,6 +979,15 @@ class _AntHudState extends State<AntHud> {
     final success = await widget.storage.save(widget.simulation);
     if (!mounted) return;
     setState(() => _saving = false);
+
+    if (success) {
+      AnalyticsService.instance.logGameSaved(
+        daysPassed: widget.simulation.daysPassed.value,
+        antCount: widget.simulation.ants.length,
+        totalFood: widget.simulation.foodCollected.value,
+      );
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(success ? 'World saved' : 'Failed to save world')),
     );
@@ -1010,6 +1020,15 @@ class _AntHudState extends State<AntHud> {
       );
       widget.game.invalidateTerrainLayer();
       widget.game.refreshViewport();
+
+      // Track map generation
+      AnalyticsService.instance.logMapGenerated(
+        sizePreset: _selectedMapSize,
+        cols: cols,
+        rows: rows,
+        colonyCount: _selectedColonyCount,
+        seed: seed,
+      );
     } finally {
       if (mounted) {
         setState(() {

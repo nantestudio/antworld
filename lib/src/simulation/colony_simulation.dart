@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flame/components.dart';
 import 'package:flutter/foundation.dart';
 
+import '../services/analytics_service.dart';
 import 'ant.dart';
 import 'simulation_config.dart';
 import 'world_generator.dart';
@@ -170,7 +171,21 @@ class ColonySimulation {
     elapsedTime.value = _elapsedTime;
     final newDays = (_elapsedTime / 60.0).floor() + 1;
     if (newDays != daysPassed.value) {
+      final oldDays = daysPassed.value;
       daysPassed.value = newDays;
+
+      // Track day milestones (10, 25, 50, 100, etc)
+      const milestones = [10, 25, 50, 100, 200, 500];
+      for (final milestone in milestones) {
+        if (oldDays < milestone && newDays >= milestone) {
+          AnalyticsService.instance.logDayMilestone(
+            day: milestone,
+            totalAnts: ants.length,
+            totalFood: _storedFood,
+          );
+          break;
+        }
+      }
     }
 
     final eggsToHatch = <Ant>[];
@@ -1217,6 +1232,14 @@ class ColonySimulation {
 
     // Update displays
     _updateAntCount();
+
+    // Track colony takeover - major game event
+    AnalyticsService.instance.logColonyTakeover(
+      winnerColonyId: conquerorColonyId,
+      defeatedColonyId: defeatedColonyId,
+      convertedAnts: convertedCount,
+      daysPassed: daysPassed.value,
+    );
 
     // Log the takeover (could add a notification system later)
     // ignore: avoid_print
