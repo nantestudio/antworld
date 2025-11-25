@@ -584,7 +584,23 @@ class Ant {
         : state;
 
     if (behavior == AntState.returnHome || _needsRest || hasFood) {
-      if (_needsRest && !hasFood && _restingSpot != null) {
+      // PRIORITY 1: Food-carrying ants go directly to food storage room
+      // This prevents congestion at the queen's location
+      if (hasFood) {
+        final foodRoom = world.getFoodRoom(colonyId);
+        final target = foodRoom?.center ?? world.getNestPosition(colonyId);
+        final toTarget = target - position;
+        if (toTarget.length2 > 0.01) {
+          final desired = math.atan2(toTarget.y, toTarget.x);
+          final delta = _normalizeAngle(desired - angle);
+          angle += delta.clamp(-0.5, 0.5) * (0.7 + rng.nextDouble() * 0.2);
+          angle += (rng.nextDouble() - 0.5) * 0.05; // Small noise for spread
+        }
+        return;
+      }
+
+      // PRIORITY 2: Resting ants (without food) go to barracks
+      if (_needsRest && _restingSpot != null) {
         final desired = math.atan2(
           _restingSpot!.y - position.y,
           _restingSpot!.x - position.x,
@@ -594,7 +610,7 @@ class Ant {
         return;
       }
 
-      // PRIORITY 1: Follow home pheromone trails (the path we came from)
+      // PRIORITY 3: Follow home pheromone trails (for non-food returnHome)
       // This creates consistent "ant highways" where ants return on the same path
       final sensorRight = _sense(
         angle + config.sensorAngle,
@@ -624,7 +640,7 @@ class Ant {
         return;
       }
 
-      // PRIORITY 2: No pheromone trail - use BFS pathfinding
+      // PRIORITY 4: No pheromone trail - use BFS pathfinding
       final dir = world.directionToNest(position, colonyId: colonyId);
       if (dir != null && dir.length2 > 0.0001) {
         final desiredAngle = math.atan2(dir.y, dir.x);
@@ -634,7 +650,7 @@ class Ant {
         return;
       }
 
-      // PRIORITY 3: No BFS path - fall back to direct vector toward nest
+      // PRIORITY 5: No BFS path - fall back to direct vector toward nest
       final myNest = world.getNestPosition(colonyId);
       final nestDir = myNest - position;
       if (nestDir.length2 > 0) {
