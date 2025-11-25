@@ -89,6 +89,7 @@ class WorldGenerator {
 
     // 3. Carve tunnels from each nest to nearest food source
     for (final nest in nestPositions) {
+      _placeStarterFoodNearNest(grid, rng, nest);
       _carveTunnelToFood(grid, nest, foodPositions);
     }
 
@@ -193,6 +194,20 @@ class WorldGenerator {
     h = (h ^ (h >> 13)) * 1274126177;
     h = h ^ (h >> 16);
     return (h & 0x7FFFFFFF) / 0x7FFFFFFF;
+  }
+
+  void _placeStarterFoodNearNest(
+    WorldGrid grid,
+    math.Random rng,
+    Vector2 nest,
+  ) {
+    final angle = rng.nextDouble() * math.pi * 2;
+    final distance = grid.config.nestRadius + 3 + rng.nextDouble() * 3;
+    final pos = Vector2(
+      (nest.x + math.cos(angle) * distance).clamp(2, grid.cols - 3),
+      (nest.y + math.sin(angle) * distance).clamp(2, grid.rows - 3),
+    );
+    grid.placeFood(pos, 1, amount: WorldGrid.defaultFoodPerCell ~/ 4);
   }
 
   void _carveCaverns(WorldGrid grid, math.Random rng, int cols, int rows) {

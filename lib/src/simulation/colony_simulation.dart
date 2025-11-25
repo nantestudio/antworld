@@ -72,6 +72,8 @@ class ColonySimulation {
   final List<_BuildTask> _buildQueue = [];
   double _roomCheckTimer = 0.0;
   static const double _roomCheckInterval = 30.0;
+  double _resourceCheckTimer = 0.0;
+  static const double _resourceCheckInterval = 15.0;
   int _nextBuildTaskId = 1;
 
   // Reusable structures for separation (avoid per-frame allocation)
@@ -224,6 +226,12 @@ class ColonySimulation {
     if (_roomCheckTimer >= _roomCheckInterval) {
       _checkRoomCapacity();
       _roomCheckTimer = 0.0;
+    }
+
+    _resourceCheckTimer += clampedDt;
+    if (_resourceCheckTimer >= _resourceCheckInterval) {
+      _checkColonyResources();
+      _resourceCheckTimer = 0.0;
     }
 
     // Track elapsed time and update days (1 minute = 1 day, affected by speed multiplier)
@@ -1768,6 +1776,44 @@ class ColonySimulation {
       return;
     }
     _spawnEmergencyQueen(colonyId);
+  }
+
+  void _checkColonyResources() {
+    for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
+      final storedFood = _colonyFood[colonyId];
+      final nearbyFood = _estimateFoodNearNest(colonyId, config.nestRadius * 4);
+      final threshold = config.foodPerNewAnt * 2;
+      if (storedFood < threshold && nearbyFood < WorldGrid.defaultFoodPerCell) {
+        _spawnEmergencyFoodNearNest(colonyId);
+      }
+    }
+  }
+
+  int _estimateFoodNearNest(int colonyId, double radius) {
+    final nest = world.getNestPosition(colonyId);
+    final radiusSq = radius * radius;
+    var total = 0;
+    for (final idx in world.foodCells) {
+      final x = idx % world.cols;
+      final y = idx ~/ world.cols;
+      final dx = (x + 0.5) - nest.x;
+      final dy = (y + 0.5) - nest.y;
+      if (dx * dx + dy * dy <= radiusSq) {
+        total += world.foodAmount[idx];
+      }
+    }
+    return total;
+  }
+
+  void _spawnEmergencyFoodNearNest(int colonyId) {
+    final nest = world.getNestPosition(colonyId);
+    final angle = _rng.nextDouble() * math.pi * 2;
+    final distance = config.nestRadius + 3 + _rng.nextDouble() * 4;
+    final position = Vector2(
+      (nest.x + math.cos(angle) * distance).clamp(2, world.cols - 3),
+      (nest.y + math.sin(angle) * distance).clamp(2, world.rows - 3),
+    );
+    world.placeFood(position, 1, amount: WorldGrid.defaultFoodPerCell ~/ 3);
   }
 
   void _spawnEmergencyQueen(int colonyId) {
