@@ -19,8 +19,10 @@ class GeneratedWorld {
   final List<Vector2> nestPositions; // One per colony
 
   // Legacy accessors for compatibility
-  Vector2 get nestPosition => nestPositions.isNotEmpty ? nestPositions[0] : Vector2.zero();
-  Vector2 get nest1Position => nestPositions.length > 1 ? nestPositions[1] : nestPositions[0];
+  Vector2 get nestPosition =>
+      nestPositions.isNotEmpty ? nestPositions[0] : Vector2.zero();
+  Vector2 get nest1Position =>
+      nestPositions.length > 1 ? nestPositions[1] : nestPositions[0];
 }
 
 class WorldGenerator {
@@ -46,7 +48,10 @@ class WorldGenerator {
     final rng = math.Random(seed);
     final actualCols = cols ?? defaultCols;
     final actualRows = rows ?? defaultRows;
-    final actualColonyCount = (colonyCount ?? baseConfig.colonyCount).clamp(1, 4);
+    final actualColonyCount = (colonyCount ?? baseConfig.colonyCount).clamp(
+      1,
+      4,
+    );
     final config = baseConfig.copyWith(
       cols: actualCols,
       rows: actualRows,
@@ -58,10 +63,23 @@ class WorldGenerator {
     // Distribute dirt types based on distance from nests
     final tempNest0 = Vector2(actualCols * 0.75, actualRows * 0.75);
     final tempNest1 = Vector2(actualCols * 0.25, actualRows * 0.25);
-    _distributeDirtTypes(grid, rng, tempNest0, tempNest1, actualCols, actualRows);
+    _distributeDirtTypes(
+      grid,
+      rng,
+      tempNest0,
+      tempNest1,
+      actualCols,
+      actualRows,
+    );
 
     // Carve nest chambers for all colonies
-    final nestPositions = _carveNestChambers(grid, rng, actualCols, actualRows, actualColonyCount);
+    final nestPositions = _carveNestChambers(
+      grid,
+      rng,
+      actualCols,
+      actualRows,
+      actualColonyCount,
+    );
 
     // 1. First place rock formations (obstacles)
     _createRockFormations(grid, rng, actualCols, actualRows);
@@ -117,44 +135,46 @@ class WorldGenerator {
         final distFactor = (minDist / maxDist).clamp(0.0, 1.0);
 
         // Add pseudo-random noise for natural variation (simple hash-based noise)
-        final noise = _simpleNoise(x + noiseOffsetX.toInt(), y + noiseOffsetY.toInt());
+        final noise = _simpleNoise(
+          x + noiseOffsetX.toInt(),
+          y + noiseOffsetY.toInt(),
+        );
 
         // Combine distance and noise
         final combined = distFactor * 0.7 + noise * 0.3;
 
         // Determine dirt type based on combined value and distance zones
         DirtType type;
-        if (minDist < nestRadius * 3) {
-          // Safety zone: only soft sand or loose soil
-          type = combined < 0.5 ? DirtType.softSand : DirtType.looseSoil;
-        } else if (minDist < nestRadius * 5) {
-          // Transition zone: soft to packed
-          if (combined < 0.3) {
+        if (minDist < nestRadius * 3.5) {
+          // Safety zone: soft sand predominates, no hardite
+          type = combined < 0.65 ? DirtType.softSand : DirtType.looseSoil;
+        } else if (minDist < nestRadius * 5.5) {
+          // Transition zone: introduce packed earth but keep it diggable
+          if (combined < 0.35) {
             type = DirtType.softSand;
-          } else if (combined < 0.6) {
+          } else if (combined < 0.7) {
             type = DirtType.looseSoil;
           } else {
             type = DirtType.packedEarth;
           }
         } else if (minDist < nestRadius * 8) {
-          // Mid zone: loose to clay
+          // Mid zone: loose to clay, rare hardite seams
           if (combined < 0.2) {
             type = DirtType.looseSoil;
-          } else if (combined < 0.5) {
+          } else if (combined < 0.55) {
             type = DirtType.packedEarth;
-          } else if (combined < 0.85) {
+          } else if (combined < 0.9) {
             type = DirtType.clay;
           } else {
-            // Rare hardite veins (15% in this zone)
             type = DirtType.hardite;
           }
         } else {
-          // Outer zone: can have all types, biased toward harder
-          if (combined < 0.15) {
+          // Outer zone: harder mix but still limited hardite
+          if (combined < 0.2) {
             type = DirtType.looseSoil;
-          } else if (combined < 0.35) {
+          } else if (combined < 0.4) {
             type = DirtType.packedEarth;
-          } else if (combined < 0.7) {
+          } else if (combined < 0.75) {
             type = DirtType.clay;
           } else {
             type = DirtType.hardite;
@@ -175,12 +195,7 @@ class WorldGenerator {
     return (h & 0x7FFFFFFF) / 0x7FFFFFFF;
   }
 
-  void _carveCaverns(
-    WorldGrid grid,
-    math.Random rng,
-    int cols,
-    int rows,
-  ) {
+  void _carveCaverns(WorldGrid grid, math.Random rng, int cols, int rows) {
     // Minimal caverns - small pockets for ants to discover
     final cavernCount = rng.nextInt(8) + 5; // Only 5-12 small caverns
     for (var i = 0; i < cavernCount; i++) {
@@ -221,8 +236,8 @@ class WorldGenerator {
         }
         if (tooCloseToOtherFood) continue;
       } while (attempts < 100 &&
-               (pos.distanceTo(nest0) < minDistFromNest ||
-                pos.distanceTo(nest1) < minDistFromNest));
+          (pos.distanceTo(nest0) < minDistFromNest ||
+              pos.distanceTo(nest1) < minDistFromNest));
 
       // Carve out space first so food can be placed
       final radius = rng.nextInt(3) + 4; // Radius 4-6
@@ -236,52 +251,51 @@ class WorldGenerator {
   }
 
   /// Carves a 2-cell-wide tunnel with sharp corners from nest to the nearest food source
-  void _carveTunnelToFood(WorldGrid grid, Vector2 nest, List<Vector2> foodPositions) {
+  void _carveTunnelToFood(
+    WorldGrid grid,
+    Vector2 nest,
+    List<Vector2> foodPositions,
+  ) {
     if (foodPositions.isEmpty) return;
 
-    // Find nearest food
-    Vector2? nearestFood;
-    var nearestDist = double.infinity;
-    for (final food in foodPositions) {
-      final dist = nest.distanceTo(food);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearestFood = food;
-      }
-    }
-
-    if (nearestFood == null) return;
-
+    // Connect to up to 2 nearest food sources for redundancy
+    final sortedFood = foodPositions.toList()
+      ..sort((a, b) => nest.distanceTo(a).compareTo(nest.distanceTo(b)));
+    final targets = sortedFood.take(2).toList();
     final rng = math.Random(nest.x.toInt() ^ nest.y.toInt());
 
-    // Generate 4-6 waypoints with sharp corners between nest and food
-    final waypoints = <Vector2>[nest.clone()];
-    final numCorners = rng.nextInt(3) + 4; // 4-6 corners
+    for (final target in targets) {
+      final distance = nest.distanceTo(target);
+      if (distance < 1) continue;
+      final segments = math.max(4, (distance / 20).round());
+      final waypoints = <Vector2>[nest.clone()];
 
-    for (var i = 1; i <= numCorners; i++) {
-      final t = i / (numCorners + 1); // Progress from 0 to 1
-      // Base position along direct line
-      final baseX = nest.x + (nearestFood.x - nest.x) * t;
-      final baseY = nest.y + (nearestFood.y - nest.y) * t;
+      for (var i = 1; i < segments; i++) {
+        final t = i / segments;
+        var baseX = nest.x + (target.x - nest.x) * t;
+        var baseY = nest.y + (target.y - nest.y) * t;
 
-      // Add significant perpendicular offset for sharp corners
-      final perpX = -(nearestFood.y - nest.y);
-      final perpY = nearestFood.x - nest.x;
-      final perpLen = math.sqrt(perpX * perpX + perpY * perpY);
-      if (perpLen > 0) {
-        final offsetStrength = (rng.nextDouble() - 0.5) * nearestDist * 0.4; // Up to 40% of distance
-        final wx = baseX + (perpX / perpLen) * offsetStrength;
-        final wy = baseY + (perpY / perpLen) * offsetStrength;
-        waypoints.add(Vector2(wx, wy));
-      } else {
+        final sine = math.sin(t * math.pi);
+        final cosine = math.cos(t * math.pi * 0.5);
+        final offsetStrength = distance * 0.25 * sine;
+        final perpendicular = Vector2(-(target.y - nest.y), target.x - nest.x);
+        if (perpendicular.length > 0) {
+          perpendicular.normalize();
+          final wobble = (rng.nextDouble() - 0.5) * 0.6;
+          baseX += perpendicular.x * (offsetStrength * wobble);
+          baseY += perpendicular.y * (offsetStrength * wobble);
+        }
+
+        baseY += math.sin(t * math.pi * 2) * 2.5 * cosine;
         waypoints.add(Vector2(baseX, baseY));
       }
-    }
-    waypoints.add(nearestFood.clone());
 
-    // Carve tunnel through all waypoints
-    for (var i = 0; i < waypoints.length - 1; i++) {
-      _carveSegment(grid, waypoints[i], waypoints[i + 1]);
+      waypoints.add(target.clone());
+
+      for (var i = 0; i < waypoints.length - 1; i++) {
+        _carveSegment(grid, waypoints[i], waypoints[i + 1]);
+      }
+      _openAirsForPheromones(grid, waypoints);
     }
   }
 
@@ -317,6 +331,23 @@ class WorldGenerator {
 
       x += stepX;
       y += stepY;
+    }
+  }
+
+  void _openAirsForPheromones(WorldGrid grid, List<Vector2> waypoints) {
+    for (final point in waypoints) {
+      final gx = point.x.round();
+      final gy = point.y.round();
+      for (var dx = -1; dx <= 1; dx++) {
+        for (var dy = -1; dy <= 1; dy++) {
+          final nx = gx + dx;
+          final ny = gy + dy;
+          if (!grid.isInsideIndex(nx, ny)) continue;
+          if (grid.cellTypeAt(nx, ny) == CellType.dirt) {
+            grid.setCell(nx, ny, CellType.air);
+          }
+        }
+      }
     }
   }
 
@@ -376,7 +407,9 @@ class WorldGenerator {
           rng,
           x,
           y,
-          angle + (rng.nextBool() ? 0.7 : -0.7) + (rng.nextDouble() - 0.5) * 0.4,
+          angle +
+              (rng.nextBool() ? 0.7 : -0.7) +
+              (rng.nextDouble() - 0.5) * 0.4,
           cols,
           rows,
         );
@@ -431,7 +464,15 @@ class WorldGenerator {
 
       // Sub-branch rarely
       if (rng.nextDouble() < 0.05 && i > 3) {
-        _createTinyBranch(grid, rng, x, y, angle + (rng.nextBool() ? 0.8 : -0.8), cols, rows);
+        _createTinyBranch(
+          grid,
+          rng,
+          x,
+          y,
+          angle + (rng.nextBool() ? 0.8 : -0.8),
+          cols,
+          rows,
+        );
       }
 
       angle += (rng.nextDouble() - 0.5) * 0.5;
@@ -551,14 +592,22 @@ class WorldGenerator {
     // 3 colonies: bottom-left, top-right, top-left
     // 4 colonies: all four corners
     final cornerPositions = [
-      Vector2((safeMargin + rng.nextInt(20)).toDouble(),
-              (rows - safeMargin - rng.nextInt(20)).toDouble()), // bottom-left
-      Vector2((cols - safeMargin - rng.nextInt(20)).toDouble(),
-              (safeMargin + rng.nextInt(20)).toDouble()), // top-right
-      Vector2((safeMargin + rng.nextInt(20)).toDouble(),
-              (safeMargin + rng.nextInt(20)).toDouble()), // top-left
-      Vector2((cols - safeMargin - rng.nextInt(20)).toDouble(),
-              (rows - safeMargin - rng.nextInt(20)).toDouble()), // bottom-right
+      Vector2(
+        (safeMargin + rng.nextInt(20)).toDouble(),
+        (rows - safeMargin - rng.nextInt(20)).toDouble(),
+      ), // bottom-left
+      Vector2(
+        (cols - safeMargin - rng.nextInt(20)).toDouble(),
+        (safeMargin + rng.nextInt(20)).toDouble(),
+      ), // top-right
+      Vector2(
+        (safeMargin + rng.nextInt(20)).toDouble(),
+        (safeMargin + rng.nextInt(20)).toDouble(),
+      ), // top-left
+      Vector2(
+        (cols - safeMargin - rng.nextInt(20)).toDouble(),
+        (rows - safeMargin - rng.nextInt(20)).toDouble(),
+      ), // bottom-right
     ];
 
     for (var i = 0; i < colonyCount; i++) {
@@ -586,6 +635,7 @@ class WorldGenerator {
     const homeRadius = 4.0;
     const nurseryRadius = 3.0;
     const foodStorageRadius = 3.5;
+    const barracksRadius = 3.5;
     const roomGap = 2.0; // Gap between rooms
     const margin = 8.0;
 
@@ -636,9 +686,30 @@ class WorldGenerator {
     );
     grid.addRoom(foodRoom);
 
+    // Calculate barracks position - perpendicular to nursery/food axis
+    final barracksAngle =
+        nurseryAngle + math.pi * 0.5; // 90 degrees from nursery
+    final barracksDistance = homeRadius + roomGap + barracksRadius;
+    var barracksCenter = Vector2(
+      nestCenter.x + math.cos(barracksAngle) * barracksDistance,
+      nestCenter.y + math.sin(barracksAngle) * barracksDistance,
+    );
+    barracksCenter.x = barracksCenter.x.clamp(margin, grid.cols - margin);
+    barracksCenter.y = barracksCenter.y.clamp(margin, grid.rows - margin);
+
+    // Create barracks room for workers/soldiers to rest
+    final barracksRoom = Room(
+      type: RoomType.barracks,
+      center: barracksCenter,
+      radius: barracksRadius,
+      colonyId: colonyId,
+    );
+    grid.addRoom(barracksRoom);
+
     // Dig connecting tunnels between rooms
     _digTunnel(grid, homeRoom.center, nurseryRoom.center);
     _digTunnel(grid, homeRoom.center, foodRoom.center);
+    _digTunnel(grid, homeRoom.center, barracksRoom.center);
   }
 
   /// Dig a tunnel connecting two points

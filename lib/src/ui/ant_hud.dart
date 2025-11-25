@@ -139,7 +139,11 @@ class _AntHudState extends State<AntHud> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildDrawerHeader('Stats', Icons.bar_chart, () => _toggleDrawer(0)),
+                _buildDrawerHeader(
+                  'Stats',
+                  Icons.bar_chart,
+                  () => _toggleDrawer(0),
+                ),
                 const Divider(),
                 Expanded(
                   child: SingleChildScrollView(
@@ -174,7 +178,11 @@ class _AntHudState extends State<AntHud> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildDrawerHeader('Controls', Icons.gamepad, () => _toggleDrawer(1)),
+                _buildDrawerHeader(
+                  'Controls',
+                  Icons.gamepad,
+                  () => _toggleDrawer(1),
+                ),
                 const Divider(),
                 Expanded(
                   child: SingleChildScrollView(
@@ -209,7 +217,11 @@ class _AntHudState extends State<AntHud> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildDrawerHeader('Settings', Icons.tune, () => _toggleDrawer(2)),
+                _buildDrawerHeader(
+                  'Settings',
+                  Icons.tune,
+                  () => _toggleDrawer(2),
+                ),
                 const Divider(),
                 Expanded(
                   child: SingleChildScrollView(
@@ -284,7 +296,9 @@ class _AntHudState extends State<AntHud> {
                               ? const SizedBox(
                                   width: 16,
                                   height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : const Icon(Icons.save),
                           label: Text(_saving ? 'Saving...' : 'Save Game'),
@@ -358,112 +372,52 @@ class _AntHudState extends State<AntHud> {
         const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const Spacer(),
-        IconButton(
-          onPressed: onClose,
-          icon: const Icon(Icons.close),
-        ),
+        IconButton(onPressed: onClose, icon: const Icon(Icons.close)),
       ],
     );
   }
 
   Widget _buildControlsContent(ThemeData theme) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Pause/Play Button
-        ValueListenableBuilder<bool>(
-          valueListenable: widget.simulation.paused,
-          builder: (context, isPaused, _) {
-            return FilledButton.icon(
-              onPressed: widget.simulation.togglePause,
-              icon: Icon(isPaused ? Icons.play_arrow : Icons.pause),
-              label: Text(isPaused ? 'Resume' : 'Pause'),
-              style: FilledButton.styleFrom(
-                backgroundColor: isPaused ? Colors.green : Colors.orange,
-                minimumSize: const Size(double.infinity, 48),
-              ),
-            );
-          },
+        _ControlSection(
+          title: 'Simulation Flow',
+          icon: Icons.play_circle_fill,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildPauseButton(),
+              const SizedBox(height: 12),
+              _buildSpeedControls(theme),
+              const SizedBox(height: 12),
+              _buildBehaviorControls(theme),
+            ],
+          ),
         ),
-        const Divider(height: 24),
-        // Edit Mode Toggle
-        ValueListenableBuilder<bool>(
-          valueListenable: widget.game.editMode,
-          builder: (context, editing, _) {
-            return SwitchListTile(
-              title: Text('Edit Mode', style: theme.textTheme.titleSmall),
-              subtitle: Text(
-                editing ? 'Tap/drag to edit terrain' : 'Navigate only',
-                style: theme.textTheme.bodySmall,
-              ),
-              value: editing,
-              onChanged: (value) {
-                widget.game.editMode.value = value;
-              },
-              contentPadding: EdgeInsets.zero,
-            );
-          },
+        _ControlSection(
+          title: 'Editing Tools',
+          icon: Icons.app_registration,
+          child: _buildEditTools(theme),
         ),
-        const Divider(),
-        Text('Brush Mode', style: theme.textTheme.titleSmall),
-        const SizedBox(height: 8),
-        ValueListenableBuilder<BrushMode>(
-          valueListenable: widget.game.brushMode,
-          builder: (context, mode, _) {
-            return SegmentedButton<BrushMode>(
-              segments: const [
-                ButtonSegment(
-                  value: BrushMode.dig,
-                  label: Text('Dig'),
-                  icon: Icon(Icons.construction),
-                ),
-                ButtonSegment(
-                  value: BrushMode.food,
-                  label: Text('Food'),
-                  icon: Icon(Icons.fastfood_outlined),
-                ),
-                ButtonSegment(
-                  value: BrushMode.rock,
-                  label: Text('Rock'),
-                  icon: Icon(Icons.landscape_outlined),
-                ),
-              ],
-              selected: {mode},
-              onSelectionChanged: (selection) {
-                if (selection.isNotEmpty) {
-                  widget.game.setBrushMode(selection.first);
-                }
-              },
-            );
-          },
+        _ControlSection(
+          title: 'Camera & View',
+          icon: Icons.center_focus_strong,
+          child: _buildViewControls(theme),
         ),
-        const Divider(height: 32),
-        _buildViewControls(theme),
-        const Divider(height: 32),
-        Text('Display', style: theme.textTheme.titleSmall),
-        const SizedBox(height: 8),
-        ValueListenableBuilder<bool>(
-          valueListenable: widget.simulation.pheromonesVisible,
-          builder: (context, visible, _) {
-            return FilledButton.icon(
-              onPressed: widget.simulation.togglePheromones,
-              icon: Icon(
-                visible ? Icons.visibility : Icons.visibility_off,
-              ),
-              label: Text(
-                visible ? 'Hide Pheromones' : 'Show Pheromones',
-              ),
-            );
-          },
+        _ControlSection(
+          title: 'Overlays',
+          icon: Icons.layers,
+          child: _buildOverlayControls(theme),
         ),
-        const Divider(height: 32),
-        _buildPopulationControls(theme),
+        _ControlSection(
+          title: 'Population',
+          icon: Icons.groups,
+          child: _buildPopulationControls(theme),
+        ),
       ],
     );
   }
@@ -522,11 +476,16 @@ class _AntHudState extends State<AntHud> {
             return Container(
               decoration: BoxDecoration(
                 color: colorScheme.surface,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
               ),
               child: ListView(
                 controller: controller,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 24,
+                ),
                 children: const [
                   _DocHeading(title: 'Colony Primer'),
                   SizedBox(height: 8),
@@ -710,7 +669,8 @@ class _AntHudState extends State<AntHud> {
         const SizedBox(height: 4),
         _ConfigSlider(
           label: 'Explorer Ants',
-          tooltip: 'Percentage of ants that ignore pheromones and wander randomly to discover new food sources.',
+          tooltip:
+              'Percentage of ants that ignore pheromones and wander randomly to discover new food sources.',
           value: config.explorerRatio,
           min: 0,
           max: 0.5,
@@ -724,7 +684,8 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Random Turn Strength',
-          tooltip: 'How sharply ants turn randomly each step. Higher values create more erratic movement.',
+          tooltip:
+              'How sharply ants turn randomly each step. Higher values create more erratic movement.',
           value: config.randomTurnStrength,
           min: 0.2,
           max: 2.5,
@@ -738,7 +699,8 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Sensor Distance',
-          tooltip: 'How far ahead ants sense pheromones. Longer range helps follow distant trails.',
+          tooltip:
+              'How far ahead ants sense pheromones. Longer range helps follow distant trails.',
           value: config.sensorDistance,
           min: 2,
           max: 16,
@@ -752,7 +714,8 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Sensor Angle',
-          tooltip: 'Spread angle between left/right sensors. Wider angles detect broader areas but may miss narrow trails.',
+          tooltip:
+              'Spread angle between left/right sensors. Wider angles detect broader areas but may miss narrow trails.',
           value: config.sensorAngle,
           min: 0.2,
           max: 1.2,
@@ -766,7 +729,8 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Food Deposit Strength',
-          tooltip: 'How much food pheromone ants drop when carrying food. Stronger trails attract more followers.',
+          tooltip:
+              'How much food pheromone ants drop when carrying food. Stronger trails attract more followers.',
           value: config.foodDepositStrength,
           min: 0.0,
           max: 1.0,
@@ -780,7 +744,8 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Home Deposit Strength',
-          tooltip: 'How much home pheromone foraging ants drop. Helps returning ants find their way back.',
+          tooltip:
+              'How much home pheromone foraging ants drop. Helps returning ants find their way back.',
           value: config.homeDepositStrength,
           min: 0.0,
           max: 1.0,
@@ -794,7 +759,8 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Food Sense Range',
-          tooltip: 'Maximum distance ants can directly detect food (without pheromones). Only used when no trails nearby.',
+          tooltip:
+              'Maximum distance ants can directly detect food (without pheromones). Only used when no trails nearby.',
           value: config.foodSenseRange,
           min: 20,
           max: 200,
@@ -808,7 +774,8 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Pheromone Decay / Frame',
-          tooltip: 'Multiplier applied to pheromones each frame. Higher = longer-lasting trails (0.99 = slow decay).',
+          tooltip:
+              'Multiplier applied to pheromones each frame. Higher = longer-lasting trails (0.99 = slow decay).',
           value: config.decayPerFrame,
           min: 0.90,
           max: 0.999,
@@ -822,7 +789,8 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Decay Threshold',
-          tooltip: 'Pheromone level below which trails are removed. Higher values clean up weak trails faster.',
+          tooltip:
+              'Pheromone level below which trails are removed. Higher values clean up weak trails faster.',
           value: config.decayThreshold,
           min: 0.0,
           max: 0.1,
@@ -836,7 +804,8 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Energy Capacity',
-          tooltip: 'Maximum energy an ant can store. Higher capacity means longer foraging trips before resting.',
+          tooltip:
+              'Maximum energy an ant can store. Higher capacity means longer foraging trips before resting.',
           value: config.energyCapacity,
           min: 20,
           max: 300,
@@ -850,7 +819,8 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Energy Decay / sec',
-          tooltip: 'Energy lost per second while moving. Set to 0 for infinite stamina.',
+          tooltip:
+              'Energy lost per second while moving. Set to 0 for infinite stamina.',
           value: config.energyDecayPerSecond,
           min: 0,
           max: 5,
@@ -864,7 +834,8 @@ class _AntHudState extends State<AntHud> {
         ),
         _ConfigSlider(
           label: 'Energy Recovery / sec',
-          tooltip: 'Energy gained per second while resting. Ants wake at 70% capacity (micro-naps like real ants).',
+          tooltip:
+              'Energy gained per second while resting. Ants wake at 70% capacity (micro-naps like real ants).',
           value: config.energyRecoveryPerSecond,
           min: 0.5,
           max: 10,
@@ -922,8 +893,10 @@ class _AntHudState extends State<AntHud> {
         Text('Map Generation', style: theme.textTheme.titleSmall),
         const SizedBox(height: 4),
         Text('Current: ${current.cols}×${current.rows}'),
-        Text(seed == null ? 'Seed: --' : 'Seed: $seed',
-            style: theme.textTheme.bodySmall),
+        Text(
+          seed == null ? 'Seed: --' : 'Seed: $seed',
+          style: theme.textTheme.bodySmall,
+        ),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -938,7 +911,10 @@ class _AntHudState extends State<AntHud> {
                   final size = presets[name]!;
                   return DropdownMenuItem(
                     value: name,
-                    child: Text('$name (${size.$1}×${size.$2})', overflow: TextOverflow.ellipsis),
+                    child: Text(
+                      '$name (${size.$1}×${size.$2})',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   );
                 }).toList(),
                 onChanged: (value) {
@@ -959,10 +935,7 @@ class _AntHudState extends State<AntHud> {
               value: _selectedColonyCount,
               isDense: true,
               items: [1, 2, 3, 4].map((count) {
-                return DropdownMenuItem(
-                  value: count,
-                  child: Text('$count'),
-                );
+                return DropdownMenuItem(value: count, child: Text('$count'));
               }).toList(),
               onChanged: (value) {
                 if (value != null) {
@@ -982,9 +955,11 @@ class _AntHudState extends State<AntHud> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.auto_awesome),
-          label: Text(_generatingMap
-              ? 'Generating...'
-              : 'New Colony (${selectedSize.$1}×${selectedSize.$2})'),
+          label: Text(
+            _generatingMap
+                ? 'Generating...'
+                : 'New Colony (${selectedSize.$1}×${selectedSize.$2})',
+          ),
         ),
       ],
     );
@@ -1066,9 +1041,164 @@ class _AntHudState extends State<AntHud> {
             setState(() {});
           },
         ),
-        const Text(
-          'Use the slider to zoom the world view.',
-          style: TextStyle(fontSize: 12, color: Colors.white70),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: _resetCamera,
+            icon: const Icon(Icons.zoom_out_map),
+            label: const Text('Reset View'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPauseButton() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: widget.simulation.paused,
+      builder: (context, isPaused, _) {
+        return FilledButton.icon(
+          onPressed: widget.simulation.togglePause,
+          icon: Icon(isPaused ? Icons.play_arrow : Icons.pause),
+          label: Text(isPaused ? 'Resume simulation' : 'Pause simulation'),
+          style: FilledButton.styleFrom(
+            backgroundColor: isPaused ? Colors.green : Colors.orange,
+            minimumSize: const Size(double.infinity, 48),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildEditTools(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ValueListenableBuilder<bool>(
+          valueListenable: widget.game.editMode,
+          builder: (context, editing, _) {
+            return SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Edit Mode'),
+              subtitle: Text(
+                editing
+                    ? 'Tap or drag on the map to modify terrain.'
+                    : 'Locked to navigation controls only.',
+                style: theme.textTheme.bodySmall,
+              ),
+              value: editing,
+              onChanged: (value) {
+                widget.game.editMode.value = value;
+              },
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        Text('Brush Mode', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        ValueListenableBuilder<BrushMode>(
+          valueListenable: widget.game.brushMode,
+          builder: (context, mode, _) {
+            return SegmentedButton<BrushMode>(
+              segments: const [
+                ButtonSegment(
+                  value: BrushMode.dig,
+                  label: Text('Dig'),
+                  icon: Icon(Icons.construction),
+                ),
+                ButtonSegment(
+                  value: BrushMode.food,
+                  label: Text('Food'),
+                  icon: Icon(Icons.fastfood_outlined),
+                ),
+                ButtonSegment(
+                  value: BrushMode.rock,
+                  label: Text('Rock'),
+                  icon: Icon(Icons.landscape_outlined),
+                ),
+              ],
+              selected: {mode},
+              onSelectionChanged: (selection) {
+                if (selection.isNotEmpty) {
+                  widget.game.setBrushMode(selection.first);
+                }
+              },
+            );
+          },
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Tip: enable Edit Mode, pick a brush, then drag to sculpt tunnels or drop resources.',
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOverlayControls(ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ValueListenableBuilder<bool>(
+          valueListenable: widget.simulation.foodPheromonesVisible,
+          builder: (context, visible, _) {
+            return SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Food Pheromone Trails'),
+              subtitle: const Text('Blue trails laid while carrying food.'),
+              value: visible,
+              onChanged: widget.simulation.setFoodPheromoneVisibility,
+            );
+          },
+        ),
+        ValueListenableBuilder<bool>(
+          valueListenable: widget.simulation.homePheromonesVisible,
+          builder: (context, visible, _) {
+            return SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Home Pheromone Trails'),
+              subtitle: const Text(
+                'Gray guidance left by foragers heading home.',
+              ),
+              value: visible,
+              onChanged: widget.simulation.setHomePheromoneVisibility,
+            );
+          },
+        ),
+        ValueListenableBuilder<bool>(
+          valueListenable: widget.simulation.pheromonesVisible,
+          builder: (context, showAny, _) {
+            return Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () =>
+                    widget.simulation.setPheromoneVisibility(!showAny),
+                icon: Icon(
+                  showAny ? Icons.visibility_off : Icons.visibility_outlined,
+                ),
+                label: Text(
+                  showAny ? 'Hide all pheromones' : 'Show all pheromones',
+                ),
+              ),
+            );
+          },
+        ),
+        const Divider(),
+        ValueListenableBuilder<bool>(
+          valueListenable: widget.simulation.foodScentVisible,
+          builder: (context, visible, _) {
+            return SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Food Scent Clouds'),
+              subtitle: const Text(
+                'Visualize diffusing scent hints through tunnels.',
+              ),
+              value: visible,
+              onChanged: (value) {
+                widget.simulation.setFoodScentVisibility(value);
+              },
+            );
+          },
         ),
       ],
     );
@@ -1085,6 +1215,11 @@ class _AntHudState extends State<AntHud> {
       _pendingCols = widget.simulation.config.cols;
       _pendingRows = widget.simulation.config.rows;
     });
+  }
+
+  void _resetCamera() {
+    widget.game.refreshViewport();
+    setState(() {});
   }
 
   Future<void> _saveWorld() async {
@@ -1172,6 +1307,47 @@ class _PopulationButton extends StatelessWidget {
   }
 }
 
+class _ControlSection extends StatelessWidget {
+  const _ControlSection({
+    required this.title,
+    required this.icon,
+    required this.child,
+  });
+
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cardColor = theme.colorScheme.surfaceContainerHighest.withValues(
+      alpha: 0.6,
+    );
+    return Card(
+      color: cardColor,
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 18),
+                const SizedBox(width: 8),
+                Text(title, style: theme.textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: 12),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _DocHeading extends StatelessWidget {
   const _DocHeading({required this.title});
 
@@ -1181,10 +1357,9 @@ class _DocHeading extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       title,
-      style: Theme.of(context)
-          .textTheme
-          .titleMedium
-          ?.copyWith(fontWeight: FontWeight.w600),
+      style: Theme.of(
+        context,
+      ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
     );
   }
 }
@@ -1231,7 +1406,9 @@ class _ConfigSlider extends StatelessWidget {
                       child: Icon(
                         Icons.info_outline,
                         size: 16,
-                        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.7),
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.7),
                       ),
                     ),
                   ],
@@ -1285,12 +1462,16 @@ class _DrawerTab extends StatelessWidget {
         borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
         child: InkWell(
           onTap: onTap,
-          borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
+          borderRadius: const BorderRadius.horizontal(
+            right: Radius.circular(12),
+          ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
             child: Icon(
               icon,
-              color: isActive ? colorScheme.onPrimaryContainer : colorScheme.onSurface,
+              color: isActive
+                  ? colorScheme.onPrimaryContainer
+                  : colorScheme.onSurface,
               size: 24,
             ),
           ),
@@ -1448,7 +1629,13 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
     required int eggCount,
     required int foodCount,
   }) {
-    final totalAnts = queenCount + workerCount + soldierCount + nurseCount + larvaCount + eggCount;
+    final totalAnts =
+        queenCount +
+        workerCount +
+        soldierCount +
+        nurseCount +
+        larvaCount +
+        eggCount;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1480,16 +1667,50 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
           spacing: 12,
           runSpacing: 8,
           children: [
-            _StatItem(icon: Icons.restaurant, label: 'Food', value: '$foodCount', color: Colors.lightGreenAccent),
+            _StatItem(
+              icon: Icons.restaurant,
+              label: 'Food',
+              value: '$foodCount',
+              color: Colors.lightGreenAccent,
+            ),
             if (queenCount > 0)
-              _StatItem(icon: Icons.stars, label: 'Queen', value: '$queenCount', color: Colors.purpleAccent),
-            _StatItem(icon: Icons.construction, label: 'Workers', value: '$workerCount'),
-            _StatItem(icon: Icons.shield, label: 'Soldiers', value: '$soldierCount', color: Colors.orangeAccent),
-            _StatItem(icon: Icons.child_care, label: 'Nurses', value: '$nurseCount', color: Colors.pinkAccent),
+              _StatItem(
+                icon: Icons.stars,
+                label: 'Queen',
+                value: '$queenCount',
+                color: Colors.purpleAccent,
+              ),
+            _StatItem(
+              icon: Icons.construction,
+              label: 'Workers',
+              value: '$workerCount',
+            ),
+            _StatItem(
+              icon: Icons.shield,
+              label: 'Soldiers',
+              value: '$soldierCount',
+              color: Colors.orangeAccent,
+            ),
+            _StatItem(
+              icon: Icons.child_care,
+              label: 'Nurses',
+              value: '$nurseCount',
+              color: Colors.pinkAccent,
+            ),
             if (larvaCount > 0)
-              _StatItem(icon: Icons.egg_alt, label: 'Larvae', value: '$larvaCount', color: Colors.white70),
+              _StatItem(
+                icon: Icons.egg_alt,
+                label: 'Larvae',
+                value: '$larvaCount',
+                color: Colors.white70,
+              ),
             if (eggCount > 0)
-              _StatItem(icon: Icons.circle, label: 'Eggs', value: '$eggCount', color: Colors.yellow.shade200),
+              _StatItem(
+                icon: Icons.circle,
+                label: 'Eggs',
+                value: '$eggCount',
+                color: Colors.yellow.shade200,
+              ),
           ],
         ),
       ],
@@ -1520,10 +1741,7 @@ class _StatItem extends StatelessWidget {
         Flexible(
           child: Text(
             '$value $label',
-            style: TextStyle(
-              fontSize: 12,
-              color: color ?? Colors.white,
-            ),
+            style: TextStyle(fontSize: 12, color: color ?? Colors.white),
             overflow: TextOverflow.ellipsis,
           ),
         ),
@@ -1577,7 +1795,9 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
                   Row(
                     children: [
                       Icon(
-                        ant.colonyId == 0 ? Icons.bug_report : Icons.pest_control,
+                        ant.colonyId == 0
+                            ? Icons.bug_report
+                            : Icons.pest_control,
                         color: ant.colonyId == 0 ? Colors.cyan : Colors.orange,
                         size: 18,
                       ),
@@ -1603,21 +1823,43 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
                   const SizedBox(height: 8),
                   _buildProperty('Caste', _casteLabel(ant.caste)),
                   _buildProperty('State', _stateLabel(ant)),
-                  _buildProperty('Age', '${ant.age.toStringAsFixed(0)}s / ${ant.maxLifespan.toStringAsFixed(0)}s'),
+                  _buildProperty(
+                    'Age',
+                    '${ant.age.toStringAsFixed(0)}s / ${ant.maxLifespan.toStringAsFixed(0)}s',
+                  ),
                   if (ant.caste == AntCaste.egg || ant.caste == AntCaste.larva)
-                    _buildProperty('Growth', '${(ant.developmentProgress * 100).toStringAsFixed(0)}%'),
-                  _buildProperty('Position', '(${ant.position.x.toStringAsFixed(1)}, ${ant.position.y.toStringAsFixed(1)})'),
-                  _buildProperty('Energy', '${ant.energy.toStringAsFixed(1)} / ${widget.simulation.config.energyCapacity}'),
-                  _buildProperty('HP', '${ant.hp.toStringAsFixed(1)} / ${ant.maxHp.toStringAsFixed(1)}'),
-                  if (ant.caste != AntCaste.egg && ant.caste != AntCaste.larva) ...[
+                    _buildProperty(
+                      'Growth',
+                      '${(ant.developmentProgress * 100).toStringAsFixed(0)}%',
+                    ),
+                  _buildProperty(
+                    'Position',
+                    '(${ant.position.x.toStringAsFixed(1)}, ${ant.position.y.toStringAsFixed(1)})',
+                  ),
+                  _buildProperty(
+                    'Energy',
+                    '${ant.energy.toStringAsFixed(1)} / ${widget.simulation.config.energyCapacity}',
+                  ),
+                  _buildProperty(
+                    'HP',
+                    '${ant.hp.toStringAsFixed(1)} / ${ant.maxHp.toStringAsFixed(1)}',
+                  ),
+                  if (ant.caste != AntCaste.egg &&
+                      ant.caste != AntCaste.larva) ...[
                     _buildProperty('Attack', ant.attack.toStringAsFixed(1)),
                     _buildProperty('Defense', ant.defense.toStringAsFixed(1)),
                     _buildProperty('Carrying Food', ant.hasFood ? 'Yes' : 'No'),
-                    _buildProperty('Explorer', '${(ant.explorerTendency * 100).toStringAsFixed(0)}%'),
+                    _buildProperty(
+                      'Explorer',
+                      '${(ant.explorerTendency * 100).toStringAsFixed(0)}%',
+                    ),
                     if (ant.needsRest) _buildProperty('Needs Rest', 'Yes'),
-                    _buildProperty('Stuck Time', ant.stuckTime > 0.1
-                        ? '${ant.stuckTime.toStringAsFixed(1)}s'
-                        : 'N/A'),
+                    _buildProperty(
+                      'Stuck Time',
+                      ant.stuckTime > 0.1
+                          ? '${ant.stuckTime.toStringAsFixed(1)}s'
+                          : 'N/A',
+                    ),
                   ],
                 ],
               ),
@@ -1634,7 +1876,10 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
           Text(value, style: const TextStyle(fontSize: 12)),
         ],
       ),
@@ -1670,6 +1915,8 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
         return 'Larva';
       case AntCaste.egg:
         return 'Egg';
+      case AntCaste.builder:
+        return 'Builder';
     }
   }
 }

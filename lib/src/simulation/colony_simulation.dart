@@ -18,6 +18,8 @@ class ColonySimulation {
       colony1Food = ValueNotifier<int>(0),
       pheromonesVisible = ValueNotifier<bool>(true),
       foodScentVisible = ValueNotifier<bool>(true),
+      foodPheromonesVisible = ValueNotifier<bool>(true),
+      homePheromonesVisible = ValueNotifier<bool>(true),
       antSpeedMultiplier = ValueNotifier<double>(0.2),
       daysPassed = ValueNotifier<int>(1),
       elapsedTime = ValueNotifier<double>(0.0),
@@ -34,6 +36,8 @@ class ColonySimulation {
   final ValueNotifier<int> colony1Food;
   final ValueNotifier<bool> pheromonesVisible;
   final ValueNotifier<bool> foodScentVisible;
+  final ValueNotifier<bool> foodPheromonesVisible;
+  final ValueNotifier<bool> homePheromonesVisible;
   final ValueNotifier<double> antSpeedMultiplier;
   final ValueNotifier<int> daysPassed;
   final ValueNotifier<double> elapsedTime;
@@ -45,15 +49,30 @@ class ColonySimulation {
   final List<int> _colonyFood = [0, 0, 0, 0]; // Supports up to 4 colonies
   final List<int> _colonyQueuedAnts = [0, 0, 0, 0]; // Supports up to 4 colonies
   // Princess spawning: accumulate food, spawn princess egg when threshold reached
-  static const int _foodForPrincess = 75; // Food needed to spawn a princess egg (higher threshold)
+  static const int _foodForPrincess =
+      75; // Food needed to spawn a princess egg (higher threshold)
   static const int _maxPrincessesPerColony = 2;
-  final List<int> _princessFoodAccumulator = [0, 0, 0, 0]; // Per-colony accumulator
-  final List<int> _colonyQueuedPrincesses = [0, 0, 0, 0]; // Pending princess larvae per colony
+  final List<int> _princessFoodAccumulator = [
+    0,
+    0,
+    0,
+    0,
+  ]; // Per-colony accumulator
+  final List<int> _colonyQueuedPrincesses = [
+    0,
+    0,
+    0,
+    0,
+  ]; // Pending princess larvae per colony
   int _physicsFrame = 0;
   int? _lastSeed;
   double _elapsedTime = 0.0;
   double _foodCheckTimer = 0.0;
   double _nextFoodCheck = 300.0; // ~5 minutes between food spawns
+  final List<_BuildTask> _buildQueue = [];
+  double _roomCheckTimer = 0.0;
+  static const double _roomCheckInterval = 30.0;
+  int _nextBuildTaskId = 1;
 
   // Reusable structures for separation (avoid per-frame allocation)
   final Map<int, List<Ant>> _spatialHash = {};
@@ -81,6 +100,8 @@ class ColonySimulation {
   int _enemy1PrincessCount = 0;
 
   bool get showPheromones => pheromonesVisible.value;
+  bool get showFoodPheromones => foodPheromonesVisible.value;
+  bool get showHomePheromones => homePheromonesVisible.value;
   bool get showFoodScent => foodScentVisible.value;
   int? get lastSeed => _lastSeed;
 
@@ -133,16 +154,23 @@ class ColonySimulation {
   void _spawnInitialColony() {
     // Spawn ants for all colonies based on config
     for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
-      // Always spawn one queen
+      // Always spawn one queen and one princess heir
       _spawnAnt(caste: AntCaste.queen, colonyId: colonyId);
+      _spawnAnt(caste: AntCaste.princess, colonyId: colonyId);
 
       // Calculate base counts: 80% workers, 10% nurses, 10% soldiers
       final baseNurse = config.startingAnts * 0.10; // ~10% nurses
       final baseSoldier = config.startingAnts * 0.10; // ~10% soldiers
 
       // Add randomness: base * (0.8 to 1.2)
-      final nurseCount = math.max(2, (baseNurse * (0.8 + _rng.nextDouble() * 0.4)).round());
-      final soldierCount = math.max(2, (baseSoldier * (0.8 + _rng.nextDouble() * 0.4)).round());
+      final nurseCount = math.max(
+        2,
+        (baseNurse * (0.8 + _rng.nextDouble() * 0.4)).round(),
+      );
+      final soldierCount = math.max(
+        2,
+        (baseSoldier * (0.8 + _rng.nextDouble() * 0.4)).round(),
+      );
 
       // Spawn nurses
       for (var i = 0; i < nurseCount; i++) {
@@ -154,10 +182,25 @@ class ColonySimulation {
         _spawnAnt(caste: AntCaste.soldier, colonyId: colonyId);
       }
 
-      // Rest are workers (~80%)
-      final workerCount = config.startingAnts - 1 - nurseCount - soldierCount;
+      // Allocate remaining population between builders, workers, and seed larvae
+      var remaining = config.startingAnts - 2 - nurseCount - soldierCount;
+      final builderCount = math.max(3, (remaining * 0.2).round());
+      remaining = math.max(0, remaining - builderCount);
+
+      for (var i = 0; i < builderCount; i++) {
+        _spawnAnt(caste: AntCaste.builder, colonyId: colonyId);
+      }
+
+      final larvaSeed = math.max(2, (remaining * 0.1).round());
+      remaining = math.max(0, remaining - larvaSeed);
+
+      final workerCount = math.max(0, remaining);
       for (var i = 0; i < workerCount; i++) {
         _spawnAnt(caste: AntCaste.worker, colonyId: colonyId);
+      }
+
+      for (var i = 0; i < larvaSeed; i++) {
+        _spawnAnt(caste: AntCaste.larva, colonyId: colonyId);
       }
     }
   }
@@ -175,6 +218,12 @@ class ColonySimulation {
     final diffuseIterations = antSpeedMultiplier.value < 1.0 ? 3 : 2;
     for (var i = 0; i < diffuseIterations; i++) {
       world.diffuseFoodScent();
+    }
+
+    _roomCheckTimer += clampedDt;
+    if (_roomCheckTimer >= _roomCheckInterval) {
+      _checkRoomCapacity();
+      _roomCheckTimer = 0.0;
     }
 
     // Track elapsed time and update days (1 minute = 1 day, affected by speed multiplier)
@@ -205,8 +254,14 @@ class ColonySimulation {
     final nursesSignaling = <Ant>[];
     // Use toList() to avoid ConcurrentModificationError if ants list changes
     for (final ant in ants.toList()) {
-      final result =
-          ant.update(clampedDt, config, world, _rng, antSpeed, attackTarget: null);
+      final result = ant.update(
+        clampedDt,
+        config,
+        world,
+        _rng,
+        antSpeed,
+        attackTarget: null,
+      );
 
       if (ant.caste == AntCaste.queen && result) {
         // Queen wants to lay an egg - defer spawning until after iteration
@@ -215,15 +270,36 @@ class ColonySimulation {
         // Nurse signals wanting to pick up or drop an egg
         nursesSignaling.add(ant);
       } else if (ant.caste == AntCaste.egg && ant.isReadyToHatch) {
-        // Egg ready to hatch into larva - but only if in nursery room
         final nurseryRoom = world.getNurseryRoom(ant.colonyId);
-        if (nurseryRoom != null && nurseryRoom.contains(ant.position)) {
+        if (nurseryRoom == null) {
           eggsToHatch.add(ant);
+        } else if (nurseryRoom.contains(ant.position)) {
+          eggsToHatch.add(ant);
+        } else {
+          // If nursery has room, gently nudge ready eggs inside so they can hatch
+          if (!nurseryRoom.isOverCapacity) {
+            final jitter = Vector2(
+              (_rng.nextDouble() - 0.5) * 1.5,
+              (_rng.nextDouble() - 0.5) * 1.5,
+            );
+            final target = nurseryRoom.center + jitter;
+            if (world.isWalkable(target.x, target.y)) {
+              ant.position.setFrom(target);
+            } else {
+              ant.position.setFrom(nurseryRoom.center);
+            }
+            eggsToHatch.add(ant);
+          }
+          // If nursery overflowing, let eggs continue waiting until space frees up
         }
-        // Eggs not in nursery will wait until moved by a nurse
       } else if (ant.caste == AntCaste.larva && ant.isReadyToMature) {
         // Larva ready to become an adult
         larvaeToMature.add(ant);
+      } else if (result && ant.caste == AntCaste.builder) {
+        final completedId = ant.takeCompletedBuilderTaskId();
+        if (completedId != null) {
+          _completeBuildTask(completedId);
+        }
       } else if (result && ant.caste == AntCaste.worker) {
         // Worker delivered food - track per colony for reproduction
         _storedFood += 1;
@@ -287,9 +363,13 @@ class ColonySimulation {
     if (_physicsFrame % 3 == 0) {
       _resolveCombat();
     }
+    if (_physicsFrame % 20 == 0) {
+      _processBuildQueue();
+    }
     if (_physicsFrame % 30 == 0) {
       // Queens emit strong pheromones towards food to guide ants (less frequent)
       _queenFoodGuidance();
+      _checkThreatsAndTriggerDefense();
     }
     if (_physicsFrame % 60 == 0) {
       _removeStuckAnts();
@@ -305,7 +385,10 @@ class ColonySimulation {
   }
 
   void togglePheromones() {
-    pheromonesVisible.value = !pheromonesVisible.value;
+    final enable = !showPheromones;
+    pheromonesVisible.value = enable;
+    foodPheromonesVisible.value = enable;
+    homePheromonesVisible.value = enable;
   }
 
   void toggleFoodScent() {
@@ -318,6 +401,22 @@ class ColonySimulation {
 
   void setPheromoneVisibility(bool visible) {
     pheromonesVisible.value = visible;
+    foodPheromonesVisible.value = visible;
+    homePheromonesVisible.value = visible;
+  }
+
+  void setFoodScentVisibility(bool visible) {
+    foodScentVisible.value = visible;
+  }
+
+  void setFoodPheromoneVisibility(bool visible) {
+    foodPheromonesVisible.value = visible;
+    pheromonesVisible.value = visible || homePheromonesVisible.value;
+  }
+
+  void setHomePheromoneVisibility(bool visible) {
+    homePheromonesVisible.value = visible;
+    pheromonesVisible.value = visible || foodPheromonesVisible.value;
   }
 
   void setRestingEnabled(bool enabled) {
@@ -445,7 +544,12 @@ class ColonySimulation {
     _updateAntCount();
   }
 
-  void generateRandomWorld({int? seed, int? cols, int? rows, int? colonyCount}) {
+  void generateRandomWorld({
+    int? seed,
+    int? cols,
+    int? rows,
+    int? colonyCount,
+  }) {
     // Clean up first to free resources
     prepareForNewWorld();
 
@@ -486,7 +590,11 @@ class ColonySimulation {
     final nest1Override = _vectorFromJson(
       worldData?['nest1'] as Map<String, dynamic>?,
     );
-    world = WorldGrid(config, nestOverride: nestOverride, nest1Override: nest1Override);
+    world = WorldGrid(
+      config,
+      nestOverride: nestOverride,
+      nest1Override: nest1Override,
+    );
     if (worldData != null) {
       final zonesStr = worldData['zones'] as String?;
       final dirtTypesStr = worldData['dirtTypes'] as String?;
@@ -506,16 +614,24 @@ class ColonySimulation {
         dirtHealthData: _decodeFloat32(worldData['dirtHealth'] as String),
         dirtTypesData: dirtTypesStr != null ? _decodeUint8(dirtTypesStr) : null,
         // Legacy pheromone data (will be copied to colony 0 layer)
-        foodPheromoneData: legacyFoodStr != null ? _decodeFloat32(legacyFoodStr) : null,
-        homePheromoneData: legacyHomeStr != null ? _decodeFloat32(legacyHomeStr) : null,
+        foodPheromoneData: legacyFoodStr != null
+            ? _decodeFloat32(legacyFoodStr)
+            : null,
+        homePheromoneData: legacyHomeStr != null
+            ? _decodeFloat32(legacyHomeStr)
+            : null,
         // Per-colony pheromone data
         foodPheromone0Data: food0Str != null ? _decodeFloat32(food0Str) : null,
         foodPheromone1Data: food1Str != null ? _decodeFloat32(food1Str) : null,
         homePheromone0Data: home0Str != null ? _decodeFloat32(home0Str) : null,
         homePheromone1Data: home1Str != null ? _decodeFloat32(home1Str) : null,
         zonesData: zonesStr != null ? _decodeUint8(zonesStr) : null,
-        blockedPheromoneData: blockedStr != null ? _decodeFloat32(blockedStr) : null,
-        foodAmountData: foodAmountStr != null ? _decodeUint8(foodAmountStr) : null,
+        blockedPheromoneData: blockedStr != null
+            ? _decodeFloat32(blockedStr)
+            : null,
+        foodAmountData: foodAmountStr != null
+            ? _decodeUint8(foodAmountStr)
+            : null,
       );
 
       // Load rooms
@@ -563,7 +679,9 @@ class ColonySimulation {
   /// Ensures all colonies have at least one queen
   void _ensureQueensExist() {
     for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
-      final hasQueen = ants.any((a) => a.colonyId == colonyId && a.caste == AntCaste.queen);
+      final hasQueen = ants.any(
+        (a) => a.colonyId == colonyId && a.caste == AntCaste.queen,
+      );
       if (!hasQueen) {
         _spawnAnt(caste: AntCaste.queen, colonyId: colonyId);
       }
@@ -643,13 +761,19 @@ class ColonySimulation {
 
   /// Get the count of princesses for a specific colony
   int _getPrincessCountForColony(int colonyId) {
-    return ants.where((ant) => ant.colonyId == colonyId && ant.caste == AntCaste.princess).length;
+    return ants
+        .where(
+          (ant) => ant.colonyId == colonyId && ant.caste == AntCaste.princess,
+        )
+        .length;
   }
 
   /// Spawn a princess egg at the queen's position
   void _spawnPrincessEgg(int colonyId) {
     // Find the queen for this colony
-    final queen = ants.where((ant) => ant.colonyId == colonyId && ant.caste == AntCaste.queen).firstOrNull;
+    final queen = ants
+        .where((ant) => ant.colonyId == colonyId && ant.caste == AntCaste.queen)
+        .firstOrNull;
     if (queen == null) return;
 
     // Spawn princess egg near the queen
@@ -694,7 +818,10 @@ class ColonySimulation {
     AntCaste neededCaste;
 
     // Check if this larva should become a princess (queued from food collection)
-    if (_colonyQueuedPrincesses[larva.colonyId] > 0) {
+    final hasPrincess = _getPrincessCountForColony(larva.colonyId) > 0;
+    if (!hasPrincess && _colonyQueuedPrincesses[larva.colonyId] == 0) {
+      neededCaste = AntCaste.princess;
+    } else if (_colonyQueuedPrincesses[larva.colonyId] > 0) {
       neededCaste = AntCaste.princess;
       _colonyQueuedPrincesses[larva.colonyId] -= 1;
     } else {
@@ -732,10 +859,11 @@ class ColonySimulation {
         // Nurse wants to pick up - find an egg in home room
         if (homeRoom != null && homeRoom.contains(nurse.position)) {
           final eggInHome = ants.cast<Ant?>().firstWhere(
-            (a) => a!.caste == AntCaste.egg &&
-                   a.colonyId == nurse.colonyId &&
-                   homeRoom.contains(a.position) &&
-                   !_isEggBeingCarried(a.id),
+            (a) =>
+                a!.caste == AntCaste.egg &&
+                a.colonyId == nurse.colonyId &&
+                homeRoom.contains(a.position) &&
+                !_isEggBeingCarried(a.id),
             orElse: () => null,
           );
           if (eggInHome != null) {
@@ -748,7 +876,9 @@ class ColonySimulation {
 
   /// Check if an egg is already being carried by a nurse
   bool _isEggBeingCarried(int eggId) {
-    return ants.any((a) => a.caste == AntCaste.nurse && a.carryingEggId == eggId);
+    return ants.any(
+      (a) => a.caste == AntCaste.nurse && a.carryingEggId == eggId,
+    );
   }
 
   /// Update positions of eggs being carried by nurses
@@ -787,7 +917,8 @@ class ColonySimulation {
       for (final target in ants) {
         if (target.colonyId != nurse.colonyId) continue;
         if (target.isDead || target == nurse) continue;
-        if (target.caste == AntCaste.egg || target.caste == AntCaste.larva) continue;
+        if (target.caste == AntCaste.egg || target.caste == AntCaste.larva)
+          continue;
 
         final distSq = nurse.position.distanceToSquared(target.position);
         if (distSq > feedRadiusSq) continue;
@@ -824,30 +955,51 @@ class ColonySimulation {
   }
 
   /// Determines what caste the colony needs most based on current composition.
-  /// Target ratios: 65% workers, 20% soldiers, 15% nurses
+  /// Target ratios: 55% workers, 15% soldiers, 15% nurses, 15% builders
   AntCaste _determineNeededCaste(int colonyId) {
-    final colonyAnts = ants.where((a) => a.colonyId == colonyId && a.caste != AntCaste.larva && a.caste != AntCaste.queen).toList();
+    final colonyAnts = ants
+        .where(
+          (a) =>
+              a.colonyId == colonyId &&
+              a.caste != AntCaste.larva &&
+              a.caste != AntCaste.egg &&
+              a.caste != AntCaste.queen &&
+              a.caste != AntCaste.princess,
+        )
+        .toList();
     if (colonyAnts.isEmpty) {
       return AntCaste.worker; // Default to worker for empty colony
     }
 
     final total = colonyAnts.length;
     final workers = colonyAnts.where((a) => a.caste == AntCaste.worker).length;
-    final soldiers = colonyAnts.where((a) => a.caste == AntCaste.soldier).length;
+    final soldiers = colonyAnts
+        .where((a) => a.caste == AntCaste.soldier)
+        .length;
     final nurses = colonyAnts.where((a) => a.caste == AntCaste.nurse).length;
+    final builders = colonyAnts
+        .where((a) => a.caste == AntCaste.builder)
+        .length;
 
-    // Target ratios
-    const targetWorkerRatio = 0.65;
-    const targetSoldierRatio = 0.20;
+    // Target ratios (55% workers, 15% each for specialists)
+    const targetWorkerRatio = 0.55;
+    const targetSoldierRatio = 0.15;
     const targetNurseRatio = 0.15;
+    const targetBuilderRatio = 0.15;
 
     // Calculate how much each caste is underrepresented
     final workerDeficit = targetWorkerRatio - (workers / total);
     final soldierDeficit = targetSoldierRatio - (soldiers / total);
     final nurseDeficit = targetNurseRatio - (nurses / total);
+    final builderDeficit = targetBuilderRatio - (builders / total);
 
     // Pick the caste with the biggest deficit
-    if (soldierDeficit > workerDeficit && soldierDeficit > nurseDeficit) {
+    if (builderDeficit > workerDeficit &&
+        builderDeficit > soldierDeficit &&
+        builderDeficit > nurseDeficit) {
+      return AntCaste.builder;
+    } else if (soldierDeficit > workerDeficit &&
+        soldierDeficit > nurseDeficit) {
       return AntCaste.soldier;
     } else if (nurseDeficit > workerDeficit) {
       return AntCaste.nurse;
@@ -862,7 +1014,9 @@ class ColonySimulation {
       final queued = _colonyQueuedAnts[colonyId];
       if (queued > 0) {
         // Find the queen to spawn eggs near her
-        final queen = ants.where((a) => a.colonyId == colonyId && a.caste == AntCaste.queen).firstOrNull;
+        final queen = ants
+            .where((a) => a.colonyId == colonyId && a.caste == AntCaste.queen)
+            .firstOrNull;
         for (var i = 0; i < queued; i++) {
           if (queen != null) {
             // Spawn egg at queen's position
@@ -941,6 +1095,7 @@ class ColonySimulation {
           case AntCaste.princess:
             _princessCount++;
           case AntCaste.drone:
+          case AntCaste.builder:
             break;
         }
       } else {
@@ -963,6 +1118,7 @@ class ColonySimulation {
             case AntCaste.princess:
               _enemy1PrincessCount++;
             case AntCaste.drone:
+            case AntCaste.builder:
               break;
           }
         }
@@ -992,10 +1148,272 @@ class ColonySimulation {
     world.placeFood(spot, radius);
   }
 
+  void _checkRoomCapacity() {
+    for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
+      final colonyRooms = world.rooms.where(
+        (room) => room.colonyId == colonyId,
+      );
+      for (final room in colonyRooms) {
+        final occupancy = _measureRoomOccupancy(room);
+        room.currentOccupancy = occupancy;
+        room.needsExpansion = room.isOverCapacity;
+        if (room.needsExpansion) {
+          _queueNewRoom(colonyId, room.type);
+        }
+      }
+    }
+  }
+
+  int _measureRoomOccupancy(Room room) {
+    switch (room.type) {
+      case RoomType.home:
+        return ants
+            .where(
+              (ant) =>
+                  ant.colonyId == room.colonyId &&
+                  room.contains(ant.position) &&
+                  (ant.caste == AntCaste.queen ||
+                      ant.caste == AntCaste.princess ||
+                      ant.caste == AntCaste.nurse),
+            )
+            .length;
+      case RoomType.nursery:
+        return ants
+            .where(
+              (ant) =>
+                  ant.colonyId == room.colonyId &&
+                  room.contains(ant.position) &&
+                  (ant.caste == AntCaste.egg || ant.caste == AntCaste.larva),
+            )
+            .length;
+      case RoomType.foodStorage:
+        return _countFoodInRoom(room);
+      case RoomType.barracks:
+        return ants
+            .where(
+              (ant) =>
+                  ant.colonyId == room.colonyId &&
+                  room.contains(ant.position) &&
+                  (ant.caste == AntCaste.worker ||
+                      ant.caste == AntCaste.soldier ||
+                      ant.caste == AntCaste.builder) &&
+                  ant.state == AntState.rest,
+            )
+            .length;
+    }
+  }
+
+  int _countFoodInRoom(Room room) {
+    final cx = room.center.x.floor();
+    final cy = room.center.y.floor();
+    final radius = room.radius.ceil();
+    var total = 0;
+    for (var dx = -radius; dx <= radius; dx++) {
+      for (var dy = -radius; dy <= radius; dy++) {
+        final x = cx + dx;
+        final y = cy + dy;
+        if (!world.isInsideIndex(x, y)) continue;
+        final dist = math.sqrt(dx * dx + dy * dy);
+        if (dist > room.radius) continue;
+        final idx = world.index(x, y);
+        if (world.cells[idx] == CellType.food.index) {
+          total += world.foodAmount[idx];
+        }
+      }
+    }
+    return total;
+  }
+
+  void _queueNewRoom(int colonyId, RoomType type) {
+    final hasTask = _buildQueue.any(
+      (task) =>
+          task.colonyId == colonyId &&
+          task.kind == _BuildTaskKind.room &&
+          task.roomType == type,
+    );
+    if (hasTask) return;
+
+    final radius = _roomRadiusFor(type);
+    final location = world.findNewRoomLocation(colonyId, type, radius);
+    if (location == null) {
+      return;
+    }
+
+    _buildQueue.add(
+      _BuildTask(
+        id: _nextBuildTaskId++,
+        kind: _BuildTaskKind.room,
+        colonyId: colonyId,
+        targetLocation: location.clone(),
+        radius: radius,
+        roomType: type,
+      ),
+    );
+  }
+
+  double _roomRadiusFor(RoomType type) {
+    switch (type) {
+      case RoomType.home:
+        return 4.0;
+      case RoomType.nursery:
+        return 3.0;
+      case RoomType.foodStorage:
+        return 3.5;
+      case RoomType.barracks:
+        return 3.5;
+    }
+  }
+
+  void _processBuildQueue() {
+    if (_buildQueue.isEmpty) return;
+    _reclaimBuilderTasks();
+    for (final task in _buildQueue) {
+      if (task.inProgress) {
+        continue;
+      }
+      final builder = _findAvailableBuilder(task.colonyId);
+      if (builder == null) {
+        continue;
+      }
+
+      task.inProgress = true;
+      task.assignedBuilderId = builder.id;
+      final builderTask = switch (task.kind) {
+        _BuildTaskKind.room => BuilderTask.buildingRoom,
+        _BuildTaskKind.reinforce => BuilderTask.reinforcingWall,
+        _BuildTaskKind.defense => BuilderTask.emergencyDefense,
+      };
+      builder.assignBuilderTask(
+        task: builderTask,
+        target: task.targetLocation,
+        roomType: task.roomType,
+        radius: task.radius,
+        emergency: task.emergency,
+        taskId: task.id,
+      );
+    }
+  }
+
+  void _reclaimBuilderTasks() {
+    for (final task in _buildQueue) {
+      if (!task.inProgress) continue;
+      final builder = _findAntById(task.assignedBuilderId);
+      final shouldReset =
+          builder == null ||
+          builder.isDead ||
+          builder.caste != AntCaste.builder ||
+          builder.colonyId != task.colonyId;
+      if (shouldReset) {
+        task.inProgress = false;
+        task.assignedBuilderId = -1;
+      }
+    }
+  }
+
+  Ant? _findAvailableBuilder(int colonyId) {
+    for (final ant in ants) {
+      if (ant.colonyId == colonyId &&
+          ant.caste == AntCaste.builder &&
+          !ant.isDead &&
+          ant.isBuilderIdle) {
+        return ant;
+      }
+    }
+    return null;
+  }
+
+  Ant? _findAntById(int id) {
+    for (final ant in ants) {
+      if (ant.id == id) {
+        return ant;
+      }
+    }
+    return null;
+  }
+
+  void _completeBuildTask(int taskId) {
+    final index = _buildQueue.indexWhere((task) => task.id == taskId);
+    if (index == -1) {
+      return;
+    }
+    final task = _buildQueue.removeAt(index);
+    if (task.kind == _BuildTaskKind.room && task.roomType != null) {
+      world.addRoom(
+        Room(
+          type: task.roomType!,
+          center: task.targetLocation.clone(),
+          radius: task.radius,
+          colonyId: task.colonyId,
+        ),
+      );
+    }
+  }
+
+  void _checkThreatsAndTriggerDefense() {
+    for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
+      final nestPos = world.getNestPosition(colonyId);
+      final threats = ants
+          .where(
+            (ant) =>
+                ant.colonyId != colonyId &&
+                !ant.isDead &&
+                ant.position.distanceTo(nestPos) < config.nestRadius * 3,
+          )
+          .toList();
+      if (threats.isEmpty) {
+        continue;
+      }
+      _triggerDefenseBuilding(colonyId, threats, nestPos);
+    }
+  }
+
+  void _triggerDefenseBuilding(
+    int colonyId,
+    List<Ant> threats,
+    Vector2 nestPos,
+  ) {
+    threats.sort(
+      (a, b) => a.position
+          .distanceTo(nestPos)
+          .compareTo(b.position.distanceTo(nestPos)),
+    );
+    final closest = threats.first;
+    final direction = (closest.position - nestPos);
+    if (direction.length2 == 0) {
+      return;
+    }
+    direction.normalize();
+    final target = Vector2(
+      nestPos.x + direction.x * config.nestRadius * 1.5,
+      nestPos.y + direction.y * config.nestRadius * 1.5,
+    );
+    final existing = _buildQueue.any(
+      (task) =>
+          task.kind == _BuildTaskKind.defense &&
+          task.colonyId == colonyId &&
+          task.targetLocation.distanceTo(target) < 2.0,
+    );
+    if (existing) {
+      return;
+    }
+
+    _buildQueue.add(
+      _BuildTask(
+        id: _nextBuildTaskId++,
+        kind: _BuildTaskKind.defense,
+        colonyId: colonyId,
+        targetLocation: target,
+        radius: 2.0,
+        emergency: true,
+      ),
+    );
+  }
+
   void _applySeparation() {
     // Ant collision radius - ants cannot overlap within this distance
     const double antRadius = 0.35;
-    const double minSpacing = antRadius * 2; // Two ants touching = 0.7 cells apart
+    const double minSpacing =
+        antRadius * 2; // Two ants touching = 0.7 cells apart
     const double minSpacingSq = minSpacing * minSpacing;
 
     // Return lists to pool and clear spatial hash
@@ -1008,13 +1426,19 @@ class ColonySimulation {
 
     // Build spatial hash - reuse pooled lists
     for (final ant in ants.toList()) {
-      if (ant.isDead || ant.caste == AntCaste.larva || ant.caste == AntCaste.queen || ant.caste == AntCaste.egg) continue;
+      if (ant.isDead ||
+          ant.caste == AntCaste.larva ||
+          ant.caste == AntCaste.queen ||
+          ant.caste == AntCaste.egg)
+        continue;
       final gx = ant.position.x.floor();
       final gy = ant.position.y.floor();
       if (!world.isInsideIndex(gx, gy)) continue;
       final key = world.index(gx, gy);
       final list = _spatialHash.putIfAbsent(key, () {
-        return _spatialHashListPool.isNotEmpty ? _spatialHashListPool.removeLast() : <Ant>[];
+        return _spatialHashListPool.isNotEmpty
+            ? _spatialHashListPool.removeLast()
+            : <Ant>[];
       });
       list.add(ant);
     }
@@ -1062,7 +1486,12 @@ class ColonySimulation {
                 final pushX = math.cos(angle) * jitter;
                 final pushY = math.sin(angle) * jitter;
                 _accumulateAdjustment(_separationAdjustments, a, pushX, pushY);
-                _accumulateAdjustment(_separationAdjustments, b, -pushX, -pushY);
+                _accumulateAdjustment(
+                  _separationAdjustments,
+                  b,
+                  -pushX,
+                  -pushY,
+                );
                 // Trigger pause on heavy collision
                 a.triggerCollisionPause();
                 b.triggerCollisionPause();
@@ -1148,13 +1577,18 @@ class ColonySimulation {
 
     // Build spatial hash for O(n) combat detection instead of O(n²)
     for (final ant in ants.toList()) {
-      if (ant.isDead || ant.caste == AntCaste.larva || ant.caste == AntCaste.egg) continue;
+      if (ant.isDead ||
+          ant.caste == AntCaste.larva ||
+          ant.caste == AntCaste.egg)
+        continue;
       final gx = ant.position.x.floor();
       final gy = ant.position.y.floor();
       if (!world.isInsideIndex(gx, gy)) continue;
       final key = world.index(gx, gy);
       final list = _spatialHash.putIfAbsent(key, () {
-        return _spatialHashListPool.isNotEmpty ? _spatialHashListPool.removeLast() : <Ant>[];
+        return _spatialHashListPool.isNotEmpty
+            ? _spatialHashListPool.removeLast()
+            : <Ant>[];
       });
       list.add(ant);
     }
@@ -1186,7 +1620,9 @@ class ColonySimulation {
               if (a.colonyId == b.colonyId) continue;
 
               // Avoid checking same pair twice
-              final pairKey = a.id < b.id ? a.id * 100000 + b.id : b.id * 100000 + a.id;
+              final pairKey = a.id < b.id
+                  ? a.id * 100000 + b.id
+                  : b.id * 100000 + a.id;
               if (checkedPairs.contains(pairKey)) continue;
               checkedPairs.add(pairKey);
 
@@ -1246,13 +1682,16 @@ class ColonySimulation {
 
   void _removeStuckAnts() {
     // Don't remove queens, princesses, larvae, or eggs - they don't move much by design
-    final stuckAnts = ants.where((a) =>
-      a.isStuck &&
-      a.caste != AntCaste.queen &&
-      a.caste != AntCaste.princess &&
-      a.caste != AntCaste.larva &&
-      a.caste != AntCaste.egg
-    ).toList();
+    final stuckAnts = ants
+        .where(
+          (a) =>
+              a.isStuck &&
+              a.caste != AntCaste.queen &&
+              a.caste != AntCaste.princess &&
+              a.caste != AntCaste.larva &&
+              a.caste != AntCaste.egg,
+        )
+        .toList();
     if (stuckAnts.isNotEmpty) {
       ants.removeWhere(stuckAnts.contains);
       _updateAntCount();
@@ -1264,6 +1703,11 @@ class ColonySimulation {
     // This controls population growth and ensures continuous turnover
     final oldAnts = ants.where((a) => a.isDyingOfOldAge).toList();
     if (oldAnts.isNotEmpty) {
+      for (final ant in oldAnts) {
+        if (ant.caste == AntCaste.queen) {
+          _handleInternalQueenDeath(ant.colonyId);
+        }
+      }
       ants.removeWhere(oldAnts.contains);
       _updateAntCount();
     }
@@ -1272,19 +1716,61 @@ class ColonySimulation {
   /// Handle queen death - check for princess succession before takeover
   void _handleQueenDeath(int defeatedColonyId, int conquerorColonyId) {
     // Check if the defeated colony has a princess to take over
-    final princess = ants.where(
-      (ant) => ant.colonyId == defeatedColonyId && ant.caste == AntCaste.princess && !ant.isDead
-    ).firstOrNull;
+    final princess = ants
+        .where(
+          (ant) =>
+              ant.colonyId == defeatedColonyId &&
+              ant.caste == AntCaste.princess &&
+              !ant.isDead,
+        )
+        .firstOrNull;
 
     if (princess != null) {
       // Princess succession! Colony survives with new queen
       princess.promoteToQueen();
       // ignore: avoid_print
-      print('PRINCESS SUCCESSION: Colony $defeatedColonyId princess became queen!');
+      print(
+        'PRINCESS SUCCESSION: Colony $defeatedColonyId princess became queen!',
+      );
     } else {
       // No princess available - colony is taken over
       _handleColonyTakeover(defeatedColonyId, conquerorColonyId);
     }
+  }
+
+  void _handleInternalQueenDeath(int colonyId) {
+    final princess = ants
+        .where(
+          (ant) =>
+              ant.colonyId == colonyId &&
+              ant.caste == AntCaste.princess &&
+              !ant.isDead,
+        )
+        .firstOrNull;
+    if (princess != null) {
+      princess.promoteToQueen();
+      return;
+    }
+    _spawnEmergencyQueen(colonyId);
+  }
+
+  void _spawnEmergencyQueen(int colonyId) {
+    final nest = world.getNestPosition(colonyId);
+    final offset = Vector2(
+      (_rng.nextDouble() - 0.5) * 2,
+      (_rng.nextDouble() - 0.5) * 2,
+    );
+    ants.add(
+      Ant(
+        startPosition: nest + offset,
+        angle: _rng.nextDouble() * math.pi * 2,
+        energy: config.energyCapacity,
+        rng: _rng,
+        caste: AntCaste.queen,
+        colonyId: colonyId,
+      ),
+    );
+    _updateAntCount();
   }
 
   /// Handle colony takeover when a queen dies in combat.
@@ -1307,14 +1793,17 @@ class ColonySimulation {
     }
 
     // Transfer food reserves from defeated colony to conqueror
-    if (defeatedColonyId < _colonyFood.length && conquerorColonyId < _colonyFood.length) {
+    if (defeatedColonyId < _colonyFood.length &&
+        conquerorColonyId < _colonyFood.length) {
       _colonyFood[conquerorColonyId] += _colonyFood[defeatedColonyId];
       _colonyFood[defeatedColonyId] = 0;
     }
 
     // Transfer queued ants from defeated colony to conqueror
-    if (defeatedColonyId < _colonyQueuedAnts.length && conquerorColonyId < _colonyQueuedAnts.length) {
-      _colonyQueuedAnts[conquerorColonyId] += _colonyQueuedAnts[defeatedColonyId];
+    if (defeatedColonyId < _colonyQueuedAnts.length &&
+        conquerorColonyId < _colonyQueuedAnts.length) {
+      _colonyQueuedAnts[conquerorColonyId] +=
+          _colonyQueuedAnts[defeatedColonyId];
       _colonyQueuedAnts[defeatedColonyId] = 0;
     }
 
@@ -1331,7 +1820,9 @@ class ColonySimulation {
 
     // Log the takeover (could add a notification system later)
     // ignore: avoid_print
-    print('COLONY TAKEOVER: Colony $conquerorColonyId conquered Colony $defeatedColonyId! ($convertedCount ants converted)');
+    print(
+      'COLONY TAKEOVER: Colony $conquerorColonyId conquered Colony $defeatedColonyId! ($convertedCount ants converted)',
+    );
   }
 
   /// Queens emit strong pheromones towards reachable food using BFS pathfinding.
@@ -1514,3 +2005,26 @@ Vector2? _vectorFromJson(Map<String, dynamic>? data) {
   return null;
 }
 
+enum _BuildTaskKind { room, reinforce, defense }
+
+class _BuildTask {
+  _BuildTask({
+    required this.id,
+    required this.kind,
+    required this.colonyId,
+    required this.targetLocation,
+    required this.radius,
+    this.roomType,
+    this.emergency = false,
+  });
+
+  final int id;
+  final _BuildTaskKind kind;
+  final int colonyId;
+  final Vector2 targetLocation;
+  final double radius;
+  final RoomType? roomType;
+  bool emergency;
+  bool inProgress = false;
+  int assignedBuilderId = -1;
+}

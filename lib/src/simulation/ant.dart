@@ -9,14 +9,24 @@ enum AntState { forage, returnHome, rest }
 
 /// Ant castes with different roles and abilities
 enum AntCaste {
-  worker,   // Basic forager/digger
-  soldier,  // Combat-focused, patrols and defends
-  nurse,    // Stays in nest, cares for larvae
-  drone,    // Male, reproductive only
+  worker, // Basic forager/digger
+  soldier, // Combat-focused, patrols and defends
+  nurse, // Stays in nest, cares for larvae
+  drone, // Male, reproductive only
   princess, // Future queen, waits for succession
-  queen,    // Produces eggs, stays in nest center
-  larva,    // Immobile, needs feeding to mature
-  egg,      // Immobile, hatches into larva after development
+  queen, // Produces eggs, stays in nest center
+  larva, // Immobile, needs feeding to mature
+  egg, // Immobile, hatches into larva after development
+  builder, // Constructs rooms and defensive walls
+}
+
+/// Builder-specific tasks coordinated by the colony
+enum BuilderTask {
+  idle,
+  buildingRoom,
+  reinforcingWall,
+  emergencyDefense,
+  returningHome,
 }
 
 /// Caste-specific stats and modifiers
@@ -112,6 +122,15 @@ class CasteStats {
       explorerRange: (0.0, 0.0),
       baseAggression: 0.0, // Completely defenseless
     ),
+    AntCaste.builder: CasteStats(
+      speedMultiplier: 0.7, // Slower, methodical
+      baseHp: 120, // Slightly tougher than worker
+      baseAttack: 4, // Can defend itself
+      baseDefense: 5, // Better defense than worker
+      canForage: false, // Doesn't gather food
+      explorerRange: (0.0, 0.1), // Stays near colony
+      baseAggression: 0.15, // Defensive, not aggressive
+    ),
   };
 }
 
@@ -128,14 +147,14 @@ class Ant {
     required math.Random rng,
     this.caste = AntCaste.worker,
     this.colonyId = 0,
-  })  : id = _nextId++,
-        position = startPosition.clone(),
-        _explorerTendency = _generateExplorerTendency(caste, rng),
-        aggression = CasteStats.stats[caste]!.baseAggression,
-        attack = CasteStats.stats[caste]!.baseAttack,
-        defense = CasteStats.stats[caste]!.baseDefense,
-        maxHp = CasteStats.stats[caste]!.baseHp,
-        hp = CasteStats.stats[caste]!.baseHp;
+  }) : id = _nextId++,
+       position = startPosition.clone(),
+       _explorerTendency = _generateExplorerTendency(caste, rng),
+       aggression = CasteStats.stats[caste]!.baseAggression,
+       attack = CasteStats.stats[caste]!.baseAttack,
+       defense = CasteStats.stats[caste]!.baseDefense,
+       maxHp = CasteStats.stats[caste]!.baseHp,
+       hp = CasteStats.stats[caste]!.baseHp;
 
   Ant.rehydrated({
     required this.id,
@@ -158,17 +177,27 @@ class Ant {
     int carryingEggId = -1,
     double eggLayTimer = 0.0,
     double age = 0.0,
-  })  : position = position.clone(),
-        _carryingFood = carryingFood,
-        _stateBeforeRest = stateBeforeRest,
-        _explorerTendency = explorerTendency,
-        maxHp = maxHpValue,
-        hp = (hp ?? maxHpValue).clamp(0, maxHpValue),
-        _growthProgress = growthProgress,
-        _carryingLarvaId = carryingLarvaId,
-        _carryingEggId = carryingEggId,
-        _eggLayTimer = eggLayTimer,
-        _age = age;
+    BuilderTask builderTask = BuilderTask.idle,
+    Vector2? builderTarget,
+    double builderTargetRadius = 0.0,
+    int activeBuilderTaskId = -1,
+    bool builderEmergencyTask = false,
+  }) : position = position.clone(),
+       _carryingFood = carryingFood,
+       _stateBeforeRest = stateBeforeRest,
+       _explorerTendency = explorerTendency,
+       maxHp = maxHpValue,
+       hp = (hp ?? maxHpValue).clamp(0, maxHpValue),
+       _growthProgress = growthProgress,
+       _carryingLarvaId = carryingLarvaId,
+       _carryingEggId = carryingEggId,
+       _eggLayTimer = eggLayTimer,
+       _age = age,
+       _builderTask = builderTask,
+       _builderTarget = builderTarget?.clone(),
+       _builderTargetRadius = builderTargetRadius,
+       _activeBuilderTaskId = activeBuilderTaskId,
+       _builderEmergencyTask = builderEmergencyTask;
 
   static double _generateExplorerTendency(AntCaste caste, math.Random rng) {
     final range = CasteStats.stats[caste]!.explorerRange;
@@ -187,31 +216,36 @@ class Ant {
   double _speedMultiplier = 1.0;
   final double _explorerTendency; // 0.0-1.0, personality trait for exploration
   AntCaste caste; // Can change on promotion (princess -> queen)
-  int colonyId; // 0-3 - which colony this ant belongs to (can change on takeover)
+  int
+  colonyId; // 0-3 - which colony this ant belongs to (can change on takeover)
   double aggression; // 0.0-1.0, likelihood to initiate combat
   double attack;
   double defense;
   double maxHp;
   double hp;
   bool _needsRest = false;
+  Vector2? _restingSpot;
 
   // Egg/Larva growth (used when caste == egg or larva)
   double _growthProgress = 0.0;
-  static const double _eggHatchTime = 20.0; // seconds for egg to hatch into larva (longer development)
-  static const double _growthTimeToMature = 60.0; // seconds for larva to mature into adult (longer growth)
+  static const double _eggHatchTime =
+      20.0; // seconds for egg to hatch into larva (longer development)
+  static const double _growthTimeToMature =
+      60.0; // seconds for larva to mature into adult (longer growth)
 
   // Age and lifespan (in seconds)
   double _age = 0.0;
   // Max lifespan per caste (in game seconds)
   static const Map<AntCaste, double> _maxLifespan = {
-    AntCaste.worker: 240.0,   // 4 minutes - faster turnover
-    AntCaste.soldier: 180.0,  // 3 minutes - combat life is short
-    AntCaste.nurse: 300.0,    // 5 minutes
-    AntCaste.drone: 150.0,    // 2.5 minutes (short-lived)
-    AntCaste.queen: 1800.0,   // 30 minutes - queens live much longer
+    AntCaste.worker: 240.0, // 4 minutes - faster turnover
+    AntCaste.soldier: 180.0, // 3 minutes - combat life is short
+    AntCaste.nurse: 300.0, // 5 minutes
+    AntCaste.drone: 150.0, // 2.5 minutes (short-lived)
+    AntCaste.queen: 1800.0, // 30 minutes - queens live much longer
     AntCaste.princess: 600.0, // 10 minutes - waiting to become queen
-    AntCaste.larva: 120.0,    // 2 minutes (will mature before this)
-    AntCaste.egg: 60.0,       // 1 minute (will hatch before this)
+    AntCaste.larva: 120.0, // 2 minutes (will mature before this)
+    AntCaste.egg: 60.0, // 1 minute (will hatch before this)
+    AntCaste.builder: 300.0, // 5 minutes - same as nurse
   };
 
   // Nurse carrying larva (reference by ID, -1 = not carrying)
@@ -221,17 +255,20 @@ class Ant {
 
   // Queen egg laying timer
   double _eggLayTimer = 0.0;
-  static const double _eggLayInterval = 45.0; // seconds between laying eggs (less frequent)
+  static const double _eggLayInterval =
+      45.0; // seconds between laying eggs (less frequent)
 
   // Stuck detection
   final Vector2 _lastPosition = Vector2.zero();
   double _stuckTime = 0;
   static const double _stuckThreshold = 30.0; // seconds before considered stuck
-  static const double _moveThreshold = 0.5; // minimum distance to count as moved
+  static const double _moveThreshold =
+      0.5; // minimum distance to count as moved
 
   // Collision pause - ant stops briefly after hitting something
   double _collisionPauseTimer = 0;
-  static const double _collisionPauseDuration = 0.8; // seconds to pause after collision
+  static const double _collisionPauseDuration =
+      0.8; // seconds to pause after collision
 
   bool get hasFood => _carryingFood;
   bool get isDead => hp <= 0;
@@ -249,9 +286,12 @@ class Ant {
   int get carryingLarvaId => _carryingLarvaId;
   bool get isCarryingEgg => _carryingEggId >= 0;
   int get carryingEggId => _carryingEggId;
-  bool get isReadyToHatch => caste == AntCaste.egg && _growthProgress >= _eggHatchTime;
-  bool get isReadyToMature => caste == AntCaste.larva && _growthProgress >= _growthTimeToMature;
-  bool get wantsToLayEgg => caste == AntCaste.queen && _eggLayTimer >= _eggLayInterval;
+  bool get isReadyToHatch =>
+      caste == AntCaste.egg && _growthProgress >= _eggHatchTime;
+  bool get isReadyToMature =>
+      caste == AntCaste.larva && _growthProgress >= _growthTimeToMature;
+  bool get wantsToLayEgg =>
+      caste == AntCaste.queen && _eggLayTimer >= _eggLayInterval;
   double get age => _age;
   double get maxLifespan => _maxLifespan[caste] ?? 300.0;
   bool get isDyingOfOldAge => _age >= maxLifespan;
@@ -274,7 +314,8 @@ class Ant {
   void triggerCollisionPause() {
     // Only set if not already paused (avoid resetting timer)
     if (_collisionPauseTimer <= 0) {
-      _collisionPauseTimer = _collisionPauseDuration * 0.5; // Shorter pause for ant collisions
+      _collisionPauseTimer =
+          _collisionPauseDuration * 0.5; // Shorter pause for ant collisions
     }
   }
 
@@ -283,9 +324,9 @@ class Ant {
     SimulationConfig config,
     WorldGrid world,
     math.Random rng,
-    double antSpeed,
-    {Vector2? attackTarget}
-  ) {
+    double antSpeed, {
+    Vector2? attackTarget,
+  }) {
     if (dt == 0) return false;
 
     // Track age for lifespan/natural death
@@ -334,6 +375,8 @@ class Ant {
         return _updateNurse(dt, config, world, rng, antSpeed);
       case AntCaste.soldier:
         return _updateSoldier(dt, config, world, rng, antSpeed);
+      case AntCaste.builder:
+        return _updateBuilder(dt, config, world, rng, antSpeed);
       case AntCaste.worker:
       case AntCaste.drone:
         // Workers and drones use standard foraging behavior below
@@ -357,6 +400,7 @@ class Ant {
         if (!_needsRest) {
           _stateBeforeRest = state;
           _needsRest = true;
+          _assignRestLocation(world);
         }
         state = AntState.returnHome;
         energy = config.digEnergyCost * 1.5;
@@ -474,33 +518,37 @@ class Ant {
     if (destBlock == CellType.food && !hasFood) {
       _carryingFood = true;
       state = AntState.returnHome;
-      world.consumeFood(gx, gy); // Decrements food amount, removes cell when empty
+      world.consumeFood(
+        gx,
+        gy,
+      ); // Decrements food amount, removes cell when empty
       angle += config.foodPickupRotation + (rng.nextDouble() - 0.5) * 0.2;
     }
 
     final myNest = world.getNestPosition(colonyId);
     final distNest = position.distanceTo(myNest);
-    if (distNest < config.nestRadius + 0.5) {
-      bool deliveredFood = false;
-      if (hasFood) {
-        _carryingFood = false;
-        deliveredFood = true;
-        angle += math.pi;
-      }
-      if (_needsRest) {
-        // Turn around if we didn't already (from dropping food)
-        if (!deliveredFood) {
-          angle += math.pi;
-        }
-        // Set state to forage before resting so we resume foraging after
+    var deliveredFood = false;
+    if (distNest < config.nestRadius + 0.5 && hasFood) {
+      _carryingFood = false;
+      deliveredFood = true;
+      angle += math.pi;
+    }
+
+    if (_needsRest) {
+      final target = _restingSpot ?? myNest;
+      final restRadius = _restingSpot != null
+          ? config.nestRadius * 0.4
+          : config.nestRadius + 0.5;
+      if (position.distanceTo(target) < restRadius) {
         state = AntState.forage;
         _enterRest();
         return deliveredFood;
       }
-      if (deliveredFood) {
-        state = AntState.forage;
-        return true;
-      }
+    }
+
+    if (deliveredFood) {
+      state = AntState.forage;
+      return true;
     }
 
     return false;
@@ -517,13 +565,31 @@ class Ant {
         : state;
 
     if (behavior == AntState.returnHome || _needsRest || hasFood) {
+      if (_needsRest && !hasFood && _restingSpot != null) {
+        final desired = math.atan2(
+          _restingSpot!.y - position.y,
+          _restingSpot!.x - position.x,
+        );
+        final delta = _normalizeAngle(desired - angle);
+        angle += delta.clamp(-0.5, 0.5) * (0.6 + rng.nextDouble() * 0.2);
+        return;
+      }
+
       // PRIORITY 1: Follow home pheromone trails (the path we came from)
       // This creates consistent "ant highways" where ants return on the same path
-      final sensorRight = _sense(angle + config.sensorAngle, config, world, rng);
+      final sensorRight = _sense(
+        angle + config.sensorAngle,
+        config,
+        world,
+        rng,
+      );
       final sensorFront = _sense(angle, config, world, rng);
       final sensorLeft = _sense(angle - config.sensorAngle, config, world, rng);
 
-      final maxSignal = math.max(sensorFront, math.max(sensorLeft, sensorRight));
+      final maxSignal = math.max(
+        sensorFront,
+        math.max(sensorLeft, sensorRight),
+      );
       if (maxSignal > 0.05) {
         // Follow home pheromone gradient - stay on the trail
         if (sensorFront >= sensorLeft && sensorFront >= sensorRight) {
@@ -703,7 +769,10 @@ class Ant {
       // No scent here at all - fall back to direct food sensing for very close food
       final target = world.nearestFood(position, 15.0); // Short range fallback
       if (target != null) {
-        final desired = math.atan2(target.y - position.y, target.x - position.x);
+        final desired = math.atan2(
+          target.y - position.y,
+          target.x - position.x,
+        );
         final delta = _normalizeAngle(desired - angle);
         angle += delta.clamp(-0.5, 0.5) * 0.7;
         angle += (rng.nextDouble() - 0.5) * 0.02;
@@ -730,9 +799,11 @@ class Ant {
     final rightScent = sampleScent(rightAngle);
 
     // Find max scent direction (ignore blocked directions)
-    final maxScent = [leftScent, frontScent, rightScent]
-        .where((s) => s >= 0)
-        .fold(0.0, (a, b) => a > b ? a : b);
+    final maxScent = [
+      leftScent,
+      frontScent,
+      rightScent,
+    ].where((s) => s >= 0).fold(0.0, (a, b) => a > b ? a : b);
 
     if (maxScent < 0.001) {
       // No scent detected in any direction - wander
@@ -740,7 +811,9 @@ class Ant {
     }
 
     // Turn toward strongest scent
-    if (frontScent >= leftScent && frontScent >= rightScent && frontScent >= 0) {
+    if (frontScent >= leftScent &&
+        frontScent >= rightScent &&
+        frontScent >= 0) {
       // Front strongest - go mostly straight
       angle += (rng.nextDouble() - 0.5) * 0.05;
     } else if (leftScent > rightScent && leftScent >= 0) {
@@ -816,7 +889,9 @@ class Ant {
       }
       final cellType = world.cellTypeAt(x, y);
       // Food is also solid - ants must stop at food to pick it up
-      if (cellType == CellType.dirt || cellType == CellType.rock || cellType == CellType.food) {
+      if (cellType == CellType.dirt ||
+          cellType == CellType.rock ||
+          cellType == CellType.food) {
         return _PathCollision(cellX: x, cellY: y, cellType: cellType);
       }
       return null;
@@ -889,6 +964,7 @@ class Ant {
         if (!_needsRest) {
           _stateBeforeRest = state;
           _needsRest = true;
+          _assignRestLocation(world);
         }
         state = AntState.returnHome;
       }
@@ -906,7 +982,34 @@ class Ant {
           _stateBeforeRest ?? (hasFood ? AntState.returnHome : AntState.forage);
       _stateBeforeRest = null;
       _needsRest = false;
+      _restingSpot = null;
     }
+  }
+
+  void _assignRestLocation(WorldGrid world) {
+    if (caste == AntCaste.worker ||
+        caste == AntCaste.soldier ||
+        caste == AntCaste.builder) {
+      final Room? preferredBarracks = _selectBarracksRoom(world);
+      if (preferredBarracks != null) {
+        _restingSpot = preferredBarracks.center.clone();
+        return;
+      }
+    }
+    _restingSpot = world.getNestPosition(colonyId).clone();
+  }
+
+  Room? _selectBarracksRoom(WorldGrid world) {
+    final primary = world.getBarracksRoom(colonyId);
+    if (primary != null && !primary.isOverCapacity) {
+      return primary;
+    }
+    for (final room in world.getAllBarracks(colonyId)) {
+      if (!room.isOverCapacity) {
+        return room;
+      }
+    }
+    return primary;
   }
 
   void _enterRest() {
@@ -915,6 +1018,7 @@ class Ant {
     }
     state = AntState.rest;
     _needsRest = false;
+    _restingSpot = null;
   }
 
   void exitRestState() {
@@ -946,12 +1050,18 @@ class Ant {
   }
 
   /// Larva behavior: wiggle slightly while growing
-  bool _updateLarva(double dt, SimulationConfig config, WorldGrid world, math.Random rng) {
+  bool _updateLarva(
+    double dt,
+    SimulationConfig config,
+    WorldGrid world,
+    math.Random rng,
+  ) {
     _growthProgress += dt;
 
     // Larvae wiggle slightly - random small movements
     final wiggleChance = rng.nextDouble();
-    if (wiggleChance < 0.3) { // 30% chance to wiggle each frame
+    if (wiggleChance < 0.3) {
+      // 30% chance to wiggle each frame
       // Random turn
       angle += (rng.nextDouble() - 0.5) * 2.0; // Random direction change
 
@@ -972,53 +1082,62 @@ class Ant {
   }
 
   /// Queen behavior: stay in chamber, lay eggs periodically
-  bool _updateQueen(double dt, SimulationConfig config, WorldGrid world, math.Random rng) {
+  bool _updateQueen(
+    double dt,
+    SimulationConfig config,
+    WorldGrid world,
+    math.Random rng,
+  ) {
     _eggLayTimer += dt;
 
     final myNest = world.getNestPosition(colonyId);
     final distToNest = position.distanceTo(myNest);
-    final wanderRadius = config.nestRadius * 0.4; // Stay within inner 40% of nest
+    final wanderRadius =
+        config.nestRadius * 0.4; // Stay within inner 40% of nest
 
     // Check if we're in the queen chamber
     final currentZone = world.zoneAtPosition(position);
     if (currentZone != NestZone.queenChamber) {
-      // Move toward queen chamber
       final target = world.nearestZoneCell(position, NestZone.queenChamber, 50);
       if (target != null) {
-        final desired = math.atan2(target.y - position.y, target.x - position.x);
+        final toTarget = target - position;
+        final desired = math.atan2(toTarget.y, toTarget.x);
         final delta = _normalizeAngle(desired - angle);
-        angle += delta.clamp(-0.2, 0.2);
-        // Queen moves very slowly
-        final speed = config.antSpeed * 0.15 * dt;
+        angle += delta.clamp(-0.15, 0.15);
+        final speed = (config.antSpeed * 0.12 + rng.nextDouble() * 0.02) * dt;
         position.x += math.cos(angle) * speed;
         position.y += math.sin(angle) * speed;
       }
     } else {
-      // In chamber - slowly wander around within a small radius
-      // Gentle random direction changes
-      angle += (rng.nextDouble() - 0.5) * 0.3;
+      angle += (rng.nextDouble() - 0.5) * 0.15;
 
-      // If too far from nest center, bias back toward it
       if (distToNest > wanderRadius) {
-        final toCenter = math.atan2(myNest.y - position.y, myNest.x - position.x);
+        final toCenter = math.atan2(
+          myNest.y - position.y,
+          myNest.x - position.x,
+        );
         final delta = _normalizeAngle(toCenter - angle);
-        angle += delta * 0.1; // Gentle pull back to center
+        angle += delta * 0.05;
       }
 
-      // Very slow wandering movement
-      final speed = config.antSpeed * 0.05 * dt;
-      final nextX = position.x + math.cos(angle) * speed;
-      final nextY = position.y + math.sin(angle) * speed;
+      final wiggle = Vector2(
+        (rng.nextDouble() - 0.5) * 0.2,
+        (rng.nextDouble() - 0.5) * 0.2,
+      );
+      final nextX = position.x + wiggle.x;
+      final nextY = position.y + wiggle.y;
 
-      // Only move if destination is walkable
-      final gx = nextX.floor();
-      final gy = nextY.floor();
-      if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
-        position.x = nextX;
-        position.y = nextY;
-      } else {
-        // Turn around if blocked
-        angle += math.pi * 0.5 + (rng.nextDouble() - 0.5) * 0.5;
+      final dx = nextX - myNest.x;
+      final dy = nextY - myNest.y;
+      final dist = math.sqrt(dx * dx + dy * dy);
+      if (dist > wanderRadius) {
+        position
+          ..x = myNest.x + dx / dist * wanderRadius * 0.95
+          ..y = myNest.y + dy / dist * wanderRadius * 0.95;
+      } else if (world.isWalkable(nextX, nextY)) {
+        position
+          ..x = nextX
+          ..y = nextY;
       }
     }
 
@@ -1031,18 +1150,29 @@ class Ant {
   }
 
   /// Princess behavior: stay in nest area, wander slowly, wait for succession
-  bool _updatePrincess(double dt, SimulationConfig config, WorldGrid world, math.Random rng) {
+  bool _updatePrincess(
+    double dt,
+    SimulationConfig config,
+    WorldGrid world,
+    math.Random rng,
+  ) {
     final myNest = world.getNestPosition(colonyId);
     final distToNest = position.distanceTo(myNest);
-    final wanderRadius = config.nestRadius * 0.6; // Stay within inner 60% of nest (larger than queen)
+    final wanderRadius =
+        config.nestRadius *
+        0.6; // Stay within inner 60% of nest (larger than queen)
 
     // Check if we're in the queen chamber or general nest area
     final currentZone = world.zoneAtPosition(position);
-    if (currentZone != NestZone.queenChamber && currentZone != NestZone.general) {
+    if (currentZone != NestZone.queenChamber &&
+        currentZone != NestZone.general) {
       // Move toward queen chamber
       final target = world.nearestZoneCell(position, NestZone.queenChamber, 50);
       if (target != null) {
-        final desired = math.atan2(target.y - position.y, target.x - position.x);
+        final desired = math.atan2(
+          target.y - position.y,
+          target.x - position.x,
+        );
         final delta = _normalizeAngle(desired - angle);
         angle += delta.clamp(-0.2, 0.2);
         // Princess moves slowly but faster than queen
@@ -1056,7 +1186,10 @@ class Ant {
 
       // If too far from nest center, bias back toward it
       if (distToNest > wanderRadius) {
-        final toCenter = math.atan2(myNest.y - position.y, myNest.x - position.x);
+        final toCenter = math.atan2(
+          myNest.y - position.y,
+          myNest.x - position.x,
+        );
         final delta = _normalizeAngle(toCenter - angle);
         angle += delta * 0.1;
       }
@@ -1093,7 +1226,13 @@ class Ant {
 
   /// Nurse behavior: move eggs from home to nursery, patrol nursery area
   /// Returns true if nurse wants to pick up an egg in home room
-  bool _updateNurse(double dt, SimulationConfig config, WorldGrid world, math.Random rng, double antSpeed) {
+  bool _updateNurse(
+    double dt,
+    SimulationConfig config,
+    WorldGrid world,
+    math.Random rng,
+    double antSpeed,
+  ) {
     // Handle resting
     if (state == AntState.rest) {
       _recoverEnergy(dt, config);
@@ -1175,7 +1314,13 @@ class Ant {
   }
 
   /// Soldier behavior: patrol nest perimeter, engage enemies
-  bool _updateSoldier(double dt, SimulationConfig config, WorldGrid world, math.Random rng, double antSpeed) {
+  bool _updateSoldier(
+    double dt,
+    SimulationConfig config,
+    WorldGrid world,
+    math.Random rng,
+    double antSpeed,
+  ) {
     // Handle resting
     if (state == AntState.rest) {
       _recoverEnergy(dt, config);
@@ -1189,6 +1334,7 @@ class Ant {
         _needsRest = true;
         state = AntState.returnHome;
         energy = config.digEnergyCost;
+        _assignRestLocation(world);
       }
     }
 
@@ -1238,10 +1384,7 @@ class Ant {
         angle += delta.clamp(-0.2, 0.2);
       } else if (distNest > patrolOuter || currentZone == NestZone.none) {
         // Too far or outside nest - return
-        final inward = math.atan2(
-          myNest.y - position.y,
-          myNest.x - position.x,
-        );
+        final inward = math.atan2(myNest.y - position.y, myNest.x - position.x);
         final delta = _normalizeAngle(inward - angle);
         angle += delta.clamp(-0.2, 0.2);
       } else {
@@ -1273,6 +1416,389 @@ class Ant {
     }
 
     return false;
+  }
+
+  // Builder task state
+  BuilderTask _builderTask = BuilderTask.idle;
+  Vector2? _builderTarget;
+  RoomType? _builderTargetRoomType;
+  double _builderTargetRadius = 0;
+  final List<(int, int)> _builderPendingCells = <(int, int)>[];
+  int _activeBuilderTaskId = -1;
+  int? _completedBuilderTaskId;
+  bool _builderEmergencyTask = false;
+  double _builderTaskTimer = 0;
+
+  bool get isBuilderIdle =>
+      caste == AntCaste.builder &&
+      _builderTask == BuilderTask.idle &&
+      !_needsRest &&
+      state != AntState.rest;
+
+  void assignBuilderTask({
+    required BuilderTask task,
+    required Vector2 target,
+    RoomType? roomType,
+    double radius = 3.0,
+    bool emergency = false,
+    int taskId = -1,
+  }) {
+    if (caste != AntCaste.builder) return;
+    _builderTask = task;
+    _builderTarget = target.clone();
+    _builderTargetRoomType = roomType;
+    _builderTargetRadius = radius;
+    _builderPendingCells.clear();
+    _builderEmergencyTask = emergency;
+    _activeBuilderTaskId = taskId;
+    _builderTaskTimer = 0;
+  }
+
+  void cancelBuilderTask() {
+    if (caste != AntCaste.builder) return;
+    _builderTask = BuilderTask.idle;
+    _builderTarget = null;
+    _builderPendingCells.clear();
+    _builderTargetRoomType = null;
+    _builderTargetRadius = 0;
+    _activeBuilderTaskId = -1;
+    _builderEmergencyTask = false;
+    _builderTaskTimer = 0;
+  }
+
+  int? takeCompletedBuilderTaskId() {
+    final id = _completedBuilderTaskId;
+    _completedBuilderTaskId = null;
+    return id;
+  }
+
+  /// Update builder behavior - constructs rooms and reinforces walls
+  bool _updateBuilder(
+    double dt,
+    SimulationConfig config,
+    WorldGrid world,
+    math.Random rng,
+    double antSpeed,
+  ) {
+    if (config.restEnabled && state == AntState.rest) {
+      _recoverEnergy(dt, config);
+      return false;
+    }
+
+    if (config.restEnabled) {
+      energy -= config.energyDecayPerSecond * dt;
+      if (energy <= config.energyCapacity * 0.15) {
+        if (!_needsRest) {
+          _stateBeforeRest = state;
+          _needsRest = true;
+          _assignRestLocation(world);
+        }
+        state = AntState.returnHome;
+        _builderTask = BuilderTask.returningHome;
+      }
+    } else {
+      energy = config.energyCapacity;
+    }
+
+    if (_needsRest) {
+      final target = _restingSpot ?? world.getNestPosition(colonyId);
+      _moveTowardsBuilderTarget(
+        target,
+        dt,
+        world,
+        rng,
+        antSpeed,
+        stopDistance: config.nestRadius * 0.4,
+      );
+      return false;
+    }
+
+    if (_builderTask == BuilderTask.returningHome) {
+      final reached = _moveTowardsBuilderTarget(
+        world.getNestPosition(colonyId),
+        dt,
+        world,
+        rng,
+        antSpeed,
+        stopDistance: config.nestRadius * 0.4,
+      );
+      if (reached) {
+        _builderTask = BuilderTask.idle;
+      }
+      return false;
+    }
+
+    if (_builderTask == BuilderTask.idle) {
+      final reinforced = _reinforceNearbyCells(world, config);
+      if (!reinforced) {
+        _patrolBuilderNearNest(world, rng, dt, antSpeed, config);
+      }
+      return false;
+    }
+
+    if (_builderTask != BuilderTask.idle) {
+      _builderTaskTimer += dt;
+      if (_builderTaskTimer > 120) {
+        cancelBuilderTask();
+        return false;
+      }
+    }
+
+    final target = _builderTarget;
+    if (target == null) {
+      cancelBuilderTask();
+      return false;
+    }
+
+    final arrived = _moveTowardsBuilderTarget(
+      target,
+      dt,
+      world,
+      rng,
+      antSpeed,
+      stopDistance: _builderTargetRadius + 0.8,
+    );
+
+    if (!arrived) {
+      return false;
+    }
+
+    final finished = _performBuilderWork(world, config, rng);
+    if (finished) {
+      _finishBuilderTask();
+      return true;
+    }
+    return false;
+  }
+
+  void _finishBuilderTask() {
+    final completedId = _activeBuilderTaskId;
+    cancelBuilderTask();
+    if (completedId >= 0) {
+      _completedBuilderTaskId = completedId;
+    }
+  }
+
+  bool _moveTowardsBuilderTarget(
+    Vector2 target,
+    double dt,
+    WorldGrid world,
+    math.Random rng,
+    double antSpeed, {
+    double stopDistance = 0.5,
+  }) {
+    final toTarget = target - position;
+    final distance = toTarget.length;
+    if (distance <= stopDistance) {
+      return true;
+    }
+    final desired = math.atan2(toTarget.y, toTarget.x);
+    final delta = _normalizeAngle(desired - angle);
+    angle += delta.clamp(-0.4, 0.4);
+
+    final speedFactor = _builderEmergencyTask ? 0.9 : 0.6;
+    final moveDistance = antSpeed * casteSpeedMultiplier * speedFactor * dt;
+    final nextX = position.x + math.cos(angle) * moveDistance;
+    final nextY = position.y + math.sin(angle) * moveDistance;
+    final gx = nextX.floor();
+    final gy = nextY.floor();
+    if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
+      position.setValues(nextX, nextY);
+    } else {
+      angle += math.pi * 0.5 + (rng.nextDouble() - 0.5) * 0.4;
+    }
+    return false;
+  }
+
+  bool _performBuilderWork(
+    WorldGrid world,
+    SimulationConfig config,
+    math.Random rng,
+  ) {
+    if (_builderPendingCells.isEmpty) {
+      switch (_builderTask) {
+        case BuilderTask.buildingRoom:
+          _builderPendingCells.addAll(_generateRoomCells(world, rng));
+          break;
+        case BuilderTask.reinforcingWall:
+          _builderPendingCells.addAll(_generatePerimeterCells(world, rng));
+          break;
+        case BuilderTask.emergencyDefense:
+          _builderPendingCells.addAll(_generateDefenseCells(world));
+          break;
+        default:
+          break;
+      }
+    }
+
+    if (_builderPendingCells.isEmpty) {
+      return true;
+    }
+
+    var steps = 0;
+    while (_builderPendingCells.isNotEmpty && steps < 4) {
+      final cell = _builderPendingCells.removeLast();
+      final x = cell.$1;
+      final y = cell.$2;
+      if (!world.isInsideIndex(x, y)) {
+        steps++;
+        continue;
+      }
+
+      switch (_builderTask) {
+        case BuilderTask.buildingRoom:
+          if (world.cellTypeAt(x, y) != CellType.rock) {
+            world.setCell(x, y, CellType.air);
+            if (config.restEnabled) {
+              energy = math.max(0, energy - config.digEnergyCost * 0.25);
+            }
+          }
+          break;
+        case BuilderTask.reinforcingWall:
+        case BuilderTask.emergencyDefense:
+          if (world.reinforceCell(x, y) && config.restEnabled) {
+            energy = math.max(0, energy - config.digEnergyCost * 0.15);
+          }
+          break;
+        default:
+          break;
+      }
+
+      steps++;
+
+      if (config.restEnabled && energy <= 0) {
+        if (!_needsRest) {
+          _stateBeforeRest = state;
+          _needsRest = true;
+          _assignRestLocation(world);
+        }
+        state = AntState.returnHome;
+        return false;
+      }
+    }
+
+    return _builderPendingCells.isEmpty;
+  }
+
+  List<(int, int)> _generateRoomCells(WorldGrid world, math.Random rng) {
+    final target = _builderTarget;
+    if (target == null) {
+      return <(int, int)>[];
+    }
+    final cx = target.x.floor();
+    final cy = target.y.floor();
+    final radius = _builderTargetRadius.ceil() + 1;
+    final cells = <(int, int)>[];
+    for (var dx = -radius; dx <= radius; dx++) {
+      for (var dy = -radius; dy <= radius; dy++) {
+        final x = cx + dx;
+        final y = cy + dy;
+        if (!world.isInsideIndex(x, y)) continue;
+        final dist = math.sqrt(dx * dx + dy * dy);
+        if (dist <= _builderTargetRadius &&
+            world.cellTypeAt(x, y) != CellType.air) {
+          cells.add((x, y));
+        }
+      }
+    }
+    cells.shuffle(rng);
+    return cells;
+  }
+
+  List<(int, int)> _generatePerimeterCells(WorldGrid world, math.Random rng) {
+    final target = _builderTarget;
+    if (target == null) {
+      return <(int, int)>[];
+    }
+    Room? room = world.getRoomAt(target);
+    if (room == null && _builderTargetRoomType != null) {
+      for (final candidate in world.getRoomsOfType(
+        _builderTargetRoomType!,
+        colonyId,
+      )) {
+        if (candidate.center.distanceTo(target) <=
+            candidate.radius + _builderTargetRadius + 1) {
+          room = candidate;
+          break;
+        }
+      }
+    }
+    if (room == null) {
+      return <(int, int)>[];
+    }
+    final perimeter = world.getRoomPerimeter(room);
+    perimeter.shuffle(rng);
+    return perimeter;
+  }
+
+  List<(int, int)> _generateDefenseCells(WorldGrid world) {
+    final target = _builderTarget;
+    if (target == null) {
+      return <(int, int)>[];
+    }
+    final origin = world.getNestPosition(colonyId);
+    final cells = <(int, int)>[];
+    final steps = math.max(4, (origin.distanceTo(target) * 1.2).floor());
+    for (var i = 0; i <= steps; i++) {
+      final t = i / steps;
+      final x = (origin.x + (target.x - origin.x) * t).floor();
+      final y = (origin.y + (target.y - origin.y) * t).floor();
+      if (!world.isInsideIndex(x, y)) continue;
+      cells.add((x, y));
+    }
+    return cells;
+  }
+
+  bool _reinforceNearbyCells(WorldGrid world, SimulationConfig config) {
+    final gx = position.x.floor();
+    final gy = position.y.floor();
+    for (var dx = -2; dx <= 2; dx++) {
+      for (var dy = -2; dy <= 2; dy++) {
+        final nx = gx + dx;
+        final ny = gy + dy;
+        if (!world.isInsideIndex(nx, ny)) continue;
+        final room = world.getRoomAt(Vector2(nx + 0.5, ny + 0.5));
+        if (room == null || room.colonyId != colonyId) continue;
+        if (world.reinforceCell(nx, ny)) {
+          if (config.restEnabled) {
+            energy = math.max(0, energy - config.digEnergyCost * 0.1);
+          }
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  void _patrolBuilderNearNest(
+    WorldGrid world,
+    math.Random rng,
+    double dt,
+    double antSpeed,
+    SimulationConfig config,
+  ) {
+    final nestPos = world.getNestPosition(colonyId);
+    final distToNest = position.distanceTo(nestPos);
+    final maxRange = config.nestRadius * 3.0;
+    if (distToNest > maxRange) {
+      final desired = math.atan2(
+        nestPos.y - position.y,
+        nestPos.x - position.x,
+      );
+      final delta = _normalizeAngle(desired - angle);
+      angle += delta.clamp(-0.3, 0.3);
+    } else {
+      angle += (rng.nextDouble() - 0.5) * 0.2;
+    }
+
+    final speed = antSpeed * casteSpeedMultiplier * 0.5 * dt;
+    final nextX = position.x + math.cos(angle) * speed;
+    final nextY = position.y + math.sin(angle) * speed;
+    final gx = nextX.floor();
+    final gy = nextY.floor();
+    if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
+      position.setValues(nextX, nextY);
+    }
   }
 
   /// Nurse methods for carrying larvae
@@ -1321,6 +1847,12 @@ class Ant {
       'carryingEggId': _carryingEggId,
       'eggLayTimer': _eggLayTimer,
       'age': _age,
+      'builderTask': _builderTask.index,
+      'builderTargetX': _builderTarget?.x,
+      'builderTargetY': _builderTarget?.y,
+      'builderTargetRadius': _builderTargetRadius,
+      'builderTaskId': _activeBuilderTaskId,
+      'builderEmergency': _builderEmergencyTask,
     };
   }
 
@@ -1331,6 +1863,17 @@ class Ant {
     final clampedRest = _clampStateIndex(restIndex);
     final casteIndex = (json['caste'] as num?)?.toInt() ?? 0;
     final clampedCaste = casteIndex.clamp(0, AntCaste.values.length - 1);
+    final builderTaskIndex = (json['builderTask'] as num?)?.toInt() ?? 0;
+    final builderTaskIndexClamped = builderTaskIndex
+        .clamp(0, BuilderTask.values.length - 1)
+        .toInt();
+    final builderTask = BuilderTask.values[builderTaskIndexClamped];
+    Vector2? builderTarget;
+    final builderTargetX = (json['builderTargetX'] as num?)?.toDouble();
+    final builderTargetY = (json['builderTargetY'] as num?)?.toDouble();
+    if (builderTargetX != null && builderTargetY != null) {
+      builderTarget = Vector2(builderTargetX, builderTargetY);
+    }
     return Ant.rehydrated(
       id: (json['id'] as num?)?.toInt() ?? _nextId++,
       position: Vector2(
@@ -1344,12 +1887,15 @@ class Ant {
       stateBeforeRest: clampedRest == null
           ? null
           : AntState.values[clampedRest],
-      explorerTendency: (json['explorerTendency'] as num?)?.toDouble() ??
+      explorerTendency:
+          (json['explorerTendency'] as num?)?.toDouble() ??
           (json['isExplorer'] == true ? 0.2 : 0.05), // Migrate old saves
       caste: AntCaste.values[clampedCaste],
-      colonyId: (json['colonyId'] as num?)?.toInt() ??
+      colonyId:
+          (json['colonyId'] as num?)?.toInt() ??
           (json['isEnemy'] == true ? 1 : 0), // Migrate old saves
-      aggression: (json['aggression'] as num?)?.toDouble() ??
+      aggression:
+          (json['aggression'] as num?)?.toDouble() ??
           CasteStats.stats[AntCaste.values[clampedCaste]]!.baseAggression,
       attack: (json['attack'] as num?)?.toDouble() ?? 5,
       defense: (json['defense'] as num?)?.toDouble() ?? 2,
@@ -1360,6 +1906,12 @@ class Ant {
       carryingEggId: (json['carryingEggId'] as num?)?.toInt() ?? -1,
       eggLayTimer: (json['eggLayTimer'] as num?)?.toDouble() ?? 0.0,
       age: (json['age'] as num?)?.toDouble() ?? 0.0,
+      builderTask: builderTask,
+      builderTarget: builderTarget,
+      builderTargetRadius:
+          (json['builderTargetRadius'] as num?)?.toDouble() ?? 0.0,
+      activeBuilderTaskId: (json['builderTaskId'] as num?)?.toInt() ?? -1,
+      builderEmergencyTask: json['builderEmergency'] as bool? ?? false,
     );
   }
 }

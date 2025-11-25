@@ -10,58 +10,76 @@ enum CellType { air, dirt, food, rock }
 
 /// Dirt hardness types - determines HP and dig difficulty
 enum DirtType {
-  softSand,    // 5 HP - very easy to dig
-  looseSoil,   // 12 HP - easy
+  softSand, // 5 HP - very easy to dig
+  looseSoil, // 12 HP - easy
   packedEarth, // 25 HP - medium
-  clay,        // 50 HP - hard
-  hardite,     // 100 HP - very hard, rare
-  bedrock,     // 200 HP - extremely hard (replaces rock)
+  clay, // 50 HP - hard
+  hardite, // 100 HP - very hard, rare
+  bedrock, // 200 HP - extremely hard (replaces rock)
 }
 
 /// HP values for each dirt type (halved again for easier digging)
 const Map<DirtType, double> dirtTypeHealth = {
   DirtType.softSand: 2.5,
   DirtType.looseSoil: 6.0,
-  DirtType.packedEarth: 12.5,
-  DirtType.clay: 25.0,
-  DirtType.hardite: 50.0,
+  DirtType.packedEarth: 10.0,
+  DirtType.clay: 20.0,
+  DirtType.hardite: 40.0,
   DirtType.bedrock: 100.0,
 };
 
 /// Nest zone types for spatial organization
 enum NestZone {
-  none,         // Outside nest or unassigned
-  general,      // General nest area (outer ring)
-  nursery,      // Larva growing area (middle ring)
+  none, // Outside nest or unassigned
+  general, // General nest area (outer ring)
+  nursery, // Larva growing area (middle ring)
   queenChamber, // Queen's room (inner core)
-  foodStorage,  // Food storage area (future use)
+  foodStorage, // Food storage area
+  barracks, // Worker/soldier rest area
 }
 
 /// Room types for discrete colony chambers
 enum RoomType {
-  home,         // Queen's chamber, food delivery point
-  nursery,      // Egg/larva care area
-  foodStorage,  // Food stockpile (future)
+  home, // Queen's chamber, food delivery point
+  nursery, // Egg/larva care area
+  foodStorage, // Food stockpile
+  barracks, // Worker/soldier rest area
 }
 
 /// A discrete room in the colony
 class Room {
   Room({
     required this.type,
-    required this.center,
+    required Vector2 center,
     required this.radius,
     required this.colonyId,
-  });
+    int? maxCapacity,
+    this.currentOccupancy = 0,
+    this.needsExpansion = false,
+  }) : center = center.clone(),
+       maxCapacity = maxCapacity ?? defaultCapacity[type] ?? 0;
 
   final RoomType type;
   final Vector2 center;
   final double radius;
   final int colonyId;
+  final int maxCapacity;
+  int currentOccupancy;
+  bool needsExpansion;
+  List<(int, int)>? _perimeterCache;
+
+  static const Map<RoomType, int> defaultCapacity = {
+    RoomType.home: 5,
+    RoomType.nursery: 20,
+    RoomType.foodStorage: 100,
+    RoomType.barracks: 15,
+  };
+
+  bool get isFull => currentOccupancy >= maxCapacity;
+  bool get isOverCapacity => currentOccupancy > (maxCapacity * 1.2).floor();
 
   /// Check if a position is inside this room
-  bool contains(Vector2 pos) {
-    return pos.distanceTo(center) <= radius;
-  }
+  bool contains(Vector2 pos) => pos.distanceTo(center) <= radius;
 
   /// Convert to JSON for saving
   Map<String, dynamic> toJson() => {
@@ -70,18 +88,55 @@ class Room {
     'centerY': center.y,
     'radius': radius,
     'colonyId': colonyId,
+    'maxCapacity': maxCapacity,
+    'currentOccupancy': currentOccupancy,
+    'needsExpansion': needsExpansion,
   };
 
   /// Create from JSON for loading
-  factory Room.fromJson(Map<String, dynamic> json) => Room(
-    type: RoomType.values[json['type'] as int],
-    center: Vector2(
-      (json['centerX'] as num).toDouble(),
-      (json['centerY'] as num).toDouble(),
-    ),
-    radius: (json['radius'] as num).toDouble(),
-    colonyId: json['colonyId'] as int,
-  );
+  factory Room.fromJson(Map<String, dynamic> json) {
+    final typeIndex = (json['type'] as num?)?.toInt() ?? 0;
+    final clampedType =
+        RoomType.values[typeIndex.clamp(0, RoomType.values.length - 1)];
+    return Room(
+      type: clampedType,
+      center: Vector2(
+        (json['centerX'] as num).toDouble(),
+        (json['centerY'] as num).toDouble(),
+      ),
+      radius: (json['radius'] as num).toDouble(),
+      colonyId: (json['colonyId'] as num?)?.toInt() ?? 0,
+      maxCapacity: (json['maxCapacity'] as num?)?.toInt(),
+      currentOccupancy: (json['currentOccupancy'] as num?)?.toInt() ?? 0,
+      needsExpansion: json['needsExpansion'] as bool? ?? false,
+    );
+  }
+
+  void invalidateCache() => _perimeterCache = null;
+
+  List<(int, int)> perimeter(WorldGrid world) {
+    return _perimeterCache ??= _buildPerimeter(world);
+  }
+
+  List<(int, int)> _buildPerimeter(WorldGrid world) {
+    final result = <(int, int)>[];
+    final cx = center.x.floor();
+    final cy = center.y.floor();
+    final r = radius.ceil() + 2;
+    for (var dx = -r; dx <= r; dx++) {
+      for (var dy = -r; dy <= r; dy++) {
+        final x = cx + dx;
+        final y = cy + dy;
+        if (!world.isInsideIndex(x, y)) continue;
+        final dist = math.sqrt(dx * dx + dy * dy);
+        final nearEdge = dist >= radius && dist <= radius + 1.2;
+        if (nearEdge) {
+          result.add((x, y));
+        }
+      }
+    }
+    return result;
+  }
 }
 
 class WorldGrid {
@@ -101,8 +156,12 @@ class WorldGrid {
       _homeDistances0 = Int32List(config.cols * config.rows),
       _homeDistances1 = Int32List(config.cols * config.rows),
       nestPositions = List.generate(4, (i) {
-        if (i == 0) return (nestOverride ?? Vector2(config.cols / 2, config.rows / 2)).clone();
-        if (i == 1) return (nest1Override ?? Vector2(config.cols / 2, config.rows * 0.2)).clone();
+        if (i == 0)
+          return (nestOverride ?? Vector2(config.cols / 2, config.rows / 2))
+              .clone();
+        if (i == 1)
+          return (nest1Override ?? Vector2(config.cols / 2, config.rows * 0.2))
+              .clone();
         return Vector2.zero(); // Positions 2,3 set by world generator
       });
 
@@ -117,11 +176,16 @@ class WorldGrid {
   final Float32List foodPheromones1; // Colony 1 food trails
   final Float32List homePheromones0; // Colony 0 home trails
   final Float32List homePheromones1; // Colony 1 home trails
-  final Float32List blockedPheromones; // Warning pheromone for dead ends/obstacles (shared)
-  final Float32List foodScent; // Diffusing scent from food sources (flows through air like gas)
+  final Float32List
+  blockedPheromones; // Warning pheromone for dead ends/obstacles (shared)
+  final Float32List
+  foodScent; // Diffusing scent from food sources (flows through air like gas)
   final Float32List _foodScentBuffer; // Double buffer for diffusion
   final List<Vector2> nestPositions; // All colony nest positions (up to 4)
   final Float32List dirtHealth;
+  final Set<int> _reinforcedCells = <int>{};
+  late final UnmodifiableSetView<int> _reinforcedCellsView =
+      UnmodifiableSetView(_reinforcedCells);
 
   // Legacy getters for backwards compatibility
   Vector2 get nestPosition => nestPositions[0];
@@ -142,8 +206,10 @@ class WorldGrid {
   int get rows => config.rows;
   int get terrainVersion => _terrainVersion;
   Iterable<int> get activePheromoneCells => _activePheromoneCellsView;
-  Iterable<int> get foodCells => _foodCells; // Public access for queen food guidance
+  Iterable<int> get foodCells =>
+      _foodCells; // Public access for queen food guidance
   int get foodCount => _foodCells.length;
+  Iterable<int> get reinforcedCells => _reinforcedCellsView;
 
   void reset() {
     for (var i = 0; i < cells.length; i++) {
@@ -163,6 +229,7 @@ class WorldGrid {
     _foodCells.clear();
     _activePheromoneCells.clear();
     rooms.clear();
+    _reinforcedCells.clear();
     _homeDistance0Dirty = true;
     _homeDistance1Dirty = true;
     _terrainVersion++;
@@ -252,11 +319,25 @@ class WorldGrid {
     // Reset health to max for this dirt type
     if (cells[idx] == CellType.dirt.index) {
       dirtHealth[idx] = dirtTypeHealth[type]!;
+      if (type == DirtType.hardite || type == DirtType.bedrock) {
+        _reinforcedCells.add(idx);
+      } else {
+        _reinforcedCells.remove(idx);
+      }
     }
   }
 
   void setCell(int x, int y, CellType type, {DirtType? dirtType}) {
     final idx = index(x, y);
+
+    if (type == CellType.air) {
+      final zone = NestZone.values[zones[idx]];
+      final isProtectedZone =
+          zone == NestZone.queenChamber || zone == NestZone.nursery;
+      if (isProtectedZone && _isRoomBoundary(x, y)) {
+        return; // Prevent breaking walls of critical rooms
+      }
+    }
     final previous = cells[idx];
     final incoming = type.index;
     if (previous == incoming && type != CellType.dirt) {
@@ -267,8 +348,14 @@ class WorldGrid {
       final dt = dirtType ?? DirtType.packedEarth;
       dirtTypes[idx] = dt.index;
       dirtHealth[idx] = dirtTypeHealth[dt]!;
+      if (dt == DirtType.hardite || dt == DirtType.bedrock) {
+        _reinforcedCells.add(idx);
+      } else {
+        _reinforcedCells.remove(idx);
+      }
     } else {
       dirtHealth[idx] = 0;
+      _reinforcedCells.remove(idx);
     }
 
     if (type == CellType.food) {
@@ -392,7 +479,12 @@ class WorldGrid {
     }
 
     // Cardinal directions
-    const offsets = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    const offsets = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ];
 
     var iterations = 0;
     while (queue.isNotEmpty && iterations < cells.length) {
@@ -417,10 +509,13 @@ class WorldGrid {
 
         final cellType = cells[nidx];
         // Only spread through air and food cells
-        if (cellType != CellType.air.index && cellType != CellType.food.index) continue;
+        if (cellType != CellType.air.index && cellType != CellType.food.index)
+          continue;
 
         visited[nidx] = true;
-        final newStrength = cellType == CellType.food.index ? 1.0 : strength * decayPerStep;
+        final newStrength = cellType == CellType.food.index
+            ? 1.0
+            : strength * decayPerStep;
 
         // Keep the stronger scent if already set
         if (newStrength > foodScent[nidx]) {
@@ -617,8 +712,8 @@ class WorldGrid {
     required Uint8List cellsData,
     required Float32List dirtHealthData,
     Uint8List? dirtTypesData,
-    Float32List? foodPheromoneData,  // Legacy: single layer
-    Float32List? homePheromoneData,  // Legacy: single layer
+    Float32List? foodPheromoneData, // Legacy: single layer
+    Float32List? homePheromoneData, // Legacy: single layer
     Float32List? foodPheromone0Data, // New: per-colony
     Float32List? foodPheromone1Data,
     Float32List? homePheromone0Data,
@@ -643,32 +738,39 @@ class WorldGrid {
     }
 
     // Support both legacy (single layer) and new (per-colony) formats
-    if (foodPheromone0Data != null && foodPheromone0Data.length == foodPheromones0.length) {
+    if (foodPheromone0Data != null &&
+        foodPheromone0Data.length == foodPheromones0.length) {
       foodPheromones0.setAll(0, foodPheromone0Data);
-    } else if (foodPheromoneData != null && foodPheromoneData.length == foodPheromones0.length) {
+    } else if (foodPheromoneData != null &&
+        foodPheromoneData.length == foodPheromones0.length) {
       // Legacy: copy to colony 0 layer
       foodPheromones0.setAll(0, foodPheromoneData);
     }
 
-    if (foodPheromone1Data != null && foodPheromone1Data.length == foodPheromones1.length) {
+    if (foodPheromone1Data != null &&
+        foodPheromone1Data.length == foodPheromones1.length) {
       foodPheromones1.setAll(0, foodPheromone1Data);
     }
 
-    if (homePheromone0Data != null && homePheromone0Data.length == homePheromones0.length) {
+    if (homePheromone0Data != null &&
+        homePheromone0Data.length == homePheromones0.length) {
       homePheromones0.setAll(0, homePheromone0Data);
-    } else if (homePheromoneData != null && homePheromoneData.length == homePheromones0.length) {
+    } else if (homePheromoneData != null &&
+        homePheromoneData.length == homePheromones0.length) {
       // Legacy: copy to colony 0 layer
       homePheromones0.setAll(0, homePheromoneData);
     }
 
-    if (homePheromone1Data != null && homePheromone1Data.length == homePheromones1.length) {
+    if (homePheromone1Data != null &&
+        homePheromone1Data.length == homePheromones1.length) {
       homePheromones1.setAll(0, homePheromone1Data);
     }
 
     if (zonesData != null && zonesData.length == zones.length) {
       zones.setAll(0, zonesData);
     }
-    if (blockedPheromoneData != null && blockedPheromoneData.length == blockedPheromones.length) {
+    if (blockedPheromoneData != null &&
+        blockedPheromoneData.length == blockedPheromones.length) {
       blockedPheromones.setAll(0, blockedPheromoneData);
     }
     if (foodAmountData != null && foodAmountData.length == foodAmount.length) {
@@ -756,8 +858,10 @@ class WorldGrid {
   void _rebuildPheromoneCache() {
     _activePheromoneCells.clear();
     for (var i = 0; i < cells.length; i++) {
-      if (foodPheromones0[i] > 0 || foodPheromones1[i] > 0 ||
-          homePheromones0[i] > 0 || homePheromones1[i] > 0 ||
+      if (foodPheromones0[i] > 0 ||
+          foodPheromones1[i] > 0 ||
+          homePheromones0[i] > 0 ||
+          homePheromones1[i] > 0 ||
           blockedPheromones[i] > 0) {
         _activePheromoneCells.add(i);
       }
@@ -903,7 +1007,11 @@ class WorldGrid {
   }
 
   /// Find nearest walkable cell of a specific zone type
-  Vector2? nearestZoneCell(Vector2 from, NestZone targetZone, double maxDistance) {
+  Vector2? nearestZoneCell(
+    Vector2 from,
+    NestZone targetZone,
+    double maxDistance,
+  ) {
     final maxDistSq = maxDistance * maxDistance;
     var bestDistSq = maxDistSq;
     Vector2? best;
@@ -967,7 +1075,9 @@ class WorldGrid {
 
   /// Get all rooms of a specific type for a colony
   List<Room> getRoomsOfType(RoomType type, int colonyId) {
-    return rooms.where((r) => r.type == type && r.colonyId == colonyId).toList();
+    return rooms
+        .where((r) => r.type == type && r.colonyId == colonyId)
+        .toList();
   }
 
   /// Get the home room for a colony
@@ -986,6 +1096,97 @@ class WorldGrid {
     );
   }
 
+  /// Get the first barracks room for a colony
+  Room? getBarracksRoom(int colonyId) {
+    return rooms.cast<Room?>().firstWhere(
+      (r) => r!.type == RoomType.barracks && r.colonyId == colonyId,
+      orElse: () => null,
+    );
+  }
+
+  /// Get all barracks rooms for a colony
+  List<Room> getAllBarracks(int colonyId) {
+    return rooms
+        .where((r) => r.type == RoomType.barracks && r.colonyId == colonyId)
+        .toList();
+  }
+
+  /// Find a valid location for a new room near existing colony rooms
+  Vector2? findNewRoomLocation(int colonyId, RoomType type, double radius) {
+    final existingRooms = rooms.where((r) => r.colonyId == colonyId).toList();
+    final homeRoom = getHomeRoom(colonyId);
+    final anchor =
+        (homeRoom ?? (existingRooms.isNotEmpty ? existingRooms.first : null))
+            ?.center ??
+        getNestPosition(colonyId);
+    final queue = Queue<(int, int)>();
+    final visited = <int>{};
+    queue.add((anchor.x.floor(), anchor.y.floor()));
+    final maxDistance = config.nestRadius * 6.0;
+    final searchLimit = math.min(cols * rows, 20000);
+    const directions = <(int, int)>[(1, 0), (-1, 0), (0, 1), (0, -1)];
+
+    while (queue.isNotEmpty && visited.length < searchLimit) {
+      final node = queue.removeFirst();
+      final cx = node.$1;
+      final cy = node.$2;
+      if (!isInsideIndex(cx, cy)) continue;
+      final idx = index(cx, cy);
+      if (!visited.add(idx)) continue;
+
+      final candidate = Vector2(cx + 0.5, cy + 0.5);
+      if (candidate.distanceTo(anchor) > maxDistance) {
+        continue;
+      }
+
+      if (_canPlaceRoomAt(candidate, radius, colonyId)) {
+        return candidate;
+      }
+
+      for (final dir in directions) {
+        final nx = cx + dir.$1 * 2;
+        final ny = cy + dir.$2 * 2;
+        if (!isInsideIndex(nx, ny)) continue;
+        queue.add((nx, ny));
+      }
+    }
+    return null;
+  }
+
+  /// Reinforced perimeter cells for a room (used by builders)
+  List<(int, int)> getRoomPerimeter(Room room) {
+    return room.perimeter(this);
+  }
+
+  /// Reinforce a dirt cell to a harder type (returns true if reinforced)
+  bool reinforceCell(int x, int y) {
+    if (!isInsideIndex(x, y)) return false;
+    final idx = index(x, y);
+    if (cells[idx] != CellType.dirt.index) return false;
+
+    final currentType = DirtType.values[dirtTypes[idx]];
+    DirtType? upgrade;
+    switch (currentType) {
+      case DirtType.softSand:
+        upgrade = DirtType.looseSoil;
+        break;
+      case DirtType.looseSoil:
+        upgrade = DirtType.packedEarth;
+        break;
+      case DirtType.packedEarth:
+        upgrade = DirtType.clay;
+        break;
+      case DirtType.clay:
+        upgrade = DirtType.hardite;
+        break;
+      default:
+        return false; // Already max hardness or bedrock
+    }
+    setDirtType(x, y, upgrade);
+    _terrainVersion++; // Invalidate terrain cache
+    return true;
+  }
+
   /// Check if position is inside a specific room type for a colony
   bool isInRoomType(Vector2 pos, RoomType type, int colonyId) {
     final room = getRoomAt(pos);
@@ -995,6 +1196,7 @@ class WorldGrid {
   /// Add a room and carve out the space
   void addRoom(Room room) {
     rooms.add(room);
+    room.invalidateCache();
     // Carve out the room as air
     final cx = room.center.x.floor();
     final cy = room.center.y.floor();
@@ -1016,10 +1218,81 @@ class WorldGrid {
               zones[idx] = NestZone.nursery.index;
             case RoomType.foodStorage:
               zones[idx] = NestZone.foodStorage.index;
+            case RoomType.barracks:
+              zones[idx] = NestZone.barracks.index;
           }
         }
       }
     }
     _terrainVersion++;
+  }
+
+  bool _canPlaceRoomAt(Vector2 candidate, double radius, int colonyId) {
+    final margin = 4.0;
+    if (candidate.x - radius - 1 < margin ||
+        candidate.y - radius - 1 < margin ||
+        candidate.x + radius + 1 > cols - margin ||
+        candidate.y + radius + 1 > rows - margin) {
+      return false;
+    }
+
+    for (final room in rooms) {
+      if (room.colonyId != colonyId) continue;
+      final minSpacing = room.radius + radius + 1.5;
+      if (candidate.distanceTo(room.center) < minSpacing) {
+        return false;
+      }
+    }
+
+    var diggableCells = 0;
+    final cx = candidate.x.floor();
+    final cy = candidate.y.floor();
+    final checkRadius = radius.ceil() + 1;
+    for (var dx = -checkRadius; dx <= checkRadius; dx++) {
+      for (var dy = -checkRadius; dy <= checkRadius; dy++) {
+        final x = cx + dx;
+        final y = cy + dy;
+        if (!isInsideIndex(x, y)) {
+          return false;
+        }
+        final dist = math.sqrt(dx * dx + dy * dy);
+        if (dist > radius + 0.8) {
+          continue;
+        }
+        final cell = cellTypeAt(x, y);
+        if (cell == CellType.rock) {
+          return false;
+        }
+        if (cell == CellType.dirt) {
+          final dirtType = dirtTypeAt(x, y);
+          if (dirtType == DirtType.bedrock) {
+            return false;
+          }
+          if (dirtType != DirtType.hardite) {
+            diggableCells++;
+          }
+        } else {
+          diggableCells++;
+        }
+      }
+    }
+    final area = math.pi * radius * radius;
+    return diggableCells >= area * 0.5;
+  }
+
+  bool _isRoomBoundary(int x, int y) {
+    final point = Vector2(x + 0.5, y + 0.5);
+    for (final room in rooms) {
+      final dist = point.distanceTo(room.center);
+      if ((dist - room.radius).abs() < 1.5) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool isReinforcedCell(int x, int y) {
+    if (!isInsideIndex(x, y)) return false;
+    return _reinforcedCells.contains(index(x, y));
   }
 }

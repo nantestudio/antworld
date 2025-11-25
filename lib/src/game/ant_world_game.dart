@@ -15,13 +15,15 @@ enum BrushMode { dig, food, rock }
 class AntWorldGame extends FlameGame
     with TapCallbacks, SecondaryTapCallbacks, DragCallbacks, KeyboardEvents {
   AntWorldGame(this.simulation)
-      : brushMode = ValueNotifier<BrushMode>(BrushMode.dig),
-        selectedAnt = ValueNotifier<Ant?>(null);
+    : brushMode = ValueNotifier<BrushMode>(BrushMode.dig),
+      selectedAnt = ValueNotifier<Ant?>(null);
 
   final ColonySimulation simulation;
   final ValueNotifier<BrushMode> brushMode;
   final ValueNotifier<Ant?> selectedAnt;
-  final ValueNotifier<bool> editMode = ValueNotifier<bool>(false); // Default: navigation mode
+  final ValueNotifier<bool> editMode = ValueNotifier<bool>(
+    false,
+  ); // Default: navigation mode
 
   double _worldScale = 1;
   double _baseScale = 1;
@@ -39,33 +41,51 @@ class AntWorldGame extends FlameGame
 
   final Paint _screenBgPaint = Paint()..color = const Color(0xFF0F0F0F);
   // 5 dirt type paints (from soft sand to hardite)
-  final Paint _softSandPaint = Paint()..color = const Color(0xFFD7CCC8);   // Light tan
-  final Paint _looseSoilPaint = Paint()..color = const Color(0xFFA1887F);  // Sandy brown
-  final Paint _packedEarthPaint = Paint()..color = const Color(0xFF795548); // Medium brown
-  final Paint _clayPaint = Paint()..color = const Color(0xFF5D4037);       // Dark brown
-  final Paint _harditePaint = Paint()..color = const Color(0xFF8D6E63);    // Reddish-brown
-  final Paint _bedrockPaint = Paint()..color = const Color(0xFF616161);   // Dark gray (replaces rock)
+  final Paint _softSandPaint = Paint()
+    ..color = const Color(0xFFD7CCC8); // Light tan
+  final Paint _looseSoilPaint = Paint()
+    ..color = const Color(0xFFA1887F); // Sandy brown
+  final Paint _packedEarthPaint = Paint()
+    ..color = const Color(0xFF795548); // Medium brown
+  final Paint _clayPaint = Paint()
+    ..color = const Color(0xFF5D4037); // Dark brown
+  final Paint _harditePaint = Paint()
+    ..color = const Color(0xFF8D6E63); // Reddish-brown
+  final Paint _bedrockPaint = Paint()
+    ..color = const Color(0xFF616161); // Dark gray (replaces rock)
   final Paint _foodPaint = Paint()..color = const Color(0xFF76FF03);
   final Paint _rockPaint = Paint()..color = const Color(0xFF999999);
   // Colony 0 paints (RED tones)
   final Paint _antPaint = Paint()..color = const Color(0xFFF44336); // Red
-  final Paint _antCarryingPaint = Paint()..color = const Color(0xFFEF9A9A); // Light red (carrying food)
+  final Paint _antCarryingPaint = Paint()
+    ..color = const Color(0xFFEF9A9A); // Light red (carrying food)
   // Colony 1 paints (YELLOW tones)
-  final Paint _enemyAntPaint = Paint()..color = const Color(0xFFFFEB3B); // Yellow
-  final Paint _colony1CarryingPaint = Paint()..color = const Color(0xFFFFF59D); // Light yellow (carrying food)
+  final Paint _enemyAntPaint = Paint()
+    ..color = const Color(0xFFFFEB3B); // Yellow
+  final Paint _colony1CarryingPaint = Paint()
+    ..color = const Color(0xFFFFF59D); // Light yellow (carrying food)
   // Colony 2 paints (BLUE tones)
-  final Paint _colony2AntPaint = Paint()..color = const Color(0xFF2196F3); // Blue
-  final Paint _colony2CarryingPaint = Paint()..color = const Color(0xFF64B5F6); // Light blue (carrying)
+  final Paint _colony2AntPaint = Paint()
+    ..color = const Color(0xFF2196F3); // Blue
+  final Paint _colony2CarryingPaint = Paint()
+    ..color = const Color(0xFF64B5F6); // Light blue (carrying)
   // Colony 3 paints (WHITE/GRAY tones)
-  final Paint _colony3AntPaint = Paint()..color = const Color(0xFFFFFFFF); // White
-  final Paint _colony3CarryingPaint = Paint()..color = const Color(0xFF9E9E9E); // Gray (carrying)
+  final Paint _colony3AntPaint = Paint()
+    ..color = const Color(0xFFFFFFFF); // White
+  final Paint _colony3CarryingPaint = Paint()
+    ..color = const Color(0xFF9E9E9E); // Gray (carrying)
   // Nest paints for all 4 colonies (match ant colors)
-  final Paint _nestPaint = Paint()..color = const Color(0xFFF44336); // Red (matches colony 0)
-  final Paint _nest1Paint = Paint()..color = const Color(0xFFFFEB3B); // Yellow (matches colony 1)
-  final Paint _nest2Paint = Paint()..color = const Color(0xFF2196F3); // Blue (matches colony 2)
-  final Paint _nest3Paint = Paint()..color = const Color(0xFFFFFFFF); // White (matches colony 3)
+  final Paint _nestPaint = Paint()
+    ..color = const Color(0xFFF44336); // Red (matches colony 0)
+  final Paint _nest1Paint = Paint()
+    ..color = const Color(0xFFFFEB3B); // Yellow (matches colony 1)
+  final Paint _nest2Paint = Paint()
+    ..color = const Color(0xFF2196F3); // Blue (matches colony 2)
+  final Paint _nest3Paint = Paint()
+    ..color = const Color(0xFFFFFFFF); // White (matches colony 3)
   // Food scent visualization paint
-  final Paint _foodScentPaint = Paint()..color = const Color(0xFF00FF00); // Green for food smell
+  final Paint _foodScentPaint = Paint()
+    ..color = const Color(0xFF00FF00); // Green for food smell
   // Colony 0 pheromone paints (blue/gray)
   final Paint _foodPheromone0Paint = Paint()..color = const Color(0xFF0064FF);
   final Paint _homePheromone0Paint = Paint()..color = const Color(0xFF888888);
@@ -77,32 +97,86 @@ class AntWorldGame extends FlameGame
     ..style = PaintingStyle.stroke
     ..strokeWidth = 2.0;
   // Queen paints (larger, with aura) - match colony colors
-  final Paint _queen0Paint = Paint()..color = const Color(0xFFD32F2F); // Darker red
-  final Paint _queen1Paint = Paint()..color = const Color(0xFFFBC02D); // Darker yellow
-  final Paint _queen2Paint = Paint()..color = const Color(0xFF1976D2); // Darker blue
-  final Paint _queen3Paint = Paint()..color = const Color(0xFFE0E0E0); // Light gray (white queen)
-  final Paint _queenAura0Paint = Paint()..color = const Color(0x33F44336); // Transparent red
-  final Paint _queenAura1Paint = Paint()..color = const Color(0x33FFEB3B); // Transparent yellow
-  final Paint _queenAura2Paint = Paint()..color = const Color(0x332196F3); // Transparent blue
-  final Paint _queenAura3Paint = Paint()..color = const Color(0x33FFFFFF); // Transparent white
+  final Paint _queen0Paint = Paint()
+    ..color = const Color(0xFFD32F2F); // Darker red
+  final Paint _queen1Paint = Paint()
+    ..color = const Color(0xFFFBC02D); // Darker yellow
+  final Paint _queen2Paint = Paint()
+    ..color = const Color(0xFF1976D2); // Darker blue
+  final Paint _queen3Paint = Paint()
+    ..color = const Color(0xFFE0E0E0); // Light gray (white queen)
+  final Paint _queenAura0Paint = Paint()
+    ..color = const Color(0x33F44336); // Transparent red
+  final Paint _queenAura1Paint = Paint()
+    ..color = const Color(0x33FFEB3B); // Transparent yellow
+  final Paint _queenAura2Paint = Paint()
+    ..color = const Color(0x332196F3); // Transparent blue
+  final Paint _queenAura3Paint = Paint()
+    ..color = const Color(0x33FFFFFF); // Transparent white
   // Larva paint (smaller, lighter)
-  final Paint _larva0Paint = Paint()..color = const Color(0x99EF9A9A); // Light red, semi-transparent
-  final Paint _larva1Paint = Paint()..color = const Color(0x99FFF59D); // Light yellow, semi-transparent
-  final Paint _larva2Paint = Paint()..color = const Color(0x9990CAF9); // Light blue, semi-transparent
-  final Paint _larva3Paint = Paint()..color = const Color(0x99E0E0E0); // Light gray, semi-transparent
+  final Paint _larva0Paint = Paint()
+    ..color = const Color(0x99EF9A9A); // Light red, semi-transparent
+  final Paint _larva1Paint = Paint()
+    ..color = const Color(0x99FFF59D); // Light yellow, semi-transparent
+  final Paint _larva2Paint = Paint()
+    ..color = const Color(0x9990CAF9); // Light blue, semi-transparent
+  final Paint _larva3Paint = Paint()
+    ..color = const Color(0x99E0E0E0); // Light gray, semi-transparent
   // Egg paint (tiny, colony-colored)
-  final Paint _egg0Paint = Paint()..color = const Color(0xCCFFCDD2); // Pale red, semi-transparent
-  final Paint _egg1Paint = Paint()..color = const Color(0xCCFFF9C4); // Pale yellow, semi-transparent
-  final Paint _egg2Paint = Paint()..color = const Color(0xCCBBDEFB); // Pale blue, semi-transparent
-  final Paint _egg3Paint = Paint()..color = const Color(0xCCF5F5F5); // Pale white, semi-transparent
+  final Paint _egg0Paint = Paint()
+    ..color = const Color(0xCCFFCDD2); // Pale red, semi-transparent
+  final Paint _egg1Paint = Paint()
+    ..color = const Color(0xCCFFF9C4); // Pale yellow, semi-transparent
+  final Paint _egg2Paint = Paint()
+    ..color = const Color(0xCCBBDEFB); // Pale blue, semi-transparent
+  final Paint _egg3Paint = Paint()
+    ..color = const Color(0xCCF5F5F5); // Pale white, semi-transparent
+  // Builder paint (brown tones - construction workers)
+  final Paint _builder0Paint = Paint()
+    ..color = const Color(0xFF8D6E63); // Brown
+  final Paint _builder1Paint = Paint()
+    ..color = const Color(0xFFD7CCC8); // Light brown/tan
+  final Paint _builder2Paint = Paint()
+    ..color = const Color(0xFF5D4037); // Dark brown
+  final Paint _builder3Paint = Paint()
+    ..color = const Color(0xFFA1887F); // Medium brown
+  final Paint _builder0CarryingPaint = Paint()..color = const Color(0xFFBCAAA4);
+  final Paint _builder1CarryingPaint = Paint()..color = const Color(0xFFEFE6DC);
+  final Paint _builder2CarryingPaint = Paint()..color = const Color(0xFF8D6E63);
+  final Paint _builder3CarryingPaint = Paint()..color = const Color(0xFFCAB6A3);
+  final Paint _reinforcedWallPaint = Paint()
+    ..color = const Color(0x33FFAB40)
+    ..style = PaintingStyle.fill;
+  final Paint _soldierAccentPaint = Paint()
+    ..color = const Color(0xFFEF6C00)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.3;
+  final Paint _nurseAccentPaint = Paint()
+    ..color = const Color(0xFFF48FB1)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.2;
+  final Paint _princessAccentPaint = Paint()
+    ..color = const Color(0xFF8E24AA)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.5;
 
   // Room overlay paints (semi-transparent)
-  final Paint _homeRoom0Paint = Paint()..color = const Color(0x1A4DD0E1); // Cyan 10%
-  final Paint _homeRoom1Paint = Paint()..color = const Color(0x1AFF7043); // Orange 10%
-  final Paint _nurseryRoom0Paint = Paint()..color = const Color(0x1AE91E63); // Pink 10%
-  final Paint _nurseryRoom1Paint = Paint()..color = const Color(0x1AFF9800); // Amber 10%
-  final Paint _foodRoom0Paint = Paint()..color = const Color(0x1A8BC34A); // Green 10%
-  final Paint _foodRoom1Paint = Paint()..color = const Color(0x1ACDDC39); // Lime 10%
+  final Paint _homeRoom0Paint = Paint()
+    ..color = const Color(0x1A4DD0E1); // Cyan 10%
+  final Paint _homeRoom1Paint = Paint()
+    ..color = const Color(0x1AFF7043); // Orange 10%
+  final Paint _nurseryRoom0Paint = Paint()
+    ..color = const Color(0x1AE91E63); // Pink 10%
+  final Paint _nurseryRoom1Paint = Paint()
+    ..color = const Color(0x1AFF9800); // Amber 10%
+  final Paint _foodRoom0Paint = Paint()
+    ..color = const Color(0x1A8BC34A); // Green 10%
+  final Paint _foodRoom1Paint = Paint()
+    ..color = const Color(0x1ACDDC39); // Lime 10%
+  final Paint _barracksRoom0Paint = Paint()
+    ..color = const Color(0x1A795548); // Brown 10%
+  final Paint _barracksRoom1Paint = Paint()
+    ..color = const Color(0x1AA1887F); // Light brown 10%
   final Paint _homeRoomBorder0Paint = Paint()
     ..color = const Color(0x334DD0E1)
     ..style = PaintingStyle.stroke
@@ -127,9 +201,19 @@ class AntWorldGame extends FlameGame
     ..color = const Color(0x33CDDC39)
     ..style = PaintingStyle.stroke
     ..strokeWidth = 2.0;
+  final Paint _barracksRoomBorder0Paint = Paint()
+    ..color = const Color(0x33795548)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
+  final Paint _barracksRoomBorder1Paint = Paint()
+    ..color = const Color(0x33A1887F)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 2.0;
   // Stored food item paints (small circles in food room)
-  final Paint _storedFood0Paint = Paint()..color = const Color(0xCC76FF03); // Bright green
-  final Paint _storedFood1Paint = Paint()..color = const Color(0xCCFFEB3B); // Yellow
+  final Paint _storedFood0Paint = Paint()
+    ..color = const Color(0xCC76FF03); // Bright green
+  final Paint _storedFood1Paint = Paint()
+    ..color = const Color(0xCCFFEB3B); // Yellow
 
   // Cached TextPainters for labels (avoid per-frame allocation)
   static const _nestLabelStyle = TextStyle(
@@ -159,6 +243,10 @@ class AntWorldGame extends FlameGame
   )..layout();
   late final TextPainter _foodStorageLabelPainter = TextPainter(
     text: const TextSpan(text: 'Food', style: _roomLabelStyle),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  late final TextPainter _barracksLabelPainter = TextPainter(
+    text: const TextSpan(text: 'Barracks', style: _roomLabelStyle),
     textDirection: TextDirection.ltr,
   )..layout();
 
@@ -193,7 +281,10 @@ class AntWorldGame extends FlameGame
   }
 
   @override
-  KeyEventResult onKeyEvent(KeyEvent event, Set<LogicalKeyboardKey> keysPressed) {
+  KeyEventResult onKeyEvent(
+    KeyEvent event,
+    Set<LogicalKeyboardKey> keysPressed,
+  ) {
     if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.keyP) {
       simulation.togglePheromones();
       return KeyEventResult.handled;
@@ -308,7 +399,10 @@ class AntWorldGame extends FlameGame
   }
 
   void setZoom(double zoom) {
-    final clamped = zoom.clamp(0.1, 5.0); // Allow more zoom range for large maps
+    final clamped = zoom.clamp(
+      0.1,
+      5.0,
+    ); // Allow more zoom range for large maps
     if ((_zoomFactor - clamped).abs() < 0.001) {
       return;
     }
@@ -336,6 +430,7 @@ class AntWorldGame extends FlameGame
 
     // Draw room overlays
     _drawRooms(canvas, world, cellSize);
+    _drawReinforcedWalls(canvas, world, cellSize);
 
     // Render colony 0 nest (cyan)
     final nest0 = world.nestPosition;
@@ -360,7 +455,10 @@ class AntWorldGame extends FlameGame
 
   void _drawRooms(Canvas canvas, WorldGrid world, double cellSize) {
     for (final room in world.rooms) {
-      final centerOffset = Offset(room.center.x * cellSize, room.center.y * cellSize);
+      final centerOffset = Offset(
+        room.center.x * cellSize,
+        room.center.y * cellSize,
+      );
       final radiusPixels = room.radius * cellSize;
 
       // Select paints based on room type and colony
@@ -369,13 +467,28 @@ class AntWorldGame extends FlameGame
       switch (room.type) {
         case RoomType.home:
           fillPaint = room.colonyId == 0 ? _homeRoom0Paint : _homeRoom1Paint;
-          borderPaint = room.colonyId == 0 ? _homeRoomBorder0Paint : _homeRoomBorder1Paint;
+          borderPaint = room.colonyId == 0
+              ? _homeRoomBorder0Paint
+              : _homeRoomBorder1Paint;
         case RoomType.nursery:
-          fillPaint = room.colonyId == 0 ? _nurseryRoom0Paint : _nurseryRoom1Paint;
-          borderPaint = room.colonyId == 0 ? _nurseryRoomBorder0Paint : _nurseryRoomBorder1Paint;
+          fillPaint = room.colonyId == 0
+              ? _nurseryRoom0Paint
+              : _nurseryRoom1Paint;
+          borderPaint = room.colonyId == 0
+              ? _nurseryRoomBorder0Paint
+              : _nurseryRoomBorder1Paint;
         case RoomType.foodStorage:
           fillPaint = room.colonyId == 0 ? _foodRoom0Paint : _foodRoom1Paint;
-          borderPaint = room.colonyId == 0 ? _foodRoomBorder0Paint : _foodRoomBorder1Paint;
+          borderPaint = room.colonyId == 0
+              ? _foodRoomBorder0Paint
+              : _foodRoomBorder1Paint;
+        case RoomType.barracks:
+          fillPaint = room.colonyId == 0
+              ? _barracksRoom0Paint
+              : _barracksRoom1Paint;
+          borderPaint = room.colonyId == 0
+              ? _barracksRoomBorder0Paint
+              : _barracksRoomBorder1Paint;
       }
 
       // Draw filled circle
@@ -390,6 +503,22 @@ class AntWorldGame extends FlameGame
 
       // Draw room label
       _drawRoomLabel(canvas, centerOffset, room);
+    }
+  }
+
+  void _drawReinforcedWalls(Canvas canvas, WorldGrid world, double cellSize) {
+    for (final room in world.rooms) {
+      final perimeter = world.getRoomPerimeter(room);
+      for (final (x, y) in perimeter) {
+        if (!world.isReinforcedCell(x, y)) continue;
+        final rect = Rect.fromLTWH(
+          x * cellSize,
+          y * cellSize,
+          cellSize,
+          cellSize,
+        );
+        canvas.drawRect(rect, _reinforcedWallPaint);
+      }
     }
   }
 
@@ -428,6 +557,8 @@ class AntWorldGame extends FlameGame
         painter = _nurseryLabelPainter;
       case RoomType.foodStorage:
         painter = _foodStorageLabelPainter;
+      case RoomType.barracks:
+        painter = _barracksLabelPainter;
     }
     final offset = centerOffset - Offset(painter.width / 2, painter.height / 2);
     painter.paint(canvas, offset);
@@ -519,6 +650,11 @@ class AntWorldGame extends FlameGame
 
   void _drawPheromones(Canvas canvas, WorldGrid world, double cellSize) {
     final cols = world.cols;
+    final showFood = simulation.showFoodPheromones;
+    final showHome = simulation.showHomePheromones;
+    if (!showFood && !showHome) {
+      return;
+    }
     // Only iterate over cells with active pheromones
     for (final idx in world.activePheromoneCells) {
       if (world.cells[idx] != CellType.air.index) {
@@ -526,10 +662,19 @@ class AntWorldGame extends FlameGame
       }
 
       // Get pheromone strengths for both colonies
-      final food0 = world.foodPheromones0[idx];
-      final home0 = world.homePheromones0[idx];
-      final food1 = world.foodPheromones1[idx];
-      final home1 = world.homePheromones1[idx];
+      var food0 = world.foodPheromones0[idx];
+      var home0 = world.homePheromones0[idx];
+      var food1 = world.foodPheromones1[idx];
+      var home1 = world.homePheromones1[idx];
+
+      if (!showFood) {
+        food0 = 0;
+        food1 = 0;
+      }
+      if (!showHome) {
+        home0 = 0;
+        home1 = 0;
+      }
 
       // Skip if all pheromones are too weak
       if (food0 <= 0.05 && home0 <= 0.05 && food1 <= 0.05 && home1 <= 0.05) {
@@ -553,26 +698,30 @@ class AntWorldGame extends FlameGame
         // Colony 0 dominates
         if (food0 >= home0) {
           final alpha = food0.clamp(0, 1).toDouble();
-          _foodPheromone0Paint.color =
-              const Color(0xFF0064FF).withValues(alpha: alpha);
+          _foodPheromone0Paint.color = const Color(
+            0xFF0064FF,
+          ).withValues(alpha: alpha);
           canvas.drawRect(rect, _foodPheromone0Paint);
         } else {
           final alpha = home0.clamp(0, 0.6).toDouble();
-          _homePheromone0Paint.color =
-              const Color(0xFF888888).withValues(alpha: alpha);
+          _homePheromone0Paint.color = const Color(
+            0xFF888888,
+          ).withValues(alpha: alpha);
           canvas.drawRect(rect, _homePheromone0Paint);
         }
       } else if (max1 > 0.05) {
         // Colony 1 dominates
         if (food1 >= home1) {
           final alpha = food1.clamp(0, 1).toDouble();
-          _foodPheromone1Paint.color =
-              const Color(0xFFFF6400).withValues(alpha: alpha);
+          _foodPheromone1Paint.color = const Color(
+            0xFFFF6400,
+          ).withValues(alpha: alpha);
           canvas.drawRect(rect, _foodPheromone1Paint);
         } else {
           final alpha = home1.clamp(0, 0.6).toDouble();
-          _homePheromone1Paint.color =
-              const Color(0xFF884488).withValues(alpha: alpha);
+          _homePheromone1Paint.color = const Color(
+            0xFF884488,
+          ).withValues(alpha: alpha);
           canvas.drawRect(rect, _homePheromone1Paint);
         }
       }
@@ -595,7 +744,9 @@ class AntWorldGame extends FlameGame
 
           // Bright lime green for food scent, highly visible alpha
           final alpha = (scent * 1.2).clamp(0.1, 0.8); // Much more visible
-          _foodScentPaint.color = const Color(0xFF00FF00).withValues(alpha: alpha);
+          _foodScentPaint.color = const Color(
+            0xFF00FF00,
+          ).withValues(alpha: alpha);
           canvas.drawRect(rect, _foodScentPaint);
         }
       }
@@ -608,11 +759,21 @@ class AntWorldGame extends FlameGame
     final colonyCarryingPaths = List.generate(4, (_) => Path());
     final larvaPaths = List.generate(4, (_) => Path());
     final eggPaths = List.generate(4, (_) => Path());
+    final builderPaths = List.generate(4, (_) => Path());
+    final builderCarryingPaths = List.generate(4, (_) => Path());
+    final soldierAccentPaths = List.generate(4, (_) => Path());
+    final nurseAccentPaths = List.generate(4, (_) => Path());
+    final princessAccentPaths = List.generate(4, (_) => Path());
 
     final colonyHasContent = List.filled(4, false);
     final colonyCarryingHasContent = List.filled(4, false);
     final larvaHasContent = List.filled(4, false);
     final eggHasContent = List.filled(4, false);
+    final builderHasContent = List.filled(4, false);
+    final builderCarryingHasContent = List.filled(4, false);
+    final soldierAccentHasContent = List.filled(4, false);
+    final nurseAccentHasContent = List.filled(4, false);
+    final princessAccentHasContent = List.filled(4, false);
 
     // Collect queens to draw separately (on top, with aura)
     final queens = <Ant>[];
@@ -622,7 +783,10 @@ class AntWorldGame extends FlameGame
     final eggRadius = cellSize * 0.12;
 
     for (final Ant ant in simulation.ants) {
-      final center = Offset(ant.position.x * cellSize, ant.position.y * cellSize);
+      final center = Offset(
+        ant.position.x * cellSize,
+        ant.position.y * cellSize,
+      );
       final cid = ant.colonyId.clamp(0, 3);
 
       if (ant.caste == AntCaste.queen) {
@@ -631,18 +795,42 @@ class AntWorldGame extends FlameGame
       }
 
       if (ant.caste == AntCaste.egg) {
-        eggPaths[cid].addOval(Rect.fromCircle(center: center, radius: eggRadius));
+        eggPaths[cid].addOval(
+          Rect.fromCircle(center: center, radius: eggRadius),
+        );
         eggHasContent[cid] = true;
         continue;
       }
 
       if (ant.caste == AntCaste.larva) {
-        larvaPaths[cid].addOval(Rect.fromCircle(center: center, radius: larvaRadius));
+        larvaPaths[cid].addOval(
+          Rect.fromCircle(center: center, radius: larvaRadius),
+        );
         larvaHasContent[cid] = true;
         continue;
       }
 
+      if (ant.caste == AntCaste.builder) {
+        if (ant.hasFood) {
+          builderCarryingPaths[cid].addOval(
+            Rect.fromCircle(center: center, radius: radius * 1.1),
+          );
+          builderCarryingHasContent[cid] = true;
+        } else {
+          builderPaths[cid].addOval(
+            Rect.fromCircle(center: center, radius: radius * 1.1),
+          );
+          builderHasContent[cid] = true;
+        }
+        continue;
+      }
+
       final rect = Rect.fromCircle(center: center, radius: radius);
+      void addAccent(Path path, List<bool> hasContent, double scale) {
+        path.addOval(Rect.fromCircle(center: center, radius: radius * scale));
+        hasContent[cid] = true;
+      }
+
       if (ant.hasFood) {
         colonyCarryingPaths[cid].addOval(rect);
         colonyCarryingHasContent[cid] = true;
@@ -650,13 +838,51 @@ class AntWorldGame extends FlameGame
         colonyPaths[cid].addOval(rect);
         colonyHasContent[cid] = true;
       }
+
+      switch (ant.caste) {
+        case AntCaste.soldier:
+          addAccent(soldierAccentPaths[cid], soldierAccentHasContent, 1.25);
+        case AntCaste.nurse:
+          addAccent(nurseAccentPaths[cid], nurseAccentHasContent, 1.15);
+        case AntCaste.princess:
+          addAccent(princessAccentPaths[cid], princessAccentHasContent, 1.3);
+        default:
+          break;
+      }
     }
 
     // Paints for each colony (Blue, Red, Yellow, Magenta)
-    final antPaints = [_antPaint, _enemyAntPaint, _colony2AntPaint, _colony3AntPaint];
-    final carryingPaints = [_antCarryingPaint, _colony1CarryingPaint, _colony2CarryingPaint, _colony3CarryingPaint];
-    final larvaPaints = [_larva0Paint, _larva1Paint, _larva2Paint, _larva3Paint];
+    final antPaints = [
+      _antPaint,
+      _enemyAntPaint,
+      _colony2AntPaint,
+      _colony3AntPaint,
+    ];
+    final carryingPaints = [
+      _antCarryingPaint,
+      _colony1CarryingPaint,
+      _colony2CarryingPaint,
+      _colony3CarryingPaint,
+    ];
+    final larvaPaints = [
+      _larva0Paint,
+      _larva1Paint,
+      _larva2Paint,
+      _larva3Paint,
+    ];
     final eggPaints = [_egg0Paint, _egg1Paint, _egg2Paint, _egg3Paint];
+    final builderPaints = [
+      _builder0Paint,
+      _builder1Paint,
+      _builder2Paint,
+      _builder3Paint,
+    ];
+    final builderCarryingPaints = [
+      _builder0CarryingPaint,
+      _builder1CarryingPaint,
+      _builder2CarryingPaint,
+      _builder3CarryingPaint,
+    ];
 
     // Draw eggs (background)
     for (var i = 0; i < 4; i++) {
@@ -668,20 +894,55 @@ class AntWorldGame extends FlameGame
       if (larvaHasContent[i]) canvas.drawPath(larvaPaths[i], larvaPaints[i]);
     }
 
+    // Draw builders (brown, slightly larger)
+    for (var i = 0; i < 4; i++) {
+      if (builderHasContent[i])
+        canvas.drawPath(builderPaths[i], builderPaints[i]);
+      if (builderCarryingHasContent[i]) {
+        canvas.drawPath(builderCarryingPaths[i], builderCarryingPaints[i]);
+      }
+    }
+
     // Draw ants
     for (var i = 0; i < 4; i++) {
       if (colonyHasContent[i]) canvas.drawPath(colonyPaths[i], antPaints[i]);
-      if (colonyCarryingHasContent[i]) canvas.drawPath(colonyCarryingPaths[i], carryingPaints[i]);
+      if (colonyCarryingHasContent[i])
+        canvas.drawPath(colonyCarryingPaths[i], carryingPaints[i]);
+    }
+
+    for (var i = 0; i < 4; i++) {
+      if (soldierAccentHasContent[i]) {
+        canvas.drawPath(soldierAccentPaths[i], _soldierAccentPaint);
+      }
+      if (nurseAccentHasContent[i]) {
+        canvas.drawPath(nurseAccentPaths[i], _nurseAccentPaint);
+      }
+      if (princessAccentHasContent[i]) {
+        canvas.drawPath(princessAccentPaths[i], _princessAccentPaint);
+      }
     }
 
     // Draw queens with aura (Blue, Red, Yellow, Magenta)
     final queenRadius = cellSize * 0.7;
     final auraRadius = cellSize * 2.5;
-    final queenPaints = [_queen0Paint, _queen1Paint, _queen2Paint, _queen3Paint];
-    final queenAuraPaints = [_queenAura0Paint, _queenAura1Paint, _queenAura2Paint, _queenAura3Paint];
+    final queenPaints = [
+      _queen0Paint,
+      _queen1Paint,
+      _queen2Paint,
+      _queen3Paint,
+    ];
+    final queenAuraPaints = [
+      _queenAura0Paint,
+      _queenAura1Paint,
+      _queenAura2Paint,
+      _queenAura3Paint,
+    ];
 
     for (final queen in queens) {
-      final center = Offset(queen.position.x * cellSize, queen.position.y * cellSize);
+      final center = Offset(
+        queen.position.x * cellSize,
+        queen.position.y * cellSize,
+      );
       final cid = queen.colonyId.clamp(0, 3);
       canvas.drawCircle(center, auraRadius, queenAuraPaints[cid]);
       canvas.drawCircle(center, queenRadius, queenPaints[cid]);
@@ -761,7 +1022,10 @@ class AntWorldGame extends FlameGame
     if (px < 0 || py < 0 || px >= width || py >= height) {
       return null;
     }
-    return Vector2(px / simulation.config.cellSize, py / simulation.config.cellSize);
+    return Vector2(
+      px / simulation.config.cellSize,
+      py / simulation.config.cellSize,
+    );
   }
 
   void _recalculateBaseScale() {
