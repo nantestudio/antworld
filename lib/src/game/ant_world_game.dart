@@ -47,23 +47,23 @@ class AntWorldGame extends FlameGame
   final Paint _bedrockPaint = Paint()..color = const Color(0xFF616161);   // Dark gray (replaces rock)
   final Paint _foodPaint = Paint()..color = const Color(0xFF76FF03);
   final Paint _rockPaint = Paint()..color = const Color(0xFF999999);
-  // Colony 0 paints (BLUE tones)
-  final Paint _antPaint = Paint()..color = const Color(0xFF2196F3); // Blue
-  final Paint _antCarryingPaint = Paint()..color = const Color(0xFF64B5F6); // Light blue (carrying food)
-  // Colony 1 paints (RED tones)
-  final Paint _enemyAntPaint = Paint()..color = const Color(0xFFF44336); // Red
-  final Paint _colony1CarryingPaint = Paint()..color = const Color(0xFFEF9A9A); // Light red (carrying food)
-  // Colony 2 paints (YELLOW tones)
-  final Paint _colony2AntPaint = Paint()..color = const Color(0xFFFFEB3B); // Yellow
-  final Paint _colony2CarryingPaint = Paint()..color = const Color(0xFFFFF59D); // Light yellow (carrying)
-  // Colony 3 paints (MAGENTA/PINK tones)
-  final Paint _colony3AntPaint = Paint()..color = const Color(0xFFE91E63); // Magenta/Pink
-  final Paint _colony3CarryingPaint = Paint()..color = const Color(0xFFF48FB1); // Light pink (carrying)
+  // Colony 0 paints (RED tones)
+  final Paint _antPaint = Paint()..color = const Color(0xFFF44336); // Red
+  final Paint _antCarryingPaint = Paint()..color = const Color(0xFFEF9A9A); // Light red (carrying food)
+  // Colony 1 paints (YELLOW tones)
+  final Paint _enemyAntPaint = Paint()..color = const Color(0xFFFFEB3B); // Yellow
+  final Paint _colony1CarryingPaint = Paint()..color = const Color(0xFFFFF59D); // Light yellow (carrying food)
+  // Colony 2 paints (BLUE tones)
+  final Paint _colony2AntPaint = Paint()..color = const Color(0xFF2196F3); // Blue
+  final Paint _colony2CarryingPaint = Paint()..color = const Color(0xFF64B5F6); // Light blue (carrying)
+  // Colony 3 paints (WHITE/GRAY tones)
+  final Paint _colony3AntPaint = Paint()..color = const Color(0xFFFFFFFF); // White
+  final Paint _colony3CarryingPaint = Paint()..color = const Color(0xFF9E9E9E); // Gray (carrying)
   // Nest paints for all 4 colonies (match ant colors)
-  final Paint _nestPaint = Paint()..color = const Color(0xFF2196F3); // Blue (matches colony 0)
-  final Paint _nest1Paint = Paint()..color = const Color(0xFFF44336); // Red (matches colony 1)
-  final Paint _nest2Paint = Paint()..color = const Color(0xFFFFEB3B); // Yellow (matches colony 2)
-  final Paint _nest3Paint = Paint()..color = const Color(0xFFE91E63); // Magenta (matches colony 3)
+  final Paint _nestPaint = Paint()..color = const Color(0xFFF44336); // Red (matches colony 0)
+  final Paint _nest1Paint = Paint()..color = const Color(0xFFFFEB3B); // Yellow (matches colony 1)
+  final Paint _nest2Paint = Paint()..color = const Color(0xFF2196F3); // Blue (matches colony 2)
+  final Paint _nest3Paint = Paint()..color = const Color(0xFFFFFFFF); // White (matches colony 3)
   // Food scent visualization paint
   final Paint _foodScentPaint = Paint()..color = const Color(0xFF00FF00); // Green for food smell
   // Colony 0 pheromone paints (blue/gray)
@@ -77,24 +77,24 @@ class AntWorldGame extends FlameGame
     ..style = PaintingStyle.stroke
     ..strokeWidth = 2.0;
   // Queen paints (larger, with aura) - match colony colors
-  final Paint _queen0Paint = Paint()..color = const Color(0xFF1976D2); // Darker blue
-  final Paint _queen1Paint = Paint()..color = const Color(0xFFD32F2F); // Darker red
-  final Paint _queen2Paint = Paint()..color = const Color(0xFFFBC02D); // Darker yellow
-  final Paint _queen3Paint = Paint()..color = const Color(0xFFC2185B); // Darker magenta
-  final Paint _queenAura0Paint = Paint()..color = const Color(0x332196F3); // Transparent blue
-  final Paint _queenAura1Paint = Paint()..color = const Color(0x33F44336); // Transparent red
-  final Paint _queenAura2Paint = Paint()..color = const Color(0x33FFEB3B); // Transparent yellow
-  final Paint _queenAura3Paint = Paint()..color = const Color(0x33E91E63); // Transparent magenta
+  final Paint _queen0Paint = Paint()..color = const Color(0xFFD32F2F); // Darker red
+  final Paint _queen1Paint = Paint()..color = const Color(0xFFFBC02D); // Darker yellow
+  final Paint _queen2Paint = Paint()..color = const Color(0xFF1976D2); // Darker blue
+  final Paint _queen3Paint = Paint()..color = const Color(0xFFE0E0E0); // Light gray (white queen)
+  final Paint _queenAura0Paint = Paint()..color = const Color(0x33F44336); // Transparent red
+  final Paint _queenAura1Paint = Paint()..color = const Color(0x33FFEB3B); // Transparent yellow
+  final Paint _queenAura2Paint = Paint()..color = const Color(0x332196F3); // Transparent blue
+  final Paint _queenAura3Paint = Paint()..color = const Color(0x33FFFFFF); // Transparent white
   // Larva paint (smaller, lighter)
-  final Paint _larva0Paint = Paint()..color = const Color(0x9990CAF9); // Light blue, semi-transparent
-  final Paint _larva1Paint = Paint()..color = const Color(0x99EF9A9A); // Light red, semi-transparent
-  final Paint _larva2Paint = Paint()..color = const Color(0x99FFF59D); // Light yellow, semi-transparent
-  final Paint _larva3Paint = Paint()..color = const Color(0x99F48FB1); // Light pink, semi-transparent
+  final Paint _larva0Paint = Paint()..color = const Color(0x99EF9A9A); // Light red, semi-transparent
+  final Paint _larva1Paint = Paint()..color = const Color(0x99FFF59D); // Light yellow, semi-transparent
+  final Paint _larva2Paint = Paint()..color = const Color(0x9990CAF9); // Light blue, semi-transparent
+  final Paint _larva3Paint = Paint()..color = const Color(0x99E0E0E0); // Light gray, semi-transparent
   // Egg paint (tiny, colony-colored)
-  final Paint _egg0Paint = Paint()..color = const Color(0xCCBBDEFB); // Pale blue, semi-transparent
-  final Paint _egg1Paint = Paint()..color = const Color(0xCCFFCDD2); // Pale red, semi-transparent
-  final Paint _egg2Paint = Paint()..color = const Color(0xCCFFF9C4); // Pale yellow, semi-transparent
-  final Paint _egg3Paint = Paint()..color = const Color(0xCCF8BBD9); // Pale pink, semi-transparent
+  final Paint _egg0Paint = Paint()..color = const Color(0xCCFFCDD2); // Pale red, semi-transparent
+  final Paint _egg1Paint = Paint()..color = const Color(0xCCFFF9C4); // Pale yellow, semi-transparent
+  final Paint _egg2Paint = Paint()..color = const Color(0xCCBBDEFB); // Pale blue, semi-transparent
+  final Paint _egg3Paint = Paint()..color = const Color(0xCCF5F5F5); // Pale white, semi-transparent
 
   // Room overlay paints (semi-transparent)
   final Paint _homeRoom0Paint = Paint()..color = const Color(0x1A4DD0E1); // Cyan 10%
