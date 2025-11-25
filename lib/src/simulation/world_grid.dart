@@ -159,6 +159,8 @@ class WorldGrid {
       foodAmount = Uint8List(config.cols * config.rows),
       _homeDistances0 = Int32List(config.cols * config.rows),
       _homeDistances1 = Int32List(config.cols * config.rows),
+      _homeDistances2 = Int32List(config.cols * config.rows),
+      _homeDistances3 = Int32List(config.cols * config.rows),
       nestPositions = List.generate(4, (i) {
         if (i == 0) {
           return (nestOverride ?? Vector2(config.cols / 2, config.rows / 2))
@@ -210,8 +212,12 @@ class WorldGrid {
       UnmodifiableSetView(_activePheromoneCells);
   final Int32List _homeDistances0; // BFS distances to colony 0 nest
   final Int32List _homeDistances1; // BFS distances to colony 1 nest
+  final Int32List _homeDistances2; // BFS distances to colony 2 nest
+  final Int32List _homeDistances3; // BFS distances to colony 3 nest
   bool _homeDistance0Dirty = true;
   bool _homeDistance1Dirty = true;
+  bool _homeDistance2Dirty = true;
+  bool _homeDistance3Dirty = true;
   int _terrainVersion = 0;
   final List<Room> rooms = []; // Discrete colony chambers
 
@@ -251,6 +257,8 @@ class WorldGrid {
     _activeFoodScentCells.clear();
     _homeDistance0Dirty = true;
     _homeDistance1Dirty = true;
+    _homeDistance2Dirty = true;
+    _homeDistance3Dirty = true;
     _terrainVersion++;
   }
 
@@ -397,6 +405,8 @@ class WorldGrid {
     _terrainVersion++;
     _homeDistance0Dirty = true;
     _homeDistance1Dirty = true;
+    _homeDistance2Dirty = true;
+    _homeDistance3Dirty = true;
   }
 
   void decay(double factor, double threshold) {
@@ -953,7 +963,7 @@ class WorldGrid {
   /// Returns direction to the nest using BFS pathfinding.
   Vector2? directionToNest(Vector2 from, {int colonyId = 0}) {
     _ensureHomeDistances(colonyId);
-    final distances = colonyId == 0 ? _homeDistances0 : _homeDistances1;
+    final distances = _getHomeDistances(colonyId);
     final gx = from.x.floor();
     final gy = from.y.floor();
     if (!isInsideIndex(gx, gy)) {
@@ -987,23 +997,70 @@ class WorldGrid {
   void markHomeDistancesDirty() {
     _homeDistance0Dirty = true;
     _homeDistance1Dirty = true;
+    _homeDistance2Dirty = true;
+    _homeDistance3Dirty = true;
+  }
+
+  /// Get home distances array for a colony
+  Int32List _getHomeDistances(int colonyId) {
+    switch (colonyId) {
+      case 0:
+        return _homeDistances0;
+      case 1:
+        return _homeDistances1;
+      case 2:
+        return _homeDistances2;
+      case 3:
+        return _homeDistances3;
+      default:
+        return _homeDistances0;
+    }
+  }
+
+  /// Check if home distances are dirty for a colony
+  bool _isHomeDistanceDirty(int colonyId) {
+    switch (colonyId) {
+      case 0:
+        return _homeDistance0Dirty;
+      case 1:
+        return _homeDistance1Dirty;
+      case 2:
+        return _homeDistance2Dirty;
+      case 3:
+        return _homeDistance3Dirty;
+      default:
+        return true;
+    }
+  }
+
+  /// Mark home distances as clean for a colony
+  void _markHomeDistanceClean(int colonyId) {
+    switch (colonyId) {
+      case 0:
+        _homeDistance0Dirty = false;
+        break;
+      case 1:
+        _homeDistance1Dirty = false;
+        break;
+      case 2:
+        _homeDistance2Dirty = false;
+        break;
+      case 3:
+        _homeDistance3Dirty = false;
+        break;
+    }
   }
 
   void _ensureHomeDistances(int colonyId) {
-    final isDirty = colonyId == 0 ? _homeDistance0Dirty : _homeDistance1Dirty;
-    if (!isDirty) {
+    if (!_isHomeDistanceDirty(colonyId)) {
       return;
     }
 
     // Mark as clean
-    if (colonyId == 0) {
-      _homeDistance0Dirty = false;
-    } else {
-      _homeDistance1Dirty = false;
-    }
+    _markHomeDistanceClean(colonyId);
 
-    final distances = colonyId == 0 ? _homeDistances0 : _homeDistances1;
-    final nestPos = colonyId == 0 ? nestPosition : nest1Position;
+    final distances = _getHomeDistances(colonyId);
+    final nestPos = getNestPosition(colonyId);
 
     for (var i = 0; i < distances.length; i++) {
       distances[i] = -1;
