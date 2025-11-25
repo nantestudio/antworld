@@ -228,12 +228,6 @@ class _AntHudState extends State<AntHud> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Simulation Speed
-                        _buildSpeedControls(theme),
-                        const Divider(),
-                        // Behavior
-                        _buildBehaviorControls(theme),
-                        const Divider(),
                         // Ant Tuning
                         _buildTuningControls(theme),
                         const Divider(),
@@ -245,8 +239,6 @@ class _AntHudState extends State<AntHud> {
                         // Utilities
                         _buildFoodControls(),
                         const SizedBox(height: 12),
-                        _buildPersistenceControls(),
-                        const Divider(),
                         // Help
                         _buildDocsSection(theme),
                       ],
@@ -960,30 +952,6 @@ class _AntHudState extends State<AntHud> {
                 ? 'Generating...'
                 : 'New Colony (${selectedSize.$1}×${selectedSize.$2})',
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPersistenceControls() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Persistence',
-          style: TextStyle(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 8),
-        FilledButton.icon(
-          onPressed: _saving ? null : _saveWorld,
-          icon: _saving
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.save),
-          label: Text(_saving ? 'Saving...' : 'Save World'),
         ),
       ],
     );

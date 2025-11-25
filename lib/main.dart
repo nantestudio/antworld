@@ -8,13 +8,12 @@ import 'src/services/analytics_service.dart';
 import 'src/simulation/colony_simulation.dart';
 import 'src/simulation/simulation_config.dart';
 import 'src/state/simulation_storage.dart';
+import 'src/ui/ant_gallery_page.dart';
 import 'src/ui/ant_hud.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const AntWorldApp());
 }
 
@@ -25,7 +24,7 @@ class AntWorldApp extends StatefulWidget {
   State<AntWorldApp> createState() => _AntWorldAppState();
 }
 
-enum _AppScreen { menu, playing }
+enum _AppScreen { menu, playing, antGallery }
 
 class _AntWorldAppState extends State<AntWorldApp> {
   ColonySimulation? _simulation;
@@ -62,18 +61,21 @@ class _AntWorldAppState extends State<AntWorldApp> {
       fontFamily: 'Silkscreen', // Pixel-style font
     );
 
+    Widget body;
+    if (_screen == _AppScreen.playing && _simulation != null && _game != null) {
+      body = _buildGameView();
+    } else if (_screen == _AppScreen.antGallery) {
+      body = _buildAntGallery();
+    } else {
+      body = _buildMenu();
+    }
+
     return MaterialApp(
       title: 'AntWorld',
       theme: theme,
       home: Scaffold(
         backgroundColor: Colors.black,
-        body: SafeArea(
-          child: _screen == _AppScreen.playing &&
-                  _simulation != null &&
-                  _game != null
-              ? _buildGameView()
-              : _buildMenu(),
-        ),
+        body: SafeArea(child: body),
       ),
     );
   }
@@ -94,11 +96,7 @@ class _AntWorldAppState extends State<AntWorldApp> {
             final delta = details.focalPoint - _scaleStartFocalPoint;
             game.onPinchUpdate(details.scale, delta);
           },
-          child: GameWidget(
-            game: game,
-            focusNode: _focusNode,
-            autofocus: true,
-          ),
+          child: GameWidget(game: game, focusNode: _focusNode, autofocus: true),
         ),
         AntHud(
           key: ValueKey(sim),
@@ -156,12 +154,22 @@ class _AntWorldAppState extends State<AntWorldApp> {
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Text('Start New Colony ($_selectedColonyCount ${_selectedColonyCount == 1 ? "colony" : "colonies"})'),
+                  : Text(
+                      'Start New Colony ($_selectedColonyCount ${_selectedColonyCount == 1 ? "colony" : "colonies"})',
+                    ),
             ),
             const SizedBox(height: 12),
             OutlinedButton(
               onPressed: _loading ? null : _continueGame,
               child: const Text('Continue Last Colony'),
+            ),
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: _loading
+                  ? null
+                  : () => setState(() => _screen = _AppScreen.antGallery),
+              icon: const Icon(Icons.pets_outlined),
+              label: const Text('View Ant Types'),
             ),
             if (_menuError != null) ...[
               const SizedBox(height: 16),
@@ -173,6 +181,12 @@ class _AntWorldAppState extends State<AntWorldApp> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildAntGallery() {
+    return AntGalleryPage(
+      onBack: () => setState(() => _screen = _AppScreen.menu),
     );
   }
 

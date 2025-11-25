@@ -9,6 +9,7 @@ import 'package:flutter/widgets.dart';
 import '../simulation/ant.dart';
 import '../simulation/colony_simulation.dart';
 import '../simulation/world_grid.dart';
+import '../visuals/ant_sprite.dart';
 
 enum BrushMode { dig, food, rock }
 
@@ -55,25 +56,6 @@ class AntWorldGame extends FlameGame
     ..color = const Color(0xFF616161); // Dark gray (replaces rock)
   final Paint _foodPaint = Paint()..color = const Color(0xFF76FF03);
   final Paint _rockPaint = Paint()..color = const Color(0xFF999999);
-  // Colony 0 paints (RED tones)
-  final Paint _antPaint = Paint()..color = const Color(0xFFF44336); // Red
-  final Paint _antCarryingPaint = Paint()
-    ..color = const Color(0xFFEF9A9A); // Light red (carrying food)
-  // Colony 1 paints (YELLOW tones)
-  final Paint _enemyAntPaint = Paint()
-    ..color = const Color(0xFFFFEB3B); // Yellow
-  final Paint _colony1CarryingPaint = Paint()
-    ..color = const Color(0xFFFFF59D); // Light yellow (carrying food)
-  // Colony 2 paints (BLUE tones)
-  final Paint _colony2AntPaint = Paint()
-    ..color = const Color(0xFF2196F3); // Blue
-  final Paint _colony2CarryingPaint = Paint()
-    ..color = const Color(0xFF64B5F6); // Light blue (carrying)
-  // Colony 3 paints (WHITE/GRAY tones)
-  final Paint _colony3AntPaint = Paint()
-    ..color = const Color(0xFFFFFFFF); // White
-  final Paint _colony3CarryingPaint = Paint()
-    ..color = const Color(0xFF9E9E9E); // Gray (carrying)
   // Nest paints for all 4 colonies (match ant colors)
   final Paint _nestPaint = Paint()
     ..color = const Color(0xFFF44336); // Red (matches colony 0)
@@ -131,34 +113,9 @@ class AntWorldGame extends FlameGame
     ..color = const Color(0xCCBBDEFB); // Pale blue, semi-transparent
   final Paint _egg3Paint = Paint()
     ..color = const Color(0xCCF5F5F5); // Pale white, semi-transparent
-  // Builder paint (brown tones - construction workers)
-  final Paint _builder0Paint = Paint()
-    ..color = const Color(0xFF8D6E63); // Brown
-  final Paint _builder1Paint = Paint()
-    ..color = const Color(0xFFD7CCC8); // Light brown/tan
-  final Paint _builder2Paint = Paint()
-    ..color = const Color(0xFF5D4037); // Dark brown
-  final Paint _builder3Paint = Paint()
-    ..color = const Color(0xFFA1887F); // Medium brown
-  final Paint _builder0CarryingPaint = Paint()..color = const Color(0xFFBCAAA4);
-  final Paint _builder1CarryingPaint = Paint()..color = const Color(0xFFEFE6DC);
-  final Paint _builder2CarryingPaint = Paint()..color = const Color(0xFF8D6E63);
-  final Paint _builder3CarryingPaint = Paint()..color = const Color(0xFFCAB6A3);
   final Paint _reinforcedWallPaint = Paint()
     ..color = const Color(0x33FFAB40)
     ..style = PaintingStyle.fill;
-  final Paint _soldierAccentPaint = Paint()
-    ..color = const Color(0xFFEF6C00)
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 1.3;
-  final Paint _nurseAccentPaint = Paint()
-    ..color = const Color(0xFFF48FB1)
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 1.2;
-  final Paint _princessAccentPaint = Paint()
-    ..color = const Color(0xFF8E24AA)
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 1.5;
 
   // Room overlay paints (semi-transparent)
   final Paint _homeRoom0Paint = Paint()
@@ -231,6 +188,14 @@ class AntWorldGame extends FlameGame
   )..layout();
   late final TextPainter _colony1LabelPainter = TextPainter(
     text: const TextSpan(text: 'Colony 1', style: _nestLabelStyle),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  late final TextPainter _colony2LabelPainter = TextPainter(
+    text: const TextSpan(text: 'Colony 2', style: _nestLabelStyle),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  late final TextPainter _colony3LabelPainter = TextPainter(
+    text: const TextSpan(text: 'Colony 3', style: _nestLabelStyle),
     textDirection: TextDirection.ltr,
   )..layout();
   late final TextPainter _homeLabelPainter = TextPainter(
@@ -432,23 +397,28 @@ class AntWorldGame extends FlameGame
     _drawRooms(canvas, world, cellSize);
     _drawReinforcedWalls(canvas, world, cellSize);
 
-    // Render colony 0 nest (cyan)
-    final nest0 = world.nestPosition;
-    final nest0Offset = Offset(nest0.x * cellSize, nest0.y * cellSize);
-    canvas.drawCircle(nest0Offset, cellSize * 0.75, _nestPaint);
-    _drawNestLabel(canvas, nest0Offset, 0);
-
-    // Render colony 1 nest (orange)
-    final nest1 = world.nest1Position;
-    final nest1Offset = Offset(nest1.x * cellSize, nest1.y * cellSize);
-    canvas.drawCircle(nest1Offset, cellSize * 0.75, _nest1Paint);
-    _drawNestLabel(canvas, nest1Offset, 1);
+    final nestPaints = [_nestPaint, _nest1Paint, _nest2Paint, _nest3Paint];
+    for (
+      var i = 0;
+      i < simulation.config.colonyCount && i < world.nestPositions.length;
+      i++
+    ) {
+      final nest = world.nestPositions[i];
+      final offset = Offset(nest.x * cellSize, nest.y * cellSize);
+      canvas.drawCircle(offset, cellSize * 0.75, nestPaints[i]);
+      _drawNestLabel(canvas, offset, i);
+    }
 
     _renderAnts(canvas, cellSize);
   }
 
   void _drawNestLabel(Canvas canvas, Offset nestOffset, int colonyId) {
-    final painter = colonyId == 0 ? _colony0LabelPainter : _colony1LabelPainter;
+    final painter = switch (colonyId) {
+      0 => _colony0LabelPainter,
+      1 => _colony1LabelPainter,
+      2 => _colony2LabelPainter,
+      _ => _colony3LabelPainter,
+    };
     final offset = nestOffset - Offset(painter.width / 2, painter.height + 6);
     painter.paint(canvas, offset);
   }
@@ -607,6 +577,32 @@ class AntWorldGame extends FlameGame
     }
   }
 
+  Paint _eggPaintForColony(int colonyId) {
+    switch (colonyId) {
+      case 0:
+        return _egg0Paint;
+      case 1:
+        return _egg1Paint;
+      case 2:
+        return _egg2Paint;
+      default:
+        return _egg3Paint;
+    }
+  }
+
+  Paint _larvaPaintForColony(int colonyId) {
+    switch (colonyId) {
+      case 0:
+        return _larva0Paint;
+      case 1:
+        return _larva1Paint;
+      case 2:
+        return _larva2Paint;
+      default:
+        return _larva3Paint;
+    }
+  }
+
   void _drawTerrain(Canvas canvas, WorldGrid world, double cellSize) {
     final cols = world.cols;
     final rows = world.rows;
@@ -754,35 +750,12 @@ class AntWorldGame extends FlameGame
   }
 
   void _renderAnts(Canvas canvas, double cellSize) {
-    // Paths for all 4 colonies
-    final colonyPaths = List.generate(4, (_) => Path());
-    final colonyCarryingPaths = List.generate(4, (_) => Path());
-    final larvaPaths = List.generate(4, (_) => Path());
-    final eggPaths = List.generate(4, (_) => Path());
-    final builderPaths = List.generate(4, (_) => Path());
-    final builderCarryingPaths = List.generate(4, (_) => Path());
-    final soldierAccentPaths = List.generate(4, (_) => Path());
-    final nurseAccentPaths = List.generate(4, (_) => Path());
-    final princessAccentPaths = List.generate(4, (_) => Path());
-
-    final colonyHasContent = List.filled(4, false);
-    final colonyCarryingHasContent = List.filled(4, false);
-    final larvaHasContent = List.filled(4, false);
-    final eggHasContent = List.filled(4, false);
-    final builderHasContent = List.filled(4, false);
-    final builderCarryingHasContent = List.filled(4, false);
-    final soldierAccentHasContent = List.filled(4, false);
-    final nurseAccentHasContent = List.filled(4, false);
-    final princessAccentHasContent = List.filled(4, false);
-
-    // Collect queens to draw separately (on top, with aura)
+    final selected = selectedAnt.value;
+    Offset? selectionCenter;
+    double selectionRadius = 0;
     final queens = <Ant>[];
 
-    final radius = cellSize * 0.35;
-    final larvaRadius = cellSize * 0.2;
-    final eggRadius = cellSize * 0.12;
-
-    for (final Ant ant in simulation.ants) {
+    for (final ant in simulation.ants) {
       final center = Offset(
         ant.position.x * cellSize,
         ant.position.y * cellSize,
@@ -791,151 +764,65 @@ class AntWorldGame extends FlameGame
 
       if (ant.caste == AntCaste.queen) {
         queens.add(ant);
-        continue;
-      }
-
-      if (ant.caste == AntCaste.egg) {
-        eggPaths[cid].addOval(
-          Rect.fromCircle(center: center, radius: eggRadius),
-        );
-        eggHasContent[cid] = true;
-        continue;
-      }
-
-      if (ant.caste == AntCaste.larva) {
-        larvaPaths[cid].addOval(
-          Rect.fromCircle(center: center, radius: larvaRadius),
-        );
-        larvaHasContent[cid] = true;
-        continue;
-      }
-
-      if (ant.caste == AntCaste.builder) {
-        if (ant.hasFood) {
-          builderCarryingPaths[cid].addOval(
-            Rect.fromCircle(center: center, radius: radius * 1.1),
-          );
-          builderCarryingHasContent[cid] = true;
-        } else {
-          builderPaths[cid].addOval(
-            Rect.fromCircle(center: center, radius: radius * 1.1),
-          );
-          builderHasContent[cid] = true;
+        if (selected?.id == ant.id) {
+          selectionCenter = center;
+          selectionRadius = selectionRadiusForCaste(ant.caste, cellSize);
         }
         continue;
       }
 
-      final rect = Rect.fromCircle(center: center, radius: radius);
-      void addAccent(Path path, List<bool> hasContent, double scale) {
-        path.addOval(Rect.fromCircle(center: center, radius: radius * scale));
-        hasContent[cid] = true;
+      if (ant.caste == AntCaste.egg) {
+        canvas.drawCircle(center, cellSize * 0.15, _eggPaintForColony(cid));
+        if (selected?.id == ant.id) {
+          selectionCenter = center;
+          selectionRadius = cellSize * 0.25;
+        }
+        continue;
       }
 
-      if (ant.hasFood) {
-        colonyCarryingPaths[cid].addOval(rect);
-        colonyCarryingHasContent[cid] = true;
-      } else {
-        colonyPaths[cid].addOval(rect);
-        colonyHasContent[cid] = true;
+      if (ant.caste == AntCaste.larva) {
+        final rect = Rect.fromCenter(
+          center: center,
+          width: cellSize * 0.45,
+          height: cellSize * 0.25,
+        );
+        canvas.drawOval(rect, _larvaPaintForColony(cid));
+        if (selected?.id == ant.id) {
+          selectionCenter = center;
+          selectionRadius = cellSize * 0.35;
+        }
+        continue;
       }
 
-      switch (ant.caste) {
-        case AntCaste.soldier:
-          addAccent(soldierAccentPaths[cid], soldierAccentHasContent, 1.25);
-        case AntCaste.nurse:
-          addAccent(nurseAccentPaths[cid], nurseAccentHasContent, 1.15);
-        case AntCaste.princess:
-          addAccent(princessAccentPaths[cid], princessAccentHasContent, 1.3);
-        default:
-          break;
-      }
-    }
+      final bodyColor = bodyColorForColony(cid, carrying: ant.hasFood);
+      final accent = accentColorForCaste(ant.caste);
+      drawAntSprite(
+        canvas: canvas,
+        center: center,
+        angle: ant.angle,
+        cellSize: cellSize,
+        caste: ant.caste,
+        bodyColor: bodyColor,
+        accentColor: accent,
+      );
 
-    // Paints for each colony (Blue, Red, Yellow, Magenta)
-    final antPaints = [
-      _antPaint,
-      _enemyAntPaint,
-      _colony2AntPaint,
-      _colony3AntPaint,
-    ];
-    final carryingPaints = [
-      _antCarryingPaint,
-      _colony1CarryingPaint,
-      _colony2CarryingPaint,
-      _colony3CarryingPaint,
-    ];
-    final larvaPaints = [
-      _larva0Paint,
-      _larva1Paint,
-      _larva2Paint,
-      _larva3Paint,
-    ];
-    final eggPaints = [_egg0Paint, _egg1Paint, _egg2Paint, _egg3Paint];
-    final builderPaints = [
-      _builder0Paint,
-      _builder1Paint,
-      _builder2Paint,
-      _builder3Paint,
-    ];
-    final builderCarryingPaints = [
-      _builder0CarryingPaint,
-      _builder1CarryingPaint,
-      _builder2CarryingPaint,
-      _builder3CarryingPaint,
-    ];
-
-    // Draw eggs (background)
-    for (var i = 0; i < 4; i++) {
-      if (eggHasContent[i]) canvas.drawPath(eggPaths[i], eggPaints[i]);
-    }
-
-    // Draw larvae
-    for (var i = 0; i < 4; i++) {
-      if (larvaHasContent[i]) canvas.drawPath(larvaPaths[i], larvaPaints[i]);
-    }
-
-    // Draw builders (brown, slightly larger)
-    for (var i = 0; i < 4; i++) {
-      if (builderHasContent[i])
-        canvas.drawPath(builderPaths[i], builderPaints[i]);
-      if (builderCarryingHasContent[i]) {
-        canvas.drawPath(builderCarryingPaths[i], builderCarryingPaints[i]);
+      if (selected?.id == ant.id) {
+        selectionCenter = center;
+        selectionRadius = selectionRadiusForCaste(ant.caste, cellSize);
       }
     }
 
-    // Draw ants
-    for (var i = 0; i < 4; i++) {
-      if (colonyHasContent[i]) canvas.drawPath(colonyPaths[i], antPaints[i]);
-      if (colonyCarryingHasContent[i])
-        canvas.drawPath(colonyCarryingPaths[i], carryingPaints[i]);
-    }
-
-    for (var i = 0; i < 4; i++) {
-      if (soldierAccentHasContent[i]) {
-        canvas.drawPath(soldierAccentPaths[i], _soldierAccentPaint);
-      }
-      if (nurseAccentHasContent[i]) {
-        canvas.drawPath(nurseAccentPaths[i], _nurseAccentPaint);
-      }
-      if (princessAccentHasContent[i]) {
-        canvas.drawPath(princessAccentPaths[i], _princessAccentPaint);
-      }
-    }
-
-    // Draw queens with aura (Blue, Red, Yellow, Magenta)
-    final queenRadius = cellSize * 0.7;
-    final auraRadius = cellSize * 2.5;
-    final queenPaints = [
-      _queen0Paint,
-      _queen1Paint,
-      _queen2Paint,
-      _queen3Paint,
-    ];
     final queenAuraPaints = [
       _queenAura0Paint,
       _queenAura1Paint,
       _queenAura2Paint,
       _queenAura3Paint,
+    ];
+    final queenAccentColors = [
+      _queen0Paint.color,
+      _queen1Paint.color,
+      _queen2Paint.color,
+      _queen3Paint.color,
     ];
 
     for (final queen in queens) {
@@ -944,28 +831,20 @@ class AntWorldGame extends FlameGame
         queen.position.y * cellSize,
       );
       final cid = queen.colonyId.clamp(0, 3);
-      canvas.drawCircle(center, auraRadius, queenAuraPaints[cid]);
-      canvas.drawCircle(center, queenRadius, queenPaints[cid]);
+      canvas.drawCircle(center, cellSize * 2.5, queenAuraPaints[cid]);
+      drawAntSprite(
+        canvas: canvas,
+        center: center,
+        angle: queen.angle,
+        cellSize: cellSize * 1.15,
+        caste: AntCaste.queen,
+        bodyColor: bodyColorForColony(cid, carrying: queen.hasFood),
+        accentColor: queenAccentColors[cid],
+      );
     }
 
-    // Draw selection highlight
-    final selected = selectedAnt.value;
-    if (selected != null) {
-      double selectionRadius;
-      if (selected.caste == AntCaste.queen) {
-        selectionRadius = cellSize * 1.0; // Larger selection for queen
-      } else if (selected.caste == AntCaste.egg) {
-        selectionRadius = cellSize * 0.3; // Small selection for egg
-      } else if (selected.caste == AntCaste.larva) {
-        selectionRadius = cellSize * 0.4; // Smaller selection for larva
-      } else {
-        selectionRadius = cellSize * 0.6; // Regular ants
-      }
-      canvas.drawCircle(
-        Offset(selected.position.x * cellSize, selected.position.y * cellSize),
-        selectionRadius,
-        _selectionPaint,
-      );
+    if (selectionCenter != null) {
+      canvas.drawCircle(selectionCenter, selectionRadius, _selectionPaint);
     }
   }
 

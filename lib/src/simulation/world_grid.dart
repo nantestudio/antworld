@@ -156,12 +156,14 @@ class WorldGrid {
       _homeDistances0 = Int32List(config.cols * config.rows),
       _homeDistances1 = Int32List(config.cols * config.rows),
       nestPositions = List.generate(4, (i) {
-        if (i == 0)
+        if (i == 0) {
           return (nestOverride ?? Vector2(config.cols / 2, config.rows / 2))
               .clone();
-        if (i == 1)
+        }
+        if (i == 1) {
           return (nest1Override ?? Vector2(config.cols / 2, config.rows * 0.2))
               .clone();
+        }
         return Vector2.zero(); // Positions 2,3 set by world generator
       });
 
@@ -502,15 +504,21 @@ class WorldGrid {
         final nx = x + offset[0];
         final ny = y + offset[1];
 
-        if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+        if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) {
+          continue;
+        }
 
         final nidx = index(nx, ny);
-        if (visited[nidx]) continue;
+        if (visited[nidx]) {
+          continue;
+        }
 
         final cellType = cells[nidx];
         // Only spread through air and food cells
-        if (cellType != CellType.air.index && cellType != CellType.food.index)
+        if (cellType != CellType.air.index &&
+            cellType != CellType.food.index) {
           continue;
+        }
 
         visited[nidx] = true;
         final newStrength = cellType == CellType.food.index

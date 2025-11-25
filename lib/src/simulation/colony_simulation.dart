@@ -907,21 +907,34 @@ class ColonySimulation {
     const feedRadiusSq = feedRadius * feedRadius;
 
     for (final nurse in ants) {
-      if (nurse.caste != AntCaste.nurse || nurse.isDead) continue;
-      if (nurse.isCarryingEgg) continue; // Can't feed while carrying egg
+      if (nurse.caste != AntCaste.nurse || nurse.isDead) {
+        continue;
+      }
+      if (nurse.isCarryingEgg) {
+        continue; // Can't feed while carrying egg
+      }
 
       // Check if colony has food to share
-      if (_colonyFood[nurse.colonyId] <= 0) continue;
+      if (_colonyFood[nurse.colonyId] <= 0) {
+        continue;
+      }
 
       // Find nearby ants that need feeding (resting or low HP)
       for (final target in ants) {
-        if (target.colonyId != nurse.colonyId) continue;
-        if (target.isDead || target == nurse) continue;
-        if (target.caste == AntCaste.egg || target.caste == AntCaste.larva)
+        if (target.colonyId != nurse.colonyId) {
           continue;
+        }
+        if (target.isDead || target == nurse) {
+          continue;
+        }
+        if (target.caste == AntCaste.egg || target.caste == AntCaste.larva) {
+          continue;
+        }
 
         final distSq = nurse.position.distanceToSquared(target.position);
-        if (distSq > feedRadiusSq) continue;
+        if (distSq > feedRadiusSq) {
+          continue;
+        }
 
         // Check if ant needs feeding: resting OR low HP
         final needsEnergy = target.state == AntState.rest;
@@ -1429,11 +1442,14 @@ class ColonySimulation {
       if (ant.isDead ||
           ant.caste == AntCaste.larva ||
           ant.caste == AntCaste.queen ||
-          ant.caste == AntCaste.egg)
+          ant.caste == AntCaste.egg) {
         continue;
+      }
       final gx = ant.position.x.floor();
       final gy = ant.position.y.floor();
-      if (!world.isInsideIndex(gx, gy)) continue;
+      if (!world.isInsideIndex(gx, gy)) {
+        continue;
+      }
       final key = world.index(gx, gy);
       final list = _spatialHash.putIfAbsent(key, () {
         return _spatialHashListPool.isNotEmpty
@@ -1443,7 +1459,9 @@ class ColonySimulation {
       list.add(ant);
     }
 
-    if (_spatialHash.isEmpty) return;
+    if (_spatialHash.isEmpty) {
+      return;
+    }
 
     // Check each cell and its neighbors
     for (final entry in _spatialHash.entries) {
@@ -1579,11 +1597,14 @@ class ColonySimulation {
     for (final ant in ants.toList()) {
       if (ant.isDead ||
           ant.caste == AntCaste.larva ||
-          ant.caste == AntCaste.egg)
+          ant.caste == AntCaste.egg) {
         continue;
+      }
       final gx = ant.position.x.floor();
       final gy = ant.position.y.floor();
-      if (!world.isInsideIndex(gx, gy)) continue;
+      if (!world.isInsideIndex(gx, gy)) {
+        continue;
+      }
       final key = world.index(gx, gy);
       final list = _spatialHash.putIfAbsent(key, () {
         return _spatialHashListPool.isNotEmpty
