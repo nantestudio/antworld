@@ -202,7 +202,7 @@ class AntWorldGame extends FlameGame
     textDirection: TextDirection.ltr,
   )..layout();
   late final TextPainter _homeLabelPainter = TextPainter(
-    text: const TextSpan(text: 'Home', style: _roomLabelStyle),
+    text: const TextSpan(text: 'Hatchery', style: _roomLabelStyle),
     textDirection: TextDirection.ltr,
   )..layout();
   late final TextPainter _nurseryLabelPainter = TextPainter(

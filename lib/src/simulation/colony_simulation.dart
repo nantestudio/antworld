@@ -1180,6 +1180,11 @@ class ColonySimulation {
         (room) => room.colonyId == colonyId,
       );
       for (final room in colonyRooms) {
+        if (room.type == RoomType.home) {
+          room.currentOccupancy =
+              _measureRoomOccupancy(room); // still track, no expansion
+          continue; // only one hatchery per colony
+        }
         final occupancy = _measureRoomOccupancy(room);
         room.currentOccupancy = occupancy;
         room.needsExpansion = room.isOverCapacity;
@@ -1251,6 +1256,9 @@ class ColonySimulation {
   }
 
   void _queueNewRoom(int colonyId, RoomType type) {
+    if (type == RoomType.home) {
+      return; // never duplicate queen chamber
+    }
     final hasTask = _buildQueue.any(
       (task) =>
           task.colonyId == colonyId &&

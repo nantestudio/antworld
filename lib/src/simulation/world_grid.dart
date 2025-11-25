@@ -40,7 +40,7 @@ enum NestZone {
 
 /// Room types for discrete colony chambers
 enum RoomType {
-  home, // Queen's chamber, food delivery point
+  home, // Hatchery / queen's chamber, food delivery point
   nursery, // Egg/larva care area
   foodStorage, // Food stockpile
   barracks, // Worker/soldier rest area
@@ -1281,12 +1281,16 @@ class WorldGrid {
           switch (room.type) {
             case RoomType.home:
               zones[idx] = NestZone.queenChamber.index;
+              break;
             case RoomType.nursery:
               zones[idx] = NestZone.nursery.index;
+              break;
             case RoomType.foodStorage:
               zones[idx] = NestZone.foodStorage.index;
+              break;
             case RoomType.barracks:
               zones[idx] = NestZone.barracks.index;
+              break;
           }
         }
       }
