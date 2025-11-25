@@ -16,6 +16,8 @@ class ColonySimulation {
       foodCollected = ValueNotifier<int>(0),
       colony0Food = ValueNotifier<int>(0),
       colony1Food = ValueNotifier<int>(0),
+      colony2Food = ValueNotifier<int>(0),
+      colony3Food = ValueNotifier<int>(0),
       pheromonesVisible = ValueNotifier<bool>(true),
       foodScentVisible = ValueNotifier<bool>(false),
       foodPheromonesVisible = ValueNotifier<bool>(true),
@@ -34,6 +36,8 @@ class ColonySimulation {
   final ValueNotifier<int> foodCollected;
   final ValueNotifier<int> colony0Food;
   final ValueNotifier<int> colony1Food;
+  final ValueNotifier<int> colony2Food;
+  final ValueNotifier<int> colony3Food;
   final ValueNotifier<bool> pheromonesVisible;
   final ValueNotifier<bool> foodScentVisible;
   final ValueNotifier<bool> foodPheromonesVisible;
@@ -82,6 +86,13 @@ class ColonySimulation {
   final Map<Ant, Vector2> _separationAdjustments = {};
   final List<List<Ant>> _spatialHashListPool = [];
 
+  // Defense alert system: tracks threats near each colony
+  // Index = colonyId, value = threat position (null = no threat)
+  final List<Vector2?> _defenseAlertPositions = [null, null, null, null];
+  final List<double> _defenseAlertTimers = [0, 0, 0, 0]; // Cooldown timers
+  static const double _defenseAlertDuration = 5.0; // How long alert stays active
+  static const double _defenseAlertRadius = 12.0; // Detection radius from nest
+
   // Cached stats (updated in _updateAntCount for O(1) access)
   int _enemyCount = 0;
   int _restingCount = 0;
@@ -101,12 +112,41 @@ class ColonySimulation {
   int _enemy1EggCount = 0;
   int _enemy1QueenCount = 0;
   int _enemy1PrincessCount = 0;
+  // Colony 2 stats
+  int _enemy2WorkerCount = 0;
+  int _enemy2SoldierCount = 0;
+  int _enemy2NurseCount = 0;
+  int _enemy2LarvaCount = 0;
+  int _enemy2EggCount = 0;
+  int _enemy2QueenCount = 0;
+  int _enemy2PrincessCount = 0;
+  // Colony 3 stats
+  int _enemy3WorkerCount = 0;
+  int _enemy3SoldierCount = 0;
+  int _enemy3NurseCount = 0;
+  int _enemy3LarvaCount = 0;
+  int _enemy3EggCount = 0;
+  int _enemy3QueenCount = 0;
+  int _enemy3PrincessCount = 0;
 
   bool get showPheromones => pheromonesVisible.value;
   bool get showFoodPheromones => foodPheromonesVisible.value;
   bool get showHomePheromones => homePheromonesVisible.value;
   bool get showFoodScent => foodScentVisible.value;
   int? get lastSeed => _lastSeed;
+
+  /// Get the current defense target for a colony (enemy position to intercept)
+  /// Returns null if colony is not under attack
+  Vector2? getDefenseTarget(int colonyId) {
+    if (colonyId < 0 || colonyId >= _defenseAlertPositions.length) return null;
+    return _defenseAlertPositions[colonyId];
+  }
+
+  /// Check if a colony is currently in defense alert mode
+  bool isColonyUnderAttack(int colonyId) {
+    if (colonyId < 0 || colonyId >= _defenseAlertTimers.length) return false;
+    return _defenseAlertTimers[colonyId] > 0;
+  }
 
   List<DeathEvent> takeDeathEvents() {
     if (_deathEvents.isEmpty) {
@@ -139,6 +179,38 @@ class ColonySimulation {
   int get enemy1QueenCount => _enemy1QueenCount;
   int get enemy1PrincessCount => _enemy1PrincessCount;
 
+  // Colony 2 stats
+  int get enemy2WorkerCount => _enemy2WorkerCount;
+  int get enemy2SoldierCount => _enemy2SoldierCount;
+  int get enemy2NurseCount => _enemy2NurseCount;
+  int get enemy2LarvaCount => _enemy2LarvaCount;
+  int get enemy2EggCount => _enemy2EggCount;
+  int get enemy2QueenCount => _enemy2QueenCount;
+  int get enemy2PrincessCount => _enemy2PrincessCount;
+
+  // Colony 3 stats
+  int get enemy3WorkerCount => _enemy3WorkerCount;
+  int get enemy3SoldierCount => _enemy3SoldierCount;
+  int get enemy3NurseCount => _enemy3NurseCount;
+  int get enemy3LarvaCount => _enemy3LarvaCount;
+  int get enemy3EggCount => _enemy3EggCount;
+  int get enemy3QueenCount => _enemy3QueenCount;
+  int get enemy3PrincessCount => _enemy3PrincessCount;
+
+  /// Syncs the per-colony food ValueNotifier for UI updates
+  void _syncColonyFoodNotifier(int colonyId) {
+    switch (colonyId) {
+      case 0:
+        colony0Food.value = _colonyFood[0];
+      case 1:
+        colony1Food.value = _colonyFood[1];
+      case 2:
+        colony2Food.value = _colonyFood[2];
+      case 3:
+        colony3Food.value = _colonyFood[3];
+    }
+  }
+
   void initialize() {
     world.reset();
     world.carveNest();
@@ -157,6 +229,8 @@ class ColonySimulation {
     foodCollected.value = 0;
     colony0Food.value = 0;
     colony1Food.value = 0;
+    colony2Food.value = 0;
+    colony3Food.value = 0;
     daysPassed.value = 1;
 
     _spawnInitialColony();
@@ -266,19 +340,28 @@ class ColonySimulation {
       }
     }
 
+    // Update defense alerts (decay timers)
+    _updateDefenseAlerts(clampedDt);
+
     final eggsToHatch = <Ant>[];
     final larvaeToMature = <Ant>[];
     final queensLayingEggs = <Ant>[];
     final nursesSignaling = <Ant>[];
     // Use toList() to avoid ConcurrentModificationError if ants list changes
     for (final ant in ants.toList()) {
+      // Pass defense target to soldiers so they can intercept intruders
+      Vector2? attackTarget;
+      if (ant.caste == AntCaste.soldier) {
+        attackTarget = getDefenseTarget(ant.colonyId);
+      }
+
       final result = ant.update(
         clampedDt,
         config,
         world,
         _rng,
         antSpeed,
-        attackTarget: null,
+        attackTarget: attackTarget,
       );
 
       if (ant.caste == AntCaste.queen && result) {
@@ -319,11 +402,7 @@ class ColonySimulation {
         foodCollected.value = _storedFood;
         _colonyFood[ant.colonyId] += 1;
         // Update per-colony food ValueNotifiers for UI
-        if (ant.colonyId == 0) {
-          colony0Food.value = _colonyFood[0];
-        } else {
-          colony1Food.value = _colonyFood[1];
-        }
+        _syncColonyFoodNotifier(ant.colonyId);
         // Food enables egg production - queue eggs instead of adults
         if (_colonyFood[ant.colonyId] % config.foodPerNewAnt == 0) {
           _colonyQueuedAnts[ant.colonyId] += 1;
@@ -541,6 +620,8 @@ class ColonySimulation {
     foodCollected.value = 0;
     colony0Food.value = 0;
     colony1Food.value = 0;
+    colony2Food.value = 0;
+    colony3Food.value = 0;
     daysPassed.value = 1;
     // Replace world with minimal placeholder to free memory from old arrays
     final minConfig = config.copyWith(cols: 2, rows: 2);
@@ -678,6 +759,8 @@ class ColonySimulation {
     }
     colony0Food.value = 0;
     colony1Food.value = 0;
+    colony2Food.value = 0;
+    colony3Food.value = 0;
     antSpeedMultiplier.value =
         (snapshot['antSpeedMultiplier'] as num?)?.toDouble() ?? 0.2;
     pheromonesVisible.value = snapshot['pheromonesVisible'] as bool? ?? true;
@@ -956,11 +1039,7 @@ class ColonySimulation {
         if (needsEnergy || needsHealing) {
           // Spend 1 food to feed this ant
           _colonyFood[nurse.colonyId] -= 1;
-          if (nurse.colonyId == 0) {
-            colony0Food.value = _colonyFood[0];
-          } else {
-            colony1Food.value = _colonyFood[1];
-          }
+          _syncColonyFoodNotifier(nurse.colonyId);
 
           // Restore ant's energy to full and wake them up
           if (needsEnergy) {
@@ -1097,6 +1176,20 @@ class ColonySimulation {
     _enemy1EggCount = 0;
     _enemy1QueenCount = 0;
     _enemy1PrincessCount = 0;
+    _enemy2WorkerCount = 0;
+    _enemy2SoldierCount = 0;
+    _enemy2NurseCount = 0;
+    _enemy2LarvaCount = 0;
+    _enemy2EggCount = 0;
+    _enemy2QueenCount = 0;
+    _enemy2PrincessCount = 0;
+    _enemy3WorkerCount = 0;
+    _enemy3SoldierCount = 0;
+    _enemy3NurseCount = 0;
+    _enemy3LarvaCount = 0;
+    _enemy3EggCount = 0;
+    _enemy3QueenCount = 0;
+    _enemy3PrincessCount = 0;
 
     // Single pass through all ants
     for (final ant in ants.toList()) {
@@ -1127,26 +1220,69 @@ class ColonySimulation {
       } else {
         // Enemy colony stats
         _enemyCount++;
-        if (ant.colonyId == 1) {
-          switch (ant.caste) {
-            case AntCaste.worker:
-              _enemy1WorkerCount++;
-            case AntCaste.soldier:
-              _enemy1SoldierCount++;
-            case AntCaste.nurse:
-              _enemy1NurseCount++;
-            case AntCaste.larva:
-              _enemy1LarvaCount++;
-            case AntCaste.egg:
-              _enemy1EggCount++;
-            case AntCaste.queen:
-              _enemy1QueenCount++;
-            case AntCaste.princess:
-              _enemy1PrincessCount++;
-            case AntCaste.drone:
-            case AntCaste.builder:
-              break;
-          }
+        switch (ant.colonyId) {
+          case 1:
+            switch (ant.caste) {
+              case AntCaste.worker:
+                _enemy1WorkerCount++;
+              case AntCaste.soldier:
+                _enemy1SoldierCount++;
+              case AntCaste.nurse:
+                _enemy1NurseCount++;
+              case AntCaste.larva:
+                _enemy1LarvaCount++;
+              case AntCaste.egg:
+                _enemy1EggCount++;
+              case AntCaste.queen:
+                _enemy1QueenCount++;
+              case AntCaste.princess:
+                _enemy1PrincessCount++;
+              case AntCaste.drone:
+              case AntCaste.builder:
+                break;
+            }
+          case 2:
+            switch (ant.caste) {
+              case AntCaste.worker:
+                _enemy2WorkerCount++;
+              case AntCaste.soldier:
+                _enemy2SoldierCount++;
+              case AntCaste.nurse:
+                _enemy2NurseCount++;
+              case AntCaste.larva:
+                _enemy2LarvaCount++;
+              case AntCaste.egg:
+                _enemy2EggCount++;
+              case AntCaste.queen:
+                _enemy2QueenCount++;
+              case AntCaste.princess:
+                _enemy2PrincessCount++;
+              case AntCaste.drone:
+              case AntCaste.builder:
+                break;
+            }
+          case 3:
+            switch (ant.caste) {
+              case AntCaste.worker:
+                _enemy3WorkerCount++;
+              case AntCaste.soldier:
+                _enemy3SoldierCount++;
+              case AntCaste.nurse:
+                _enemy3NurseCount++;
+              case AntCaste.larva:
+                _enemy3LarvaCount++;
+              case AntCaste.egg:
+                _enemy3EggCount++;
+              case AntCaste.queen:
+                _enemy3QueenCount++;
+              case AntCaste.princess:
+                _enemy3PrincessCount++;
+              case AntCaste.drone:
+              case AntCaste.builder:
+                break;
+            }
+          default:
+            break;
         }
       }
     }
@@ -1391,13 +1527,45 @@ class ColonySimulation {
             (ant) =>
                 ant.colonyId != colonyId &&
                 !ant.isDead &&
-                ant.position.distanceTo(nestPos) < config.nestRadius * 3,
+                ant.position.distanceTo(nestPos) < _defenseAlertRadius,
           )
           .toList();
+
       if (threats.isEmpty) {
+        // No threats - decay alert timer
+        if (_defenseAlertTimers[colonyId] > 0) {
+          // Keep alert position briefly even after threat leaves
+        }
         continue;
       }
+
+      // Sort by distance to nest (closest first)
+      threats.sort(
+        (a, b) => a.position
+            .distanceTo(nestPos)
+            .compareTo(b.position.distanceTo(nestPos)),
+      );
+
+      // Set defense alert - soldiers will respond
+      final closestThreat = threats.first;
+      _defenseAlertPositions[colonyId] = closestThreat.position.clone();
+      _defenseAlertTimers[colonyId] = _defenseAlertDuration;
+
+      // Also trigger defense building for builders
       _triggerDefenseBuilding(colonyId, threats, nestPos);
+    }
+  }
+
+  /// Decay defense alert timers (called from update loop)
+  void _updateDefenseAlerts(double dt) {
+    for (var i = 0; i < _defenseAlertTimers.length; i++) {
+      if (_defenseAlertTimers[i] > 0) {
+        _defenseAlertTimers[i] -= dt;
+        if (_defenseAlertTimers[i] <= 0) {
+          _defenseAlertTimers[i] = 0;
+          _defenseAlertPositions[i] = null; // Clear alert when timer expires
+        }
+      }
     }
   }
 
@@ -1518,9 +1686,25 @@ class ColonySimulation {
 
               if (distSq >= minSpacingSq) continue;
 
+              final sameColony = a.colonyId == b.colonyId;
+
+              // Same-colony pass-through: if either ant is stuck, let them
+              // phase through each other briefly to break congestion
+              if (sameColony) {
+                const stuckPassThroughTime = 2.0; // seconds stuck before pass-through
+                if (a.stuckTime > stuckPassThroughTime ||
+                    b.stuckTime > stuckPassThroughTime) {
+                  // Skip separation - allow them to pass through
+                  continue;
+                }
+              }
+
+              // Enemy ants block more strongly (defense mechanism)
+              final pushMultiplier = sameColony ? 0.6 : 1.2;
+
               // Ants are overlapping - push them apart
               if (distSq < 1e-6) {
-                final jitter = 0.15;
+                final jitter = sameColony ? 0.15 : 0.25;
                 final angle = _rng.nextDouble() * math.pi * 2;
                 final pushX = math.cos(angle) * jitter;
                 final pushY = math.sin(angle) * jitter;
@@ -1539,7 +1723,7 @@ class ColonySimulation {
 
               final dist = math.sqrt(distSq);
               final overlap = minSpacing - dist;
-              final pushStrength = overlap * 0.6;
+              final pushStrength = overlap * pushMultiplier;
               final invDist = 1 / dist;
               final pushX = ddx * invDist * pushStrength;
               final pushY = ddy * invDist * pushStrength;
@@ -1547,8 +1731,9 @@ class ColonySimulation {
               _accumulateAdjustment(_separationAdjustments, a, pushX, pushY);
               _accumulateAdjustment(_separationAdjustments, b, -pushX, -pushY);
 
-              // Trigger pause if significant overlap
-              if (overlap > minSpacing * 0.3) {
+              // Trigger pause if significant overlap (more pause for enemies)
+              final pauseThreshold = sameColony ? 0.3 : 0.15;
+              if (overlap > minSpacing * pauseThreshold) {
                 a.triggerCollisionPause();
                 b.triggerCollisionPause();
               }
@@ -1670,12 +1855,24 @@ class ColonySimulation {
 
               final distSq = a.position.distanceToSquared(b.position);
               if (distSq <= fightRadiusSq) {
-                final aWillFight = _rng.nextDouble() < a.aggression;
-                final bWillFight = _rng.nextDouble() < b.aggression;
+                // Defending soldiers get boosted aggression (always fight)
+                final aAggression = (a.caste == AntCaste.soldier && a.isDefending)
+                    ? 1.0
+                    : a.aggression;
+                final bAggression = (b.caste == AntCaste.soldier && b.isDefending)
+                    ? 1.0
+                    : b.aggression;
+                final aWillFight = _rng.nextDouble() < aAggression;
+                final bWillFight = _rng.nextDouble() < bAggression;
 
                 if (aWillFight || bWillFight) {
-                  final damageToA = _computeDamage(b, a);
-                  final damageToB = _computeDamage(a, b);
+                  // Defending soldiers deal 50% more damage
+                  final aDefenseBonus =
+                      (a.caste == AntCaste.soldier && a.isDefending) ? 1.5 : 1.0;
+                  final bDefenseBonus =
+                      (b.caste == AntCaste.soldier && b.isDefending) ? 1.5 : 1.0;
+                  final damageToA = _computeDamage(b, a) * bDefenseBonus;
+                  final damageToB = _computeDamage(a, b) * aDefenseBonus;
                   a.applyDamage(damageToA);
                   b.applyDamage(damageToB);
 

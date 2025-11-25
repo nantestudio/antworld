@@ -1,6 +1,8 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flame/game.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'firebase_options.dart';
 import 'src/game/ant_world_game.dart';
@@ -80,22 +82,37 @@ class _AntWorldAppState extends State<AntWorldApp> {
     );
   }
 
-  Offset _scaleStartFocalPoint = Offset.zero;
-
   Widget _buildGameView() {
     final sim = _simulation!;
     final game = _game!;
     return Stack(
       children: [
-        GestureDetector(
-          onScaleStart: (details) {
-            _scaleStartFocalPoint = details.focalPoint;
-            game.onPinchStart();
+        Listener(
+          // Handle all pointer signals (trackpad scroll/pinch on macOS)
+          onPointerSignal: (event) {
+            if (event is PointerScrollEvent) {
+              // On macOS trackpad:
+              // - Two-finger scroll = PointerScrollEvent (no modifier)
+              // - Pinch gesture = PointerScrollEvent with platform-synthesized values
+              //
+              // We use Ctrl/Cmd+scroll for zoom, regular scroll for pan
+              final isZoomModifier = HardwareKeyboard.instance.isControlPressed ||
+                  HardwareKeyboard.instance.isMetaPressed;
+
+              if (isZoomModifier) {
+                // Ctrl/Cmd + scroll = zoom
+                final zoomDelta = -event.scrollDelta.dy * 0.003;
+                game.setZoom(game.zoomFactor + zoomDelta);
+              } else {
+                // Regular scroll = pan (two-finger drag on trackpad)
+                game.addPan(-event.scrollDelta.dx, -event.scrollDelta.dy);
+              }
+            } else if (event is PointerScaleEvent) {
+              // Some platforms send dedicated scale events for pinch
+              game.setZoom(game.zoomFactor * event.scale);
+            }
           },
-          onScaleUpdate: (details) {
-            final delta = details.focalPoint - _scaleStartFocalPoint;
-            game.onPinchUpdate(details.scale, delta);
-          },
+          // Let all pointer events pass through to GameWidget for brush handling
           child: GameWidget(game: game, focusNode: _focusNode, autofocus: true),
         ),
         AntHud(

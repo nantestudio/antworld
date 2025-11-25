@@ -120,6 +120,14 @@ class AntWorldGame extends FlameGame
     ..color = const Color(0x33FFAB40)
     ..style = PaintingStyle.fill;
 
+  // LOD (Level of Detail) paints for simplified ant rendering when zoomed out
+  // Reusable paint object to avoid per-frame allocation
+  final Paint _lodAntPaint = Paint()..style = PaintingStyle.fill;
+  // Threshold in screen pixels - below this, use simple dots
+  static const double _lodThreshold = 5.0;
+  // Medium LOD threshold - simplified body without legs/antennae
+  static const double _lodMediumThreshold = 8.0;
+
   // Room overlay paints (semi-transparent)
   final Paint _homeRoom0Paint = Paint()
     ..color = const Color(0x1A4DD0E1); // Cyan 10%
@@ -385,6 +393,21 @@ class AntWorldGame extends FlameGame
   }
 
   double get zoomFactor => _zoomFactor;
+  Vector2 get panOffset => _panOffset;
+
+  /// Set absolute pan offset (for gesture-based panning)
+  void setPan(double x, double y) {
+    _panOffset.x = x;
+    _panOffset.y = y;
+    _updateViewport();
+  }
+
+  /// Add incremental pan offset (for scroll wheel panning)
+  void addPan(double dx, double dy) {
+    _panOffset.x += dx;
+    _panOffset.y += dy;
+    _updateViewport();
+  }
 
   void _renderWorld(Canvas canvas) {
     final world = simulation.world;
@@ -769,13 +792,43 @@ class AntWorldGame extends FlameGame
     double selectionRadius = 0;
     final queens = <Ant>[];
 
+    // Calculate effective cell size in screen pixels for LOD decisions
+    final effectiveCellSize = cellSize * _worldScale;
+    final useLodSimple = effectiveCellSize < _lodThreshold;
+    final useLodMedium =
+        !useLodSimple && effectiveCellSize < _lodMediumThreshold;
+
+    // Calculate visible bounds in world coordinates for viewport culling
+    // Add margin to avoid popping at edges
+    final margin = cellSize * 3;
+    final visibleLeft = -_worldOffset.x / _worldScale - margin;
+    final visibleTop = -_worldOffset.y / _worldScale - margin;
+    final visibleRight =
+        (-_worldOffset.x + _canvasSize.x) / _worldScale + margin;
+    final visibleBottom =
+        (-_worldOffset.y + _canvasSize.y) / _worldScale + margin;
+
     for (final ant in simulation.ants) {
-      final center = Offset(
-        ant.position.x * cellSize,
-        ant.position.y * cellSize,
-      );
+      final px = ant.position.x * cellSize;
+      final py = ant.position.y * cellSize;
+
+      // Viewport culling - skip ants outside visible area
+      if (px < visibleLeft ||
+          px > visibleRight ||
+          py < visibleTop ||
+          py > visibleBottom) {
+        // Still track selection even if culled
+        if (selected?.id == ant.id) {
+          selectionCenter = Offset(px, py);
+          selectionRadius = selectionRadiusForCaste(ant.caste, cellSize);
+        }
+        continue;
+      }
+
+      final center = Offset(px, py);
       final cid = ant.colonyId.clamp(0, 3);
 
+      // Queens always get full detail (there are few of them)
       if (ant.caste == AntCaste.queen) {
         queens.add(ant);
         if (selected?.id == ant.id) {
@@ -785,6 +838,7 @@ class AntWorldGame extends FlameGame
         continue;
       }
 
+      // Eggs - always simple (already just a circle)
       if (ant.caste == AntCaste.egg) {
         canvas.drawCircle(center, cellSize * 0.15, _eggPaintForColony(cid));
         if (selected?.id == ant.id) {
@@ -794,6 +848,7 @@ class AntWorldGame extends FlameGame
         continue;
       }
 
+      // Larvae - always simple (already just an oval)
       if (ant.caste == AntCaste.larva) {
         final rect = Rect.fromCenter(
           center: center,
@@ -809,16 +864,27 @@ class AntWorldGame extends FlameGame
       }
 
       final bodyColor = bodyColorForColony(cid, carrying: ant.hasFood);
-      final accent = accentColorForCaste(ant.caste);
-      drawAntSprite(
-        canvas: canvas,
-        center: center,
-        angle: ant.angle,
-        cellSize: cellSize,
-        caste: ant.caste,
-        bodyColor: bodyColor,
-        accentColor: accent,
-      );
+
+      if (useLodSimple) {
+        // LOD Simple: Just a colored dot (1 draw call instead of ~22)
+        _lodAntPaint.color = bodyColor;
+        canvas.drawCircle(center, cellSize * 0.35, _lodAntPaint);
+      } else if (useLodMedium) {
+        // LOD Medium: Simplified elongated body (3 draw calls instead of ~22)
+        _drawAntSimplified(canvas, center, ant.angle, cellSize, bodyColor);
+      } else {
+        // Full detail sprite
+        final accent = accentColorForCaste(ant.caste);
+        drawAntSprite(
+          canvas: canvas,
+          center: center,
+          angle: ant.angle,
+          cellSize: cellSize,
+          caste: ant.caste,
+          bodyColor: bodyColor,
+          accentColor: accent,
+        );
+      }
 
       if (selected?.id == ant.id) {
         selectionCenter = center;
@@ -826,6 +892,7 @@ class AntWorldGame extends FlameGame
       }
     }
 
+    // Queens always rendered with full detail (few of them, important visually)
     final queenAuraPaints = [
       _queenAura0Paint,
       _queenAura1Paint,
@@ -840,10 +907,18 @@ class AntWorldGame extends FlameGame
     ];
 
     for (final queen in queens) {
-      final center = Offset(
-        queen.position.x * cellSize,
-        queen.position.y * cellSize,
-      );
+      final px = queen.position.x * cellSize;
+      final py = queen.position.y * cellSize;
+
+      // Viewport culling for queens too
+      if (px < visibleLeft ||
+          px > visibleRight ||
+          py < visibleTop ||
+          py > visibleBottom) {
+        continue;
+      }
+
+      final center = Offset(px, py);
       final cid = queen.colonyId.clamp(0, 3);
       canvas.drawCircle(center, cellSize * 2.5, queenAuraPaints[cid]);
       drawAntSprite(
@@ -861,21 +936,60 @@ class AntWorldGame extends FlameGame
       canvas.drawCircle(selectionCenter, selectionRadius, _selectionPaint);
     }
 
+    // Death pop effects - simple circles, no LOD needed
     for (final pop in _deathPops) {
+      final px = pop.position.x * cellSize;
+      final py = pop.position.y * cellSize;
+
+      // Viewport culling for death pops
+      if (px < visibleLeft ||
+          px > visibleRight ||
+          py < visibleTop ||
+          py > visibleBottom) {
+        continue;
+      }
+
       final progress = (pop.elapsed / _deathPopDuration).clamp(0.0, 1.0);
       final radius = cellSize * 0.4 * (1 + 0.5 * progress);
       final fade = (1 - progress) * 0.6;
-      final paint = Paint()
-        ..color = bodyColorForColony(
-          pop.colonyId,
-          carrying: false,
-        ).withValues(alpha: fade);
-      canvas.drawCircle(
-        Offset(pop.position.x * cellSize, pop.position.y * cellSize),
-        radius,
-        paint,
-      );
+      _lodAntPaint.color = bodyColorForColony(
+        pop.colonyId,
+        carrying: false,
+      ).withValues(alpha: fade);
+      canvas.drawCircle(Offset(px, py), radius, _lodAntPaint);
     }
+  }
+
+  /// Simplified ant rendering for medium LOD - just body ovals, no legs/antennae
+  void _drawAntSimplified(
+    Canvas canvas,
+    Offset center,
+    double angle,
+    double cellSize,
+    Color bodyColor,
+  ) {
+    _lodAntPaint.color = bodyColor;
+
+    final length = cellSize * 0.8;
+    final width = cellSize * 0.3;
+
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.rotate(angle);
+
+    // Just draw an elongated oval for the body
+    final bodyRect = Rect.fromCenter(
+      center: Offset.zero,
+      width: width,
+      height: length,
+    );
+    canvas.drawOval(bodyRect, _lodAntPaint);
+
+    // Small head circle at front
+    final headOffset = Offset(0, -length * 0.4);
+    canvas.drawCircle(headOffset, width * 0.4, _lodAntPaint);
+
+    canvas.restore();
   }
 
   void _applyBrush(Vector2 widgetPosition, bool placeFoodOverride) {

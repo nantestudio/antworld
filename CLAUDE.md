@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AntWorld is a Flutter + Flame game that simulates ant colonies using emergent behavior and pheromone-based navigation. Individual ants follow simple rules (sense pheromones with 3 sensors, move toward stronger signals, drop pheromones, pick up food) which creates complex colony-wide patterns like foraging highways.
 
-The simulation supports multiple competing colonies (up to 4), ant castes (worker, soldier, nurse, drone, queen, larva), and combat between colonies.
+The simulation supports multiple competing colonies (up to 4), ant castes (worker, soldier, nurse, drone, princess, queen, larva, egg, builder), and combat between colonies.
 
 ## Common Development Commands
 
@@ -80,7 +80,8 @@ AntWorldGame
 - Automatic food replenishment to maintain minimum supply
 - Caches ant statistics per caste and colony for O(1) UI access
 - Spatial hashing for efficient collision/separation calculations
-- ValueNotifiers expose state to UI (antCount, foodCollected, daysPassed, pheromonesVisible, antSpeedMultiplier, paused)
+- ValueNotifiers expose state to UI (antCount, foodCollected, daysPassed, elapsedTime, pheromonesVisible, foodScentVisible, foodPheromonesVisible, homePheromonesVisible, antSpeedMultiplier, paused)
+- Tracks death events for visual effects (DeathEvent list)
 
 **`WorldGrid`** (`lib/src/simulation/world_grid.dart`)
 - 2D grid storing cell types (air, dirt, food, rock) with corresponding health values
@@ -97,7 +98,8 @@ AntWorldGame
 
 **`Ant`** (`lib/src/simulation/ant.dart`)
 - Individual ant with position, angle, energy, colonyId, caste
-- Castes: worker, soldier, nurse, drone, queen, larva (AntCaste enum)
+- Castes: worker, soldier, nurse, drone, princess, queen, larva, egg, builder (AntCaste enum)
+- CasteStats provides per-caste speedMultiplier, HP, attack, defense, aggression
 - State machine: foraging → finds food → returns home → delivers food → repeats
 - 3-sensor system for pheromone detection (left, front, right at ±0.6 radians)
 - Direct food sensing within 30 cells when not following pheromone trails
@@ -105,7 +107,8 @@ AntWorldGame
 - Energy system: drains while moving, recovers while resting, digging costs extra
 - Combat stats: attack, defense, HP for fighting ants from other colonies
 - Explorer ants (5% by default) ignore pheromones more often to discover new food
-- Queens produce eggs, nurses care for larvae, soldiers patrol and defend
+- Queens produce eggs, princesses wait for succession, nurses care for larvae, soldiers patrol and defend
+- Builders have BuilderTask enum: idle, buildingRoom, reinforcingWall, emergencyDefense, returningHome
 
 **`AntWorldGame`** (`lib/src/game/ant_world_game.dart`)
 - Flame game component that renders the simulation
@@ -233,7 +236,8 @@ All simulation state is in `ColonySimulation`, game state is in `AntWorldGame`, 
 This codebase follows a clear separation between:
 - **Simulation logic** (lib/src/simulation/) - Pure Dart, no rendering
 - **Game engine** (lib/src/game/) - Flame integration, rendering, input
-- **UI layer** (lib/src/ui/) - Flutter widgets, overlays
+- **UI layer** (lib/src/ui/) - Flutter widgets, overlays (includes AntHud and AntGalleryPage)
+- **Visuals** (lib/src/visuals/) - Ant sprite rendering and visual components
 - **Persistence** (lib/src/state/) - Save/load functionality
 - **Services** (lib/src/services/) - Firebase analytics and other services
 

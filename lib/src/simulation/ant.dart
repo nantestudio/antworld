@@ -270,6 +270,9 @@ class Ant {
   static const double _collisionPauseDuration =
       0.8; // seconds to pause after collision
 
+  // Defense mode - soldier is actively defending colony from intruders
+  bool _isDefending = false;
+
   bool get hasFood => _carryingFood;
   bool get isDead => hp <= 0;
   bool get isStuck => _stuckTime >= _stuckThreshold;
@@ -278,6 +281,7 @@ class Ant {
   bool get isExplorer => _explorerTendency > 0.15; // High tendency = explorer
   bool get needsRest => _needsRest;
   bool get isPaused => _collisionPauseTimer > 0;
+  bool get isDefending => _isDefending;
   AntState? get stateBeforeRest => _stateBeforeRest;
   double get casteSpeedMultiplier => CasteStats.stats[caste]!.speedMultiplier;
   bool get canForage => CasteStats.stats[caste]!.canForage;
@@ -374,7 +378,7 @@ class Ant {
       case AntCaste.nurse:
         return _updateNurse(dt, config, world, rng, antSpeed);
       case AntCaste.soldier:
-        return _updateSoldier(dt, config, world, rng, antSpeed);
+        return _updateSoldier(dt, config, world, rng, antSpeed, attackTarget);
       case AntCaste.builder:
         return _updateBuilder(dt, config, world, rng, antSpeed);
       case AntCaste.worker:
@@ -439,18 +443,28 @@ class Ant {
       final hitY = collision.cellY;
 
       if (hitBlock == CellType.food) {
-        // Food is solid - ant must stop and pick it up
         if (!hasFood) {
+          // Pick up food and immediately turn toward home
           _carryingFood = true;
           state = AntState.returnHome;
           world.consumeFood(hitX, hitY);
-          angle += config.foodPickupRotation + (rng.nextDouble() - 0.5) * 0.2;
           _consecutiveRockHits = 0;
+
+          // Turn toward nest immediately (not just a small rotation)
+          final nestPos = world.getNestPosition(colonyId);
+          final toNest = nestPos - position;
+          if (toNest.length2 > 0) {
+            angle = math.atan2(toNest.y, toNest.x);
+            // Add small random variation so ants don't all take exact same path
+            angle += (rng.nextDouble() - 0.5) * 0.3;
+          }
           return false;
         } else {
-          // Already carrying food - bounce off (can't carry more)
-          angle += math.pi + (rng.nextDouble() - 0.5) * 0.3;
-          _collisionPauseTimer = _collisionPauseDuration * 0.3;
+          // Already carrying food - bounce away from this food block
+          // Turn around (opposite direction) with some randomness
+          angle += math.pi + (rng.nextDouble() - 0.5) * 0.6;
+          _consecutiveRockHits = 0;
+          return false;
         }
       } else if (hitBlock == CellType.dirt) {
         _dig(world, hitX, hitY, config);
@@ -458,6 +472,7 @@ class Ant {
         _consecutiveRockHits = 0; // Reset rock hit counter on dirt collision
         // Short pause after digging
         _collisionPauseTimer = _collisionPauseDuration * 0.3;
+        return false;
       } else if (hitBlock == CellType.rock) {
         // Deposit blocked pheromone to warn other ants about this obstacle
         world.depositBlockedPheromone(hitX, hitY, 0.3);
@@ -474,8 +489,8 @@ class Ant {
         }
         // Pause after hitting rock
         _collisionPauseTimer = _collisionPauseDuration;
+        return false;
       }
-      return false;
     }
 
     final gx = nextX.floor();
@@ -1333,7 +1348,11 @@ class Ant {
     WorldGrid world,
     math.Random rng,
     double antSpeed,
+    Vector2? attackTarget,
   ) {
+    // Set defense mode flag for combat system
+    _isDefending = attackTarget != null;
+
     // Handle resting
     if (state == AntState.rest) {
       _recoverEnergy(dt, config);
@@ -1351,9 +1370,10 @@ class Ant {
       }
     }
 
+    final myNest = world.getNestPosition(colonyId);
+
     if (_needsRest) {
       // Return to nest to rest
-      final myNest = world.getNestPosition(colonyId);
       final dir = world.directionToNest(position, colonyId: colonyId);
       if (dir != null && dir.length2 > 0.0001) {
         final desired = math.atan2(dir.y, dir.x);
@@ -1377,9 +1397,33 @@ class Ant {
         _needsRest = false;
         return false;
       }
+    } else if (attackTarget != null) {
+      // DEFENSE MODE: Colony is under attack - intercept the threat!
+      final toTarget = attackTarget - position;
+      final distToTarget = toTarget.length;
+
+      if (distToTarget > 1.0) {
+        // Move aggressively toward threat position
+        final desired = math.atan2(toTarget.y, toTarget.x);
+        final delta = _normalizeAngle(desired - angle);
+        // Fast, aggressive turning toward threat (0.6 turn rate)
+        angle += delta.clamp(-0.6, 0.6);
+      } else {
+        // At threat location - hold position and look around
+        angle += (rng.nextDouble() - 0.5) * 0.5;
+      }
+
+      // Don't stray too far from nest even when defending
+      final distNest = position.distanceTo(myNest);
+      final maxDefenseRange = config.nestRadius * 4.0;
+      if (distNest > maxDefenseRange) {
+        // Pull back toward nest slightly
+        final inward = math.atan2(myNest.y - position.y, myNest.x - position.x);
+        final delta = _normalizeAngle(inward - angle);
+        angle += delta.clamp(-0.3, 0.3);
+      }
     } else {
-      // Patrol behavior: stay near nest outer area
-      final myNest = world.getNestPosition(colonyId);
+      // Normal patrol behavior: stay near nest outer area
       final currentZone = world.zoneAtPosition(position);
       final distNest = position.distanceTo(myNest);
 
@@ -1412,8 +1456,9 @@ class Ant {
       }
     }
 
-    // Move at normal soldier speed
-    final speed = antSpeed * casteSpeedMultiplier * dt;
+    // Move at soldier speed (faster when defending)
+    final speedMult = attackTarget != null ? 1.3 : 1.0; // 30% faster in defense
+    final speed = antSpeed * casteSpeedMultiplier * speedMult * dt;
     final vx = math.cos(angle) * speed;
     final vy = math.sin(angle) * speed;
     final nextX = position.x + vx;
