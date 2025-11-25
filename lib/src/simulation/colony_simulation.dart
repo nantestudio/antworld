@@ -75,6 +75,7 @@ class ColonySimulation {
   double _resourceCheckTimer = 0.0;
   static const double _resourceCheckInterval = 15.0;
   int _nextBuildTaskId = 1;
+  final List<DeathEvent> _deathEvents = [];
 
   // Reusable structures for separation (avoid per-frame allocation)
   final Map<int, List<Ant>> _spatialHash = {};
@@ -106,6 +107,15 @@ class ColonySimulation {
   bool get showHomePheromones => homePheromonesVisible.value;
   bool get showFoodScent => foodScentVisible.value;
   int? get lastSeed => _lastSeed;
+
+  List<DeathEvent> takeDeathEvents() {
+    if (_deathEvents.isEmpty) {
+      return <DeathEvent>[];
+    }
+    final events = List<DeathEvent>.from(_deathEvents);
+    _deathEvents.clear();
+    return events;
+  }
 
   // Stats getters for UI - use cached values (O(1) instead of O(n))
   int get enemyCount => _enemyCount;
@@ -1663,6 +1673,7 @@ class ColonySimulation {
 
                   // Winner picks up dead enemy as food
                   if (a.isDead && !b.isDead && !b.hasFood) {
+                    _recordDeath(a);
                     deadAnts.add(a);
                     // QUEEN DEATH: Check for princess succession before takeover
                     if (a.caste == AntCaste.queen) {
@@ -1670,6 +1681,7 @@ class ColonySimulation {
                     }
                     b.pickUpFood(); // Eat the enemy!
                   } else if (b.isDead && !a.isDead && !a.hasFood) {
+                    _recordDeath(b);
                     deadAnts.add(b);
                     // QUEEN DEATH: Check for princess succession before takeover
                     if (b.caste == AntCaste.queen) {
@@ -1678,12 +1690,14 @@ class ColonySimulation {
                     a.pickUpFood(); // Eat the enemy!
                   } else {
                     if (a.isDead) {
+                      _recordDeath(a);
                       deadAnts.add(a);
                       if (a.caste == AntCaste.queen && !b.isDead) {
                         _handleQueenDeath(a.colonyId, b.colonyId);
                       }
                     }
                     if (b.isDead) {
+                      _recordDeath(b);
                       deadAnts.add(b);
                       if (b.caste == AntCaste.queen && !a.isDead) {
                         _handleQueenDeath(b.colonyId, a.colonyId);
@@ -1717,6 +1731,9 @@ class ColonySimulation {
         )
         .toList();
     if (stuckAnts.isNotEmpty) {
+      for (final ant in stuckAnts) {
+        _recordDeath(ant);
+      }
       ants.removeWhere(stuckAnts.contains);
       _updateAntCount();
     }
@@ -1728,6 +1745,7 @@ class ColonySimulation {
     final oldAnts = ants.where((a) => a.isDyingOfOldAge).toList();
     if (oldAnts.isNotEmpty) {
       for (final ant in oldAnts) {
+        _recordDeath(ant);
         if (ant.caste == AntCaste.queen) {
           _handleInternalQueenDeath(ant.colonyId);
         }
@@ -1814,6 +1832,12 @@ class ColonySimulation {
       (nest.y + math.sin(angle) * distance).clamp(2, world.rows - 3),
     );
     world.placeFood(position, 1, amount: WorldGrid.defaultFoodPerCell ~/ 3);
+  }
+
+  void _recordDeath(Ant ant) {
+    _deathEvents.add(
+      DeathEvent(position: ant.position.clone(), colonyId: ant.colonyId),
+    );
   }
 
   void _spawnEmergencyQueen(int colonyId) {
@@ -2089,4 +2113,11 @@ class _BuildTask {
   bool emergency;
   bool inProgress = false;
   int assignedBuilderId = -1;
+}
+
+class DeathEvent {
+  DeathEvent({required this.position, required this.colonyId});
+
+  final Vector2 position;
+  final int colonyId;
 }

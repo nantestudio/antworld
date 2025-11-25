@@ -219,11 +219,15 @@ class AntWorldGame extends FlameGame
   int _cachedTerrainVersion = -1;
   Picture? _pheromonePicture;
   int _pheromoneFrame = 0;
+  final List<_DeathPop> _deathPops = [];
+  static const double _deathPopDuration = 0.35;
 
   @override
   void update(double dt) {
     super.update(dt);
     simulation.update(dt);
+    _collectDeathEvents();
+    _updateDeathPops(dt);
   }
 
   @override
@@ -846,6 +850,22 @@ class AntWorldGame extends FlameGame
     if (selectionCenter != null) {
       canvas.drawCircle(selectionCenter, selectionRadius, _selectionPaint);
     }
+
+    for (final pop in _deathPops) {
+      final progress = (pop.elapsed / _deathPopDuration).clamp(0.0, 1.0);
+      final radius = cellSize * 0.4 * (1 + 0.5 * progress);
+      final fade = (1 - progress) * 0.6;
+      final paint = Paint()
+        ..color = bodyColorForColony(
+          pop.colonyId,
+          carrying: false,
+        ).withValues(alpha: fade);
+      canvas.drawCircle(
+        Offset(pop.position.x * cellSize, pop.position.y * cellSize),
+        radius,
+        paint,
+      );
+    }
   }
 
   void _applyBrush(Vector2 widgetPosition, bool placeFoodOverride) {
@@ -873,6 +893,22 @@ class AntWorldGame extends FlameGame
   void _stopDrag() {
     _draggingFood = false;
     _draggingDig = false;
+  }
+
+  void _collectDeathEvents() {
+    final events = simulation.takeDeathEvents();
+    for (final event in events) {
+      _deathPops.add(
+        _DeathPop(position: event.position.clone(), colonyId: event.colonyId),
+      );
+    }
+  }
+
+  void _updateDeathPops(double dt) {
+    _deathPops.removeWhere((pop) {
+      pop.elapsed += dt;
+      return pop.elapsed >= _deathPopDuration;
+    });
   }
 
   bool _shouldPlaceFood(PointerDeviceKind? kind) {
@@ -953,4 +989,12 @@ class AntWorldGame extends FlameGame
   void clearSelection() {
     selectedAnt.value = null;
   }
+}
+
+class _DeathPop {
+  _DeathPop({required this.position, required this.colonyId});
+
+  final Vector2 position;
+  final int colonyId;
+  double elapsed = 0;
 }
