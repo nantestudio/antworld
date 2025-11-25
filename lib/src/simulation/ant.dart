@@ -526,9 +526,13 @@ class Ant {
     }
 
     final myNest = world.getNestPosition(colonyId);
-    final distNest = position.distanceTo(myNest);
+    final dropRoom = world.getFoodRoom(colonyId);
+    final dropCenter = dropRoom?.center ?? myNest;
+    final dropRadius = dropRoom != null
+        ? dropRoom.radius + 0.5
+        : config.nestRadius + 0.5;
     var deliveredFood = false;
-    if (distNest < config.nestRadius + 0.5 && hasFood) {
+    if (position.distanceTo(dropCenter) < dropRadius && hasFood) {
       _carryingFood = false;
       deliveredFood = true;
       angle += math.pi;

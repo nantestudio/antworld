@@ -1103,6 +1103,14 @@ class WorldGrid {
     );
   }
 
+  /// Get the food storage room for a colony
+  Room? getFoodRoom(int colonyId) {
+    return rooms.cast<Room?>().firstWhere(
+      (r) => r!.type == RoomType.foodStorage && r.colonyId == colonyId,
+      orElse: () => null,
+    );
+  }
+
   /// Get the first barracks room for a colony
   Room? getBarracksRoom(int colonyId) {
     return rooms.cast<Room?>().firstWhere(
