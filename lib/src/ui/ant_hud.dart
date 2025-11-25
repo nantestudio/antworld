@@ -15,11 +15,13 @@ class AntHud extends StatefulWidget {
     required this.simulation,
     required this.game,
     required this.storage,
+    this.onQuitToMenu,
   });
 
   final ColonySimulation simulation;
   final AntWorldGame game;
   final SimulationStorage storage;
+  final VoidCallback? onQuitToMenu;
 
   @override
   State<AntHud> createState() => _AntHudState();
@@ -27,7 +29,7 @@ class AntHud extends StatefulWidget {
 
 class _AntHudState extends State<AntHud> {
   // Which drawer is currently open (null = all closed)
-  int? _openDrawer; // 0 = stats, 1 = controls, 2 = settings
+  int? _openDrawer; // 0 = stats, 1 = controls, 2 = settings, 3 = game
   late int _pendingCols;
   late int _pendingRows;
   bool _saving = false;
@@ -59,6 +61,7 @@ class _AntHudState extends State<AntHud> {
           _buildStatsDrawer(context),
           _buildControlsDrawer(context),
           _buildSettingsDrawer(context),
+          _buildGameDrawer(context),
           // Selected ant panel (stays separate)
           _buildSelectedAntPanel(context),
         ],
@@ -95,6 +98,14 @@ class _AntHudState extends State<AntHud> {
             label: 'Settings',
             isActive: _openDrawer == 2,
             onTap: () => _toggleDrawer(2),
+            colorScheme: colorScheme,
+          ),
+          const SizedBox(height: 8),
+          _DrawerTab(
+            icon: Icons.menu,
+            label: 'Game',
+            isActive: _openDrawer == 3,
+            onTap: () => _toggleDrawer(3),
             colorScheme: colorScheme,
           ),
         ],
@@ -236,6 +247,108 @@ class _AntHudState extends State<AntHud> {
         ),
       ),
     );
+  }
+
+  Widget _buildGameDrawer(BuildContext context) {
+    final theme = Theme.of(context);
+    final isOpen = _openDrawer == 3;
+    final width = _drawerWidth(context);
+
+    return AnimatedPositioned(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+      left: isOpen ? 48 : -width,
+      top: 16,
+      bottom: 16,
+      child: SizedBox(
+        width: width,
+        child: Card(
+          color: theme.colorScheme.surface.withValues(alpha: 0.7),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDrawerHeader('Game', Icons.menu, () => _toggleDrawer(3)),
+                const Divider(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Save & Load', style: theme.textTheme.titleSmall),
+                        const SizedBox(height: 12),
+                        FilledButton.icon(
+                          onPressed: _saving ? null : _saveWorld,
+                          icon: _saving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.save),
+                          label: Text(_saving ? 'Saving...' : 'Save Game'),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 48),
+                          ),
+                        ),
+                        const Divider(height: 32),
+                        Text('Exit', style: theme.textTheme.titleSmall),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Quit to menu will clear all unsaved progress.',
+                          style: TextStyle(fontSize: 12, color: Colors.white70),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: _confirmQuit,
+                          icon: const Icon(Icons.exit_to_app),
+                          label: const Text('Quit to Menu'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 48),
+                            foregroundColor: Colors.redAccent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmQuit() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Quit Game?'),
+        content: const Text('Any unsaved progress will be lost. Are you sure?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Quit'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      // Clean up simulation memory
+      widget.simulation.prepareForNewWorld();
+      widget.game.invalidateTerrainLayer();
+
+      // Call the quit callback
+      widget.onQuitToMenu?.call();
+    }
   }
 
   Widget _buildDrawerHeader(String title, IconData icon, VoidCallback onClose) {
@@ -1212,10 +1325,19 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
     return '${mins}m ${secs}s';
   }
 
+  // Colony colors: red, yellow, blue, white
+  static const _colonyColors = [
+    Color(0xFFF44336), // Red (Colony 0)
+    Color(0xFFFFEB3B), // Yellow (Colony 1)
+    Color(0xFF2196F3), // Blue (Colony 2)
+    Color(0xFFFFFFFF), // White (Colony 3)
+  ];
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final sim = widget.simulation;
+    final colonyCount = sim.config.colonyCount;
 
     return StreamBuilder<void>(
       stream: _ticker,
@@ -1246,33 +1368,68 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
               ],
             ),
             const SizedBox(height: 16),
-            // Colony 0 stats (cyan)
-            _buildColonySection(
-              theme: theme,
-              colonyName: 'Colony 0',
-              colonyColor: const Color(0xFF4DD0E1), // Cyan
-              queenCount: sim.queenCount,
-              workerCount: sim.workerCount,
-              soldierCount: sim.soldierCount,
-              nurseCount: sim.nurseCount,
-              larvaCount: sim.larvaCount,
-              eggCount: sim.eggCount,
-              foodCount: sim.colony0Food.value,
-            ),
-            const SizedBox(height: 16),
-            // Colony 1 stats (orange)
-            _buildColonySection(
-              theme: theme,
-              colonyName: 'Colony 1',
-              colonyColor: const Color(0xFFFF7043), // Orange
-              queenCount: sim.enemy1QueenCount,
-              workerCount: sim.enemy1WorkerCount,
-              soldierCount: sim.enemy1SoldierCount,
-              nurseCount: sim.enemy1NurseCount,
-              larvaCount: sim.enemy1LarvaCount,
-              eggCount: sim.enemy1EggCount,
-              foodCount: sim.colony1Food.value,
-            ),
+            // Dynamically show colonies based on colonyCount
+            if (colonyCount >= 1) ...[
+              _buildColonySection(
+                theme: theme,
+                colonyName: 'Colony 0',
+                colonyColor: _colonyColors[0],
+                queenCount: sim.queenCount,
+                workerCount: sim.workerCount,
+                soldierCount: sim.soldierCount,
+                nurseCount: sim.nurseCount,
+                larvaCount: sim.larvaCount,
+                eggCount: sim.eggCount,
+                foodCount: sim.colony0Food.value,
+              ),
+            ],
+            if (colonyCount >= 2) ...[
+              const SizedBox(height: 16),
+              _buildColonySection(
+                theme: theme,
+                colonyName: 'Colony 1',
+                colonyColor: _colonyColors[1],
+                queenCount: sim.enemy1QueenCount,
+                workerCount: sim.enemy1WorkerCount,
+                soldierCount: sim.enemy1SoldierCount,
+                nurseCount: sim.enemy1NurseCount,
+                larvaCount: sim.enemy1LarvaCount,
+                eggCount: sim.enemy1EggCount,
+                foodCount: sim.colony1Food.value,
+              ),
+            ],
+            // Note: Colonies 2 and 3 stats not yet implemented in simulation
+            // Will show as placeholder if needed
+            if (colonyCount >= 3) ...[
+              const SizedBox(height: 16),
+              _buildColonySection(
+                theme: theme,
+                colonyName: 'Colony 2',
+                colonyColor: _colonyColors[2],
+                queenCount: 0, // TODO: Add colony 2 stats
+                workerCount: 0,
+                soldierCount: 0,
+                nurseCount: 0,
+                larvaCount: 0,
+                eggCount: 0,
+                foodCount: 0,
+              ),
+            ],
+            if (colonyCount >= 4) ...[
+              const SizedBox(height: 16),
+              _buildColonySection(
+                theme: theme,
+                colonyName: 'Colony 3',
+                colonyColor: _colonyColors[3],
+                queenCount: 0, // TODO: Add colony 3 stats
+                workerCount: 0,
+                soldierCount: 0,
+                nurseCount: 0,
+                larvaCount: 0,
+                eggCount: 0,
+                foodCount: 0,
+              ),
+            ],
           ],
         );
       },

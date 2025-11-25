@@ -105,6 +105,7 @@ class _AntWorldAppState extends State<AntWorldApp> {
           simulation: sim,
           game: game,
           storage: _storage,
+          onQuitToMenu: _quitToMenu,
         ),
       ],
     );
@@ -236,6 +237,15 @@ class _AntWorldAppState extends State<AntWorldApp> {
       _game = game;
       _screen = _AppScreen.playing;
       _loading = false;
+    });
+  }
+
+  void _quitToMenu() {
+    // Clear references to allow garbage collection
+    setState(() {
+      _simulation = null;
+      _game = null;
+      _screen = _AppScreen.menu;
     });
   }
 }

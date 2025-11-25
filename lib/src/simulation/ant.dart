@@ -95,7 +95,7 @@ class CasteStats {
       baseAggression: 0.0, // Never initiates combat
     ),
     AntCaste.larva: CasteStats(
-      speedMultiplier: 0.0,
+      speedMultiplier: 0.05, // Very slow wiggling
       baseHp: 50,
       baseAttack: 0,
       baseDefense: 0,
@@ -324,7 +324,7 @@ class Ant {
       case AntCaste.egg:
         return _updateEgg(dt);
       case AntCaste.larva:
-        return _updateLarva(dt);
+        return _updateLarva(dt, config, world, rng);
       case AntCaste.queen:
         return _updateQueen(dt, config, world, rng);
       case AntCaste.princess:
@@ -929,10 +929,28 @@ class Ant {
     return false;
   }
 
-  /// Larva behavior: immobile, just grow over time
-  bool _updateLarva(double dt) {
+  /// Larva behavior: wiggle slightly while growing
+  bool _updateLarva(double dt, SimulationConfig config, WorldGrid world, math.Random rng) {
     _growthProgress += dt;
-    // Larvae don't move, just signal when ready to mature
+
+    // Larvae wiggle slightly - random small movements
+    final wiggleChance = rng.nextDouble();
+    if (wiggleChance < 0.3) { // 30% chance to wiggle each frame
+      // Random turn
+      angle += (rng.nextDouble() - 0.5) * 2.0; // Random direction change
+
+      // Very slow movement
+      final speed = config.antSpeed * 0.05 * dt;
+      final newX = position.x + math.cos(angle) * speed;
+      final newY = position.y + math.sin(angle) * speed;
+
+      // Only move if the target is walkable
+      if (world.isWalkable(newX, newY)) {
+        position.x = newX;
+        position.y = newY;
+      }
+    }
+
     // Colony simulation handles the actual maturation
     return false;
   }

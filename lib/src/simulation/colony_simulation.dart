@@ -1333,50 +1333,36 @@ class ColonySimulation {
     print('COLONY TAKEOVER: Colony $conquerorColonyId conquered Colony $defeatedColonyId! ($convertedCount ants converted)');
   }
 
-  /// Queens emit strong pheromones towards the nearest food to guide foraging ants.
-  /// The queen knows the absolute position of food and creates a pheromone path.
+  /// Queens emit strong pheromones towards reachable food using BFS pathfinding.
+  /// Instead of shooting a straight line (which ignores existing tunnels),
+  /// the queen finds the actual walkable path to food and deposits pheromones along it.
+  /// If no walkable path exists, she emits nothing and lets ants explore/dig naturally.
   void _queenFoodGuidance() {
     if (world.foodCells.isEmpty) return;
 
-    // For each queen, emit pheromones pointing towards nearest food
-    for (final ant in ants) {
+    // Use toList() to avoid ConcurrentModificationError if ants list changes
+    for (final ant in ants.toList()) {
       if (ant.caste != AntCaste.queen || ant.isDead) continue;
 
-      final queenPos = ant.position;
-      final qx = queenPos.x.floor();
-      final qy = queenPos.y.floor();
+      final qx = ant.position.x.floor();
+      final qy = ant.position.y.floor();
 
-      // Find nearest food cell
-      Vector2? nearestFood;
-      var nearestDistSq = double.infinity;
-      for (final foodIdx in world.foodCells) {
-        final fx = foodIdx % world.cols;
-        final fy = foodIdx ~/ world.cols;
-        final distSq = ((fx - qx) * (fx - qx) + (fy - qy) * (fy - qy)).toDouble();
-        if (distSq < nearestDistSq) {
-          nearestDistSq = distSq;
-          nearestFood = Vector2(fx.toDouble(), fy.toDouble());
+      // Use BFS to find shortest walkable path to any food
+      final path = world.computePathToFood(qx, qy, maxLength: 40);
+
+      if (path != null && path.isNotEmpty) {
+        // Deposit pheromones along actual walkable path
+        const pheromoneStrength = 0.7;
+        for (var i = 0; i < path.length && i < 30; i++) {
+          final idx = path[i];
+          final x = idx % world.cols;
+          final y = idx ~/ world.cols;
+          // Decay strength with distance - stronger near queen, weaker near food
+          final strength = pheromoneStrength * (1.0 - i / 40.0);
+          world.depositFoodPheromone(x, y, strength, ant.colonyId);
         }
       }
-
-      if (nearestFood == null) continue;
-
-      // Emit strong food pheromones in a trail from nest towards food
-      // This creates a "royal decree" path that ants will follow
-      final direction = (nearestFood - queenPos).normalized();
-      const trailLength = 30; // How far the queen's guidance reaches
-      const pheromoneStrength = 0.8; // Strong guidance
-
-      for (var i = 0; i < trailLength; i++) {
-        final tx = (qx + direction.x * i).floor();
-        final ty = (qy + direction.y * i).floor();
-
-        if (!world.isInsideIndex(tx, ty)) break;
-        if (world.cellTypeAt(tx, ty) != CellType.air) break; // Stop at walls
-
-        // Deposit food pheromone (colony-specific)
-        world.depositFoodPheromone(tx, ty, pheromoneStrength, ant.colonyId);
-      }
+      // No walkable path: emit nothing, let ants explore/dig using food scent diffusion
     }
   }
 

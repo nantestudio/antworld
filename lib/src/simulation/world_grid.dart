@@ -441,6 +441,82 @@ class WorldGrid {
     return foodScent[index(x, y)];
   }
 
+  /// Compute shortest walkable path from start to any food cell using BFS.
+  /// Returns list of cell indices forming the path (excluding start).
+  /// Returns null if no walkable path exists within maxLength.
+  List<int>? computePathToFood(int startX, int startY, {int maxLength = 50}) {
+    if (_foodCells.isEmpty) return null;
+    if (!isInsideIndex(startX, startY)) return null;
+    if (!isWalkableCell(startX, startY)) return null;
+
+    // BFS from start position
+    final visited = <int, int>{}; // Maps cell index to parent index
+    final queue = Queue<int>();
+    final startIdx = index(startX, startY);
+
+    // Check if start is already food
+    if (cells[startIdx] == CellType.food.index) {
+      return [startIdx];
+    }
+
+    visited[startIdx] = -1; // -1 means no parent (start)
+    queue.add(startIdx);
+
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+
+    int? foodIdx;
+    var steps = 0;
+
+    while (queue.isNotEmpty && steps < maxLength * 10) {
+      steps++;
+      final current = queue.removeFirst();
+      final cx = current % cols;
+      final cy = current ~/ cols;
+
+      for (final dir in dirs) {
+        final nx = cx + dir[0];
+        final ny = cy + dir[1];
+        if (!isInsideIndex(nx, ny)) continue;
+
+        final nidx = index(nx, ny);
+        if (visited.containsKey(nidx)) continue;
+        if (!isWalkableCell(nx, ny)) continue;
+
+        visited[nidx] = current; // Record parent
+
+        // Found food!
+        if (cells[nidx] == CellType.food.index) {
+          foodIdx = nidx;
+          break;
+        }
+
+        queue.add(nidx);
+      }
+
+      if (foodIdx != null) break;
+    }
+
+    // No food found
+    if (foodIdx == null) return null;
+
+    // Reconstruct path from food back to start
+    final path = <int>[];
+    var current = foodIdx;
+    while (current != startIdx && visited.containsKey(current)) {
+      path.add(current);
+      current = visited[current]!;
+      if (path.length > maxLength) break; // Safety limit
+    }
+
+    // Path is from food to start, reverse to get start to food
+    return path.reversed.toList();
+  }
+
   void digCircle(Vector2 cellPos, int radius) {
     final cx = cellPos.x.floor();
     final cy = cellPos.y.floor();
