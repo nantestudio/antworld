@@ -1397,13 +1397,14 @@ class Ant {
         final delta = _normalizeAngle(inward - angle);
         angle += delta.clamp(-0.2, 0.2);
       } else {
-        // In patrol zone - circle around
-        // Tangent direction for circling
-        final toNest = myNest - position;
-        final tangent = math.atan2(-toNest.x, toNest.y); // Perpendicular
-        final delta = _normalizeAngle(tangent - angle);
-        angle += delta.clamp(-0.15, 0.15);
-        angle += (rng.nextDouble() - 0.5) * 0.2;
+        // In patrol zone - wander with subtle bias
+        angle += (rng.nextDouble() - 0.5) * 0.3;
+        final toCenter = math.atan2(
+          myNest.y - position.y,
+          myNest.x - position.x,
+        );
+        final bias = _normalizeAngle(toCenter - angle);
+        angle += bias * 0.05;
       }
     }
 
