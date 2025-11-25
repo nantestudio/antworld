@@ -1505,6 +1505,8 @@ class _AntDetailsPanelState extends State<_AntDetailsPanel> {
         return 'Nurse';
       case AntCaste.drone:
         return 'Drone';
+      case AntCaste.princess:
+        return 'Princess';
       case AntCaste.queen:
         return 'Queen';
       case AntCaste.larva:

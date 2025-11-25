@@ -13,6 +13,7 @@ enum AntCaste {
   soldier,  // Combat-focused, patrols and defends
   nurse,    // Stays in nest, cares for larvae
   drone,    // Male, reproductive only
+  princess, // Future queen, waits for succession
   queen,    // Produces eggs, stays in nest center
   larva,    // Immobile, needs feeding to mature
   egg,      // Immobile, hatches into larva after development
@@ -74,6 +75,15 @@ class CasteStats {
       canForage: false,
       explorerRange: (0.0, 0.1),
       baseAggression: 0.05, // Almost never fights
+    ),
+    AntCaste.princess: CasteStats(
+      speedMultiplier: 0.4,
+      baseHp: 300,
+      baseAttack: 2,
+      baseDefense: 8,
+      canForage: false,
+      explorerRange: (0.0, 0.0),
+      baseAggression: 0.0, // Never initiates combat, future queen
     ),
     AntCaste.queen: CasteStats(
       speedMultiplier: 0.3,
@@ -176,12 +186,12 @@ class Ant {
   int _collisionCooldown = 0;
   double _speedMultiplier = 1.0;
   final double _explorerTendency; // 0.0-1.0, personality trait for exploration
-  final AntCaste caste;
+  AntCaste caste; // Can change on promotion (princess -> queen)
   int colonyId; // 0-3 - which colony this ant belongs to (can change on takeover)
-  final double aggression; // 0.0-1.0, likelihood to initiate combat
-  final double attack;
-  final double defense;
-  final double maxHp;
+  double aggression; // 0.0-1.0, likelihood to initiate combat
+  double attack;
+  double defense;
+  double maxHp;
   double hp;
   bool _needsRest = false;
 
@@ -317,6 +327,8 @@ class Ant {
         return _updateLarva(dt);
       case AntCaste.queen:
         return _updateQueen(dt, config, world, rng);
+      case AntCaste.princess:
+        return _updatePrincess(dt, config, world, rng);
       case AntCaste.nurse:
         return _updateNurse(dt, config, world, rng, antSpeed);
       case AntCaste.soldier:
@@ -982,6 +994,67 @@ class Ant {
       return true; // Signal to colony to spawn a larva
     }
     return false;
+  }
+
+  /// Princess behavior: stay in nest area, wander slowly, wait for succession
+  bool _updatePrincess(double dt, SimulationConfig config, WorldGrid world, math.Random rng) {
+    final myNest = world.getNestPosition(colonyId);
+    final distToNest = position.distanceTo(myNest);
+    final wanderRadius = config.nestRadius * 0.6; // Stay within inner 60% of nest (larger than queen)
+
+    // Check if we're in the queen chamber or general nest area
+    final currentZone = world.zoneAtPosition(position);
+    if (currentZone != NestZone.queenChamber && currentZone != NestZone.general) {
+      // Move toward queen chamber
+      final target = world.nearestZoneCell(position, NestZone.queenChamber, 50);
+      if (target != null) {
+        final desired = math.atan2(target.y - position.y, target.x - position.x);
+        final delta = _normalizeAngle(desired - angle);
+        angle += delta.clamp(-0.2, 0.2);
+        // Princess moves slowly but faster than queen
+        final speed = config.antSpeed * 0.2 * dt;
+        position.x += math.cos(angle) * speed;
+        position.y += math.sin(angle) * speed;
+      }
+    } else {
+      // In nest area - slowly wander around
+      angle += (rng.nextDouble() - 0.5) * 0.3;
+
+      // If too far from nest center, bias back toward it
+      if (distToNest > wanderRadius) {
+        final toCenter = math.atan2(myNest.y - position.y, myNest.x - position.x);
+        final delta = _normalizeAngle(toCenter - angle);
+        angle += delta * 0.1;
+      }
+
+      // Slow wandering movement (faster than queen but still slow)
+      final speed = config.antSpeed * 0.08 * dt;
+      final nextX = position.x + math.cos(angle) * speed;
+      final nextY = position.y + math.sin(angle) * speed;
+
+      final gx = nextX.floor();
+      final gy = nextY.floor();
+      if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
+        position.x = nextX;
+        position.y = nextY;
+      } else {
+        angle += math.pi * 0.5 + (rng.nextDouble() - 0.5) * 0.5;
+      }
+    }
+
+    return false; // Princess doesn't lay eggs
+  }
+
+  /// Promote this princess to queen (called by colony when queen dies)
+  void promoteToQueen() {
+    caste = AntCaste.queen;
+    _eggLayTimer = 0;
+    // Update stats to queen stats
+    maxHp = CasteStats.stats[AntCaste.queen]!.baseHp;
+    hp = maxHp; // Full heal on promotion
+    attack = CasteStats.stats[AntCaste.queen]!.baseAttack;
+    defense = CasteStats.stats[AntCaste.queen]!.baseDefense;
+    aggression = CasteStats.stats[AntCaste.queen]!.baseAggression;
   }
 
   /// Nurse behavior: move eggs from home to nursery, patrol nursery area
