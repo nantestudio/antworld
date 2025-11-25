@@ -688,40 +688,37 @@ class AntWorldGame extends FlameGame
       final dy = y * cellSize;
       final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
 
-      // Draw strongest pheromone for each colony (blend if both present)
-      // Colony 0: blue for food, gray for home
       final max0 = food0 > home0 ? food0 : home0;
-      // Colony 1: orange for food, purple for home
       final max1 = food1 > home1 ? food1 : home1;
 
       if (max0 >= max1 && max0 > 0.05) {
-        // Colony 0 dominates
+        final palette = colonyPalettes[0];
         if (food0 >= home0) {
           final alpha = food0.clamp(0, 1).toDouble();
-          _foodPheromone0Paint.color = const Color(
-            0xFF0064FF,
-          ).withValues(alpha: alpha);
+          _foodPheromone0Paint.color = palette.carrying.withValues(
+            alpha: alpha,
+          );
           canvas.drawRect(rect, _foodPheromone0Paint);
         } else {
-          final alpha = home0.clamp(0, 0.6).toDouble();
-          _homePheromone0Paint.color = const Color(
-            0xFF888888,
-          ).withValues(alpha: alpha);
+          final alpha = home0.clamp(0, 0.8).toDouble();
+          _homePheromone0Paint.color = palette.body.withValues(
+            alpha: alpha * 0.7,
+          );
           canvas.drawRect(rect, _homePheromone0Paint);
         }
       } else if (max1 > 0.05) {
-        // Colony 1 dominates
+        final palette = colonyPalettes[1];
         if (food1 >= home1) {
           final alpha = food1.clamp(0, 1).toDouble();
-          _foodPheromone1Paint.color = const Color(
-            0xFFFF6400,
-          ).withValues(alpha: alpha);
+          _foodPheromone1Paint.color = palette.carrying.withValues(
+            alpha: alpha,
+          );
           canvas.drawRect(rect, _foodPheromone1Paint);
         } else {
-          final alpha = home1.clamp(0, 0.6).toDouble();
-          _homePheromone1Paint.color = const Color(
-            0xFF884488,
-          ).withValues(alpha: alpha);
+          final alpha = home1.clamp(0, 0.8).toDouble();
+          _homePheromone1Paint.color = palette.body.withValues(
+            alpha: alpha * 0.7,
+          );
           canvas.drawRect(rect, _homePheromone1Paint);
         }
       }
