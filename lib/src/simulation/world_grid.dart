@@ -146,8 +146,12 @@ class WorldGrid {
       dirtTypes = Uint8List(config.cols * config.rows),
       foodPheromones0 = Float32List(config.cols * config.rows),
       foodPheromones1 = Float32List(config.cols * config.rows),
+      foodPheromoneOwner0 = Uint8List(config.cols * config.rows),
+      foodPheromoneOwner1 = Uint8List(config.cols * config.rows),
       homePheromones0 = Float32List(config.cols * config.rows),
       homePheromones1 = Float32List(config.cols * config.rows),
+      homePheromoneOwner0 = Uint8List(config.cols * config.rows),
+      homePheromoneOwner1 = Uint8List(config.cols * config.rows),
       blockedPheromones = Float32List(config.cols * config.rows),
       foodScent = Float32List(config.cols * config.rows),
       _foodScentBuffer = Float32List(config.cols * config.rows),
@@ -176,8 +180,12 @@ class WorldGrid {
   // Per-colony pheromone layers - each colony only senses its own trails
   final Float32List foodPheromones0; // Colony 0 food trails
   final Float32List foodPheromones1; // Colony 1 food trails
+  final Uint8List foodPheromoneOwner0;
+  final Uint8List foodPheromoneOwner1;
   final Float32List homePheromones0; // Colony 0 home trails
   final Float32List homePheromones1; // Colony 1 home trails
+  final Uint8List homePheromoneOwner0;
+  final Uint8List homePheromoneOwner1;
   final Float32List
   blockedPheromones; // Warning pheromone for dead ends/obstacles (shared)
   final Float32List
@@ -226,8 +234,12 @@ class WorldGrid {
       foodAmount[i] = 0;
       foodPheromones0[i] = 0;
       foodPheromones1[i] = 0;
+      foodPheromoneOwner0[i] = 0;
+      foodPheromoneOwner1[i] = 0;
       homePheromones0[i] = 0;
       homePheromones1[i] = 0;
+      homePheromoneOwner0[i] = 0;
+      homePheromoneOwner1[i] = 0;
       blockedPheromones[i] = 0;
       foodScent[i] = 0;
       _foodScentBuffer[i] = 0;
@@ -374,8 +386,12 @@ class WorldGrid {
     if (type != CellType.air) {
       foodPheromones0[idx] = 0;
       foodPheromones1[idx] = 0;
+      foodPheromoneOwner0[idx] = 0;
+      foodPheromoneOwner1[idx] = 0;
       homePheromones0[idx] = 0;
       homePheromones1[idx] = 0;
+      homePheromoneOwner0[idx] = 0;
+      homePheromoneOwner1[idx] = 0;
       _activePheromoneCells.remove(idx);
     }
     _terrainVersion++;
@@ -405,29 +421,49 @@ class WorldGrid {
       var f0 = foodPheromones0[idx];
       if (f0 > 0) {
         f0 *= factor;
-        foodPheromones0[idx] = f0 > threshold ? f0 : 0;
-        hasAny = hasAny || foodPheromones0[idx] > 0;
+        if (f0 > threshold) {
+          foodPheromones0[idx] = f0;
+          hasAny = true;
+        } else {
+          foodPheromones0[idx] = 0;
+          foodPheromoneOwner0[idx] = 0;
+        }
       }
 
       var f1 = foodPheromones1[idx];
       if (f1 > 0) {
         f1 *= factor;
-        foodPheromones1[idx] = f1 > threshold ? f1 : 0;
-        hasAny = hasAny || foodPheromones1[idx] > 0;
+        if (f1 > threshold) {
+          foodPheromones1[idx] = f1;
+          hasAny = true;
+        } else {
+          foodPheromones1[idx] = 0;
+          foodPheromoneOwner1[idx] = 0;
+        }
       }
 
       var h0 = homePheromones0[idx];
       if (h0 > 0) {
         h0 *= factor;
-        homePheromones0[idx] = h0 > threshold ? h0 : 0;
-        hasAny = hasAny || homePheromones0[idx] > 0;
+        if (h0 > threshold) {
+          homePheromones0[idx] = h0;
+          hasAny = true;
+        } else {
+          homePheromones0[idx] = 0;
+          homePheromoneOwner0[idx] = 0;
+        }
       }
 
       var h1 = homePheromones1[idx];
       if (h1 > 0) {
         h1 *= factor;
-        homePheromones1[idx] = h1 > threshold ? h1 : 0;
-        hasAny = hasAny || homePheromones1[idx] > 0;
+        if (h1 > threshold) {
+          homePheromones1[idx] = h1;
+          hasAny = true;
+        } else {
+          homePheromones1[idx] = 0;
+          homePheromoneOwner1[idx] = 0;
+        }
       }
 
       var b = blockedPheromones[idx];
@@ -820,8 +856,10 @@ class WorldGrid {
     final idx = index(x, y);
     if (colonyId == 0) {
       foodPheromones0[idx] = math.min(1.0, foodPheromones0[idx] + amount);
+      foodPheromoneOwner0[idx] = colonyId.clamp(0, 255);
     } else {
       foodPheromones1[idx] = math.min(1.0, foodPheromones1[idx] + amount);
+      foodPheromoneOwner1[idx] = colonyId.clamp(0, 255);
     }
     _activePheromoneCells.add(idx);
   }
@@ -831,8 +869,10 @@ class WorldGrid {
     final idx = index(x, y);
     if (colonyId == 0) {
       homePheromones0[idx] = math.min(1.0, homePheromones0[idx] + amount);
+      homePheromoneOwner0[idx] = colonyId.clamp(0, 255);
     } else {
       homePheromones1[idx] = math.min(1.0, homePheromones1[idx] + amount);
+      homePheromoneOwner1[idx] = colonyId.clamp(0, 255);
     }
     _activePheromoneCells.add(idx);
   }
