@@ -935,6 +935,16 @@ class Ant {
     return normalized;
   }
 
+  void _rotateAway(
+    math.Random rng, {
+    double minTurn = 0.4,
+    double maxTurn = 1.2,
+  }) {
+    final direction = rng.nextBool() ? 1.0 : -1.0;
+    final delta = minTurn + rng.nextDouble() * (maxTurn - minTurn);
+    angle = _normalizeAngle(angle + direction * delta);
+  }
+
   void _handleRockCollision(math.Random rng) {
     // Progressive rotation strategy based on consecutive hits
     if (_consecutiveRockHits == 1) {
@@ -1306,8 +1316,7 @@ class Ant {
     if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
       position.setValues(nextX, nextY);
     } else {
-      // Turn around if blocked
-      angle += math.pi * 0.5 + (rng.nextDouble() - 0.5) * 0.5;
+      _rotateAway(rng, minTurn: 0.4, maxTurn: 0.9);
     }
 
     return false;
@@ -1411,8 +1420,7 @@ class Ant {
     if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
       position.setValues(nextX, nextY);
     } else {
-      // Turn around if blocked
-      angle += math.pi * 0.5 + (rng.nextDouble() - 0.5) * 0.5;
+      _rotateAway(rng);
     }
 
     return false;
@@ -1605,7 +1613,7 @@ class Ant {
     if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
       position.setValues(nextX, nextY);
     } else {
-      angle += math.pi * 0.5 + (rng.nextDouble() - 0.5) * 0.4;
+      _rotateAway(rng, minTurn: 0.5, maxTurn: 1.0);
     }
     return false;
   }

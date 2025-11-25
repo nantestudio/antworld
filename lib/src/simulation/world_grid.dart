@@ -515,8 +515,7 @@ class WorldGrid {
 
         final cellType = cells[nidx];
         // Only spread through air and food cells
-        if (cellType != CellType.air.index &&
-            cellType != CellType.food.index) {
+        if (cellType != CellType.air.index && cellType != CellType.food.index) {
           continue;
         }
 
