@@ -207,7 +207,7 @@ class WorldGenerator {
       (nest.x + math.cos(angle) * distance).clamp(2, grid.cols - 3),
       (nest.y + math.sin(angle) * distance).clamp(2, grid.rows - 3),
     );
-    grid.placeFood(pos, 1, amount: WorldGrid.defaultFoodPerCell ~/ 4);
+    grid.placeFood(pos, 2, amount: WorldGrid.defaultFoodPerCell ~/ 2);
   }
 
   void _carveCaverns(WorldGrid grid, math.Random rng, int cols, int rows) {
