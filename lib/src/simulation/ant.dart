@@ -43,20 +43,20 @@ class CasteStats {
     AntCaste.worker: CasteStats(
       speedMultiplier: 1.0,
       baseHp: 100,
-      baseAttack: 5,
-      baseDefense: 2,
+      baseAttack: 3, // weaker in combat
+      baseDefense: 1, // less defensive
       canForage: true,
       explorerRange: (0.0, 0.3),
-      baseAggression: 0.2, // Fights only if cornered
+      baseAggression: 0.1, // rarely fights, flees instead
     ),
     AntCaste.soldier: CasteStats(
-      speedMultiplier: 0.8,
+      speedMultiplier: 0.9, // faster than before
       baseHp: 150,
-      baseAttack: 15,
-      baseDefense: 8,
+      baseAttack: 25, // much stronger attack
+      baseDefense: 12, // better defense
       canForage: false,
       explorerRange: (0.1, 0.2),
-      baseAggression: 0.9, // Actively seeks combat
+      baseAggression: 0.95, // almost always fights
     ),
     AntCaste.nurse: CasteStats(
       speedMultiplier: 0.7,
@@ -197,18 +197,19 @@ class Ant {
 
   // Egg/Larva growth (used when caste == egg or larva)
   double _growthProgress = 0.0;
-  static const double _eggHatchTime = 15.0; // seconds for egg to hatch into larva
-  static const double _growthTimeToMature = 45.0; // seconds for larva to mature into adult
+  static const double _eggHatchTime = 20.0; // seconds for egg to hatch into larva (longer development)
+  static const double _growthTimeToMature = 60.0; // seconds for larva to mature into adult (longer growth)
 
   // Age and lifespan (in seconds)
   double _age = 0.0;
-  // Max lifespan per caste (in game seconds - roughly 3-10 minutes of play)
+  // Max lifespan per caste (in game seconds)
   static const Map<AntCaste, double> _maxLifespan = {
-    AntCaste.worker: 300.0,   // 5 minutes
-    AntCaste.soldier: 240.0,  // 4 minutes (fighting is dangerous)
-    AntCaste.nurse: 360.0,    // 6 minutes (safer in nest)
-    AntCaste.drone: 180.0,    // 3 minutes (short-lived)
-    AntCaste.queen: 900.0,    // 15 minutes (long-lived)
+    AntCaste.worker: 240.0,   // 4 minutes - faster turnover
+    AntCaste.soldier: 180.0,  // 3 minutes - combat life is short
+    AntCaste.nurse: 300.0,    // 5 minutes
+    AntCaste.drone: 150.0,    // 2.5 minutes (short-lived)
+    AntCaste.queen: 1800.0,   // 30 minutes - queens live much longer
+    AntCaste.princess: 600.0, // 10 minutes - waiting to become queen
     AntCaste.larva: 120.0,    // 2 minutes (will mature before this)
     AntCaste.egg: 60.0,       // 1 minute (will hatch before this)
   };
@@ -220,7 +221,7 @@ class Ant {
 
   // Queen egg laying timer
   double _eggLayTimer = 0.0;
-  static const double _eggLayInterval = 30.0; // seconds between laying eggs
+  static const double _eggLayInterval = 45.0; // seconds between laying eggs (less frequent)
 
   // Stuck detection
   final Vector2 _lastPosition = Vector2.zero();
@@ -393,7 +394,21 @@ class Ant {
       final hitX = collision.cellX;
       final hitY = collision.cellY;
 
-      if (hitBlock == CellType.dirt) {
+      if (hitBlock == CellType.food) {
+        // Food is solid - ant must stop and pick it up
+        if (!hasFood) {
+          _carryingFood = true;
+          state = AntState.returnHome;
+          world.consumeFood(hitX, hitY);
+          angle += config.foodPickupRotation + (rng.nextDouble() - 0.5) * 0.2;
+          _consecutiveRockHits = 0;
+          return false;
+        } else {
+          // Already carrying food - bounce off (can't carry more)
+          angle += math.pi + (rng.nextDouble() - 0.5) * 0.3;
+          _collisionPauseTimer = _collisionPauseDuration * 0.3;
+        }
+      } else if (hitBlock == CellType.dirt) {
         _dig(world, hitX, hitY, config);
         angle += math.pi / 2 + (rng.nextDouble() - 0.5) * 0.6;
         _consecutiveRockHits = 0; // Reset rock hit counter on dirt collision
@@ -800,7 +815,8 @@ class Ant {
         return null;
       }
       final cellType = world.cellTypeAt(x, y);
-      if (cellType == CellType.dirt || cellType == CellType.rock) {
+      // Food is also solid - ants must stop at food to pick it up
+      if (cellType == CellType.dirt || cellType == CellType.rock || cellType == CellType.food) {
         return _PathCollision(cellX: x, cellY: y, cellType: cellType);
       }
       return null;

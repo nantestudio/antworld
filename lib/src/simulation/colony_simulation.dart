@@ -45,7 +45,7 @@ class ColonySimulation {
   final List<int> _colonyFood = [0, 0, 0, 0]; // Supports up to 4 colonies
   final List<int> _colonyQueuedAnts = [0, 0, 0, 0]; // Supports up to 4 colonies
   // Princess spawning: accumulate food, spawn princess egg when threshold reached
-  static const int _foodForPrincess = 50; // Food needed to spawn a princess egg
+  static const int _foodForPrincess = 75; // Food needed to spawn a princess egg (higher threshold)
   static const int _maxPrincessesPerColony = 2;
   final List<int> _princessFoodAccumulator = [0, 0, 0, 0]; // Per-colony accumulator
   final List<int> _colonyQueuedPrincesses = [0, 0, 0, 0]; // Pending princess larvae per colony
@@ -287,8 +287,8 @@ class ColonySimulation {
     if (_physicsFrame % 3 == 0) {
       _resolveCombat();
     }
-    if (_physicsFrame % 10 == 0) {
-      // Queens emit strong pheromones towards food to guide ants
+    if (_physicsFrame % 30 == 0) {
+      // Queens emit strong pheromones towards food to guide ants (less frequent)
       _queenFoodGuidance();
     }
     if (_physicsFrame % 60 == 0) {
@@ -1348,8 +1348,8 @@ class ColonySimulation {
       final qx = ant.position.x.floor();
       final qy = ant.position.y.floor();
 
-      // Use BFS to find shortest walkable path to any food
-      final path = world.computePathToFood(qx, qy, maxLength: 40);
+      // Use BFS to find shortest walkable path to any food (longer range)
+      final path = world.computePathToFood(qx, qy, maxLength: 60);
 
       if (path != null && path.isNotEmpty) {
         // Deposit pheromones along actual walkable path
