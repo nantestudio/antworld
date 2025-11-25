@@ -105,6 +105,7 @@ class ColonySimulation {
   int _eggCount = 0;
   int _queenCount = 0;
   int _princessCount = 0;
+  int _builderCount = 0;
   int _enemy1WorkerCount = 0;
   int _enemy1SoldierCount = 0;
   int _enemy1NurseCount = 0;
@@ -112,6 +113,7 @@ class ColonySimulation {
   int _enemy1EggCount = 0;
   int _enemy1QueenCount = 0;
   int _enemy1PrincessCount = 0;
+  int _enemy1BuilderCount = 0;
   // Colony 2 stats
   int _enemy2WorkerCount = 0;
   int _enemy2SoldierCount = 0;
@@ -120,6 +122,7 @@ class ColonySimulation {
   int _enemy2EggCount = 0;
   int _enemy2QueenCount = 0;
   int _enemy2PrincessCount = 0;
+  int _enemy2BuilderCount = 0;
   // Colony 3 stats
   int _enemy3WorkerCount = 0;
   int _enemy3SoldierCount = 0;
@@ -128,6 +131,7 @@ class ColonySimulation {
   int _enemy3EggCount = 0;
   int _enemy3QueenCount = 0;
   int _enemy3PrincessCount = 0;
+  int _enemy3BuilderCount = 0;
 
   bool get showPheromones => pheromonesVisible.value;
   bool get showFoodPheromones => foodPheromonesVisible.value;
@@ -1169,6 +1173,7 @@ class ColonySimulation {
     _eggCount = 0;
     _queenCount = 0;
     _princessCount = 0;
+    _builderCount = 0;
     _enemy1WorkerCount = 0;
     _enemy1SoldierCount = 0;
     _enemy1NurseCount = 0;
@@ -1176,6 +1181,7 @@ class ColonySimulation {
     _enemy1EggCount = 0;
     _enemy1QueenCount = 0;
     _enemy1PrincessCount = 0;
+    _enemy1BuilderCount = 0;
     _enemy2WorkerCount = 0;
     _enemy2SoldierCount = 0;
     _enemy2NurseCount = 0;
@@ -1183,6 +1189,7 @@ class ColonySimulation {
     _enemy2EggCount = 0;
     _enemy2QueenCount = 0;
     _enemy2PrincessCount = 0;
+    _enemy2BuilderCount = 0;
     _enemy3WorkerCount = 0;
     _enemy3SoldierCount = 0;
     _enemy3NurseCount = 0;
@@ -1190,6 +1197,7 @@ class ColonySimulation {
     _enemy3EggCount = 0;
     _enemy3QueenCount = 0;
     _enemy3PrincessCount = 0;
+    _enemy3BuilderCount = 0;
 
     // Single pass through all ants
     for (final ant in ants.toList()) {
@@ -1213,8 +1221,9 @@ class ColonySimulation {
             _queenCount++;
           case AntCaste.princess:
             _princessCount++;
-          case AntCaste.drone:
           case AntCaste.builder:
+            _builderCount++;
+          case AntCaste.drone:
             break;
         }
       } else {
@@ -1237,8 +1246,9 @@ class ColonySimulation {
                 _enemy1QueenCount++;
               case AntCaste.princess:
                 _enemy1PrincessCount++;
-              case AntCaste.drone:
               case AntCaste.builder:
+                _enemy1BuilderCount++;
+              case AntCaste.drone:
                 break;
             }
           case 2:
@@ -1257,8 +1267,9 @@ class ColonySimulation {
                 _enemy2QueenCount++;
               case AntCaste.princess:
                 _enemy2PrincessCount++;
-              case AntCaste.drone:
               case AntCaste.builder:
+                _enemy2BuilderCount++;
+              case AntCaste.drone:
                 break;
             }
           case 3:
@@ -1277,8 +1288,9 @@ class ColonySimulation {
                 _enemy3QueenCount++;
               case AntCaste.princess:
                 _enemy3PrincessCount++;
-              case AntCaste.drone:
               case AntCaste.builder:
+                _enemy3BuilderCount++;
+              case AntCaste.drone:
                 break;
             }
           default:
@@ -1328,7 +1340,84 @@ class ColonySimulation {
           _queueNewRoom(colonyId, room.type);
         }
       }
+
+      // Proactive room building based on population and resource thresholds
+      _checkProactiveRoomNeeds(colonyId);
     }
+  }
+
+  /// Proactively queue new rooms before capacity is reached
+  void _checkProactiveRoomNeeds(int colonyId) {
+    // Thresholds for proactive building (build when usage exceeds these percentages)
+    const barracksThreshold = 0.7; // 70% capacity triggers new barracks
+    const foodStorageThreshold = 0.8; // 80% capacity triggers new food storage
+    const nurseryThreshold = 0.75; // 75% capacity triggers new nursery
+
+    // Check barracks capacity vs worker/soldier/builder population
+    final workerPop = _getColonyWorkerPopulation(colonyId);
+    final barracksCapacity = _getTotalRoomCapacity(colonyId, RoomType.barracks);
+    if (barracksCapacity > 0 && workerPop > barracksCapacity * barracksThreshold) {
+      _queueNewRoom(colonyId, RoomType.barracks);
+    }
+
+    // Check food storage capacity vs stored food
+    final storedFood = _getColonyStoredFood(colonyId);
+    final foodCapacity = _getTotalRoomCapacity(colonyId, RoomType.foodStorage);
+    if (foodCapacity > 0 && storedFood > foodCapacity * foodStorageThreshold) {
+      _queueNewRoom(colonyId, RoomType.foodStorage);
+    }
+
+    // Check nursery capacity vs egg/larva population
+    final nurseryPop = _getColonyNurseryPopulation(colonyId);
+    final nurseryCapacity = _getTotalRoomCapacity(colonyId, RoomType.nursery);
+    if (nurseryCapacity > 0 && nurseryPop > nurseryCapacity * nurseryThreshold) {
+      _queueNewRoom(colonyId, RoomType.nursery);
+    }
+  }
+
+  /// Get total capacity of all rooms of a type for a colony
+  int _getTotalRoomCapacity(int colonyId, RoomType type) {
+    return world.rooms
+        .where((r) => r.colonyId == colonyId && r.type == type)
+        .fold(0, (sum, r) => sum + r.maxCapacity);
+  }
+
+  /// Get worker + soldier + builder count for a colony (barracks population)
+  int _getColonyWorkerPopulation(int colonyId) {
+    switch (colonyId) {
+      case 0:
+        return _workerCount + _soldierCount + _builderCount;
+      case 1:
+        return _enemy1WorkerCount + _enemy1SoldierCount + _enemy1BuilderCount;
+      case 2:
+        return _enemy2WorkerCount + _enemy2SoldierCount + _enemy2BuilderCount;
+      case 3:
+        return _enemy3WorkerCount + _enemy3SoldierCount + _enemy3BuilderCount;
+      default:
+        return 0;
+    }
+  }
+
+  /// Get egg + larva count for a colony (nursery population)
+  int _getColonyNurseryPopulation(int colonyId) {
+    switch (colonyId) {
+      case 0:
+        return _eggCount + _larvaCount;
+      case 1:
+        return _enemy1EggCount + _enemy1LarvaCount;
+      case 2:
+        return _enemy2EggCount + _enemy2LarvaCount;
+      case 3:
+        return _enemy3EggCount + _enemy3LarvaCount;
+      default:
+        return 0;
+    }
+  }
+
+  /// Get stored food for a colony
+  int _getColonyStoredFood(int colonyId) {
+    if (colonyId < 0 || colonyId >= _colonyFood.length) return 0;
+    return _colonyFood[colonyId];
   }
 
   int _measureRoomOccupancy(Room room) {
