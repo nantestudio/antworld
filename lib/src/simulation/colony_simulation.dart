@@ -203,7 +203,8 @@ class ColonySimulation {
     final larvaeToMature = <Ant>[];
     final queensLayingEggs = <Ant>[];
     final nursesSignaling = <Ant>[];
-    for (final ant in ants) {
+    // Use toList() to avoid ConcurrentModificationError if ants list changes
+    for (final ant in ants.toList()) {
       final result =
           ant.update(clampedDt, config, world, _rng, antSpeed, attackTarget: null);
 
@@ -325,7 +326,7 @@ class ColonySimulation {
     }
     config = config.copyWith(restEnabled: enabled);
     if (!enabled) {
-      for (final ant in ants) {
+      for (final ant in ants.toList()) {
         ant.exitRestState();
       }
     }
@@ -918,7 +919,7 @@ class ColonySimulation {
     _enemy1PrincessCount = 0;
 
     // Single pass through all ants
-    for (final ant in ants) {
+    for (final ant in ants.toList()) {
       if (ant.colonyId == 0) {
         // Colony 0 stats
         if (ant.state == AntState.rest) _restingCount++;
@@ -1006,7 +1007,7 @@ class ColonySimulation {
     _separationAdjustments.clear();
 
     // Build spatial hash - reuse pooled lists
-    for (final ant in ants) {
+    for (final ant in ants.toList()) {
       if (ant.isDead || ant.caste == AntCaste.larva || ant.caste == AntCaste.queen || ant.caste == AntCaste.egg) continue;
       final gx = ant.position.x.floor();
       final gy = ant.position.y.floor();
@@ -1146,7 +1147,7 @@ class ColonySimulation {
     _spatialHash.clear();
 
     // Build spatial hash for O(n) combat detection instead of O(n²)
-    for (final ant in ants) {
+    for (final ant in ants.toList()) {
       if (ant.isDead || ant.caste == AntCaste.larva || ant.caste == AntCaste.egg) continue;
       final gx = ant.position.x.floor();
       final gy = ant.position.y.floor();
@@ -1294,7 +1295,7 @@ class ColonySimulation {
     var convertedCount = 0;
 
     // Convert all living ants from defeated colony to conqueror's colony
-    for (final ant in ants) {
+    for (final ant in ants.toList()) {
       if (ant.colonyId == defeatedColonyId && !ant.isDead) {
         ant.colonyId = conquerorColonyId;
         // Reset their state to forage for the new colony
