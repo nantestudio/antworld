@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AntWorld is a Flutter + Flame game that simulates an ant colony using emergent behavior and pheromone-based navigation. Individual ants follow simple rules (sense pheromones with 3 sensors, move toward stronger signals, drop pheromones, pick up food) which creates complex colony-wide patterns like foraging highways.
+AntWorld is a Flutter + Flame game that simulates ant colonies using emergent behavior and pheromone-based navigation. Individual ants follow simple rules (sense pheromones with 3 sensors, move toward stronger signals, drop pheromones, pick up food) which creates complex colony-wide patterns like foraging highways.
 
-The simulation includes combat mechanics where enemy ant raids periodically spawn and attack the colony.
+The simulation supports multiple competing colonies (up to 4), ant castes (worker, soldier, nurse, drone, queen, larva), and combat between colonies.
 
 ## Common Development Commands
 
@@ -19,8 +19,9 @@ flutter pub get
 flutter run
 
 # Run on specific platforms
-flutter run -d chrome          # Web
+flutter run -d chrome           # Web
 flutter run -d macos            # macOS
+flutter run -d ios              # iOS (requires Xcode)
 flutter run -d windows          # Windows
 flutter run -d linux            # Linux
 
@@ -72,20 +73,22 @@ AntWorldGame
 
 **`ColonySimulation`** (`lib/src/simulation/colony_simulation.dart`)
 - Orchestrates the entire simulation update loop
-- Manages ant list and spawning, including enemy ants
-- Tracks food collected and day counter
+- Manages ant list and spawning for multiple colonies (up to 4)
+- Tracks food per colony with separate ValueNotifiers (colony0Food, colony1Food)
 - Coordinates between ants and world grid
-- Handles enemy raids (periodic spawning from map edges)
-- Combat resolution between friendly and enemy ants
+- Combat resolution between colonies
 - Automatic food replenishment to maintain minimum supply
-- ValueNotifiers expose state to UI (antCount, foodCollected, daysPassed, pheromonesVisible, antSpeedMultiplier)
+- Caches ant statistics per caste and colony for O(1) UI access
+- Spatial hashing for efficient collision/separation calculations
+- ValueNotifiers expose state to UI (antCount, foodCollected, daysPassed, pheromonesVisible, antSpeedMultiplier, paused)
 
 **`WorldGrid`** (`lib/src/simulation/world_grid.dart`)
 - 2D grid storing cell types (air, dirt, food, rock) with corresponding health values
-- Two Float32List arrays for pheromone layers (food pheromones, home pheromones)
+- Dirt has variable hardness via DirtType enum (softSand, looseSoil, packedEarth, clay, hardite, bedrock)
+- Float32List arrays for pheromone layers - supports per-colony home pheromones
 - Pheromone decay happens every frame (only active cells tracked for efficiency)
 - Food positions cached in a Set for O(1) lookup
-- BFS pathfinding via `_homeDistances` array for returning ants
+- BFS pathfinding via `_homeDistances` array for returning ants (per-colony)
 - Grid indices calculated as: `index(x, y) = y * cols + x`
 
 **`WorldGenerator`** (`lib/src/simulation/world_generator.dart`)
@@ -93,14 +96,16 @@ AntWorldGame
 - Generates tunnels, rooms, and initial food placement
 
 **`Ant`** (`lib/src/simulation/ant.dart`)
-- Individual ant with position, angle, energy, state (forage/returnHome/rest)
+- Individual ant with position, angle, energy, colonyId, caste
+- Castes: worker, soldier, nurse, drone, queen, larva (AntCaste enum)
 - State machine: foraging → finds food → returns home → delivers food → repeats
 - 3-sensor system for pheromone detection (left, front, right at ±0.6 radians)
 - Direct food sensing within 30 cells when not following pheromone trails
 - Grid pathfinding (BFS) guides ants home via `WorldGrid.directionToNest()`
 - Energy system: drains while moving, recovers while resting, digging costs extra
-- Combat stats: attack, defense, HP for fighting enemy ants
+- Combat stats: attack, defense, HP for fighting ants from other colonies
 - Explorer ants (5% by default) ignore pheromones more often to discover new food
+- Queens produce eggs, nurses care for larvae, soldiers patrol and defend
 
 **`AntWorldGame`** (`lib/src/game/ant_world_game.dart`)
 - Flame game component that renders the simulation
@@ -119,10 +124,17 @@ AntWorldGame
 - Saves/restores: grid state, pheromones, ants, config, food count
 - Automatically restores on app launch
 
+**`AnalyticsService`** (`lib/src/services/analytics_service.dart`)
+- Singleton service for Firebase Analytics tracking
+- Tracks game events: game_start, game_load, map_generated, colony_takeover
+- Tracks milestones: food_milestone, day_milestone
+- Tracks user actions: speed_changed, brush_used, game_saved
+
 ### Data Structures
 
 **Grid Storage**: Single flat `Uint8List` for cells, indexed by `y * cols + x`
 - Cell types: air (0), dirt (1), food (2), rock (3)
+- Dirt types with varying HP: softSand (5), looseSoil (12), packedEarth (25), clay (50), hardite (100), bedrock (200)
 - Separate `Float32List` for dirt health values
 - Separate `Float32List` arrays for each pheromone type
 
@@ -145,12 +157,11 @@ AntWorldGame
 - Recomputed when terrain changes (`_homeDistanceDirty` flag)
 - Ants returning home use this instead of pheromone following
 
-**Combat System**: Enemy raids attack the colony
-- Raids spawn periodically (35-75 seconds) from random map edges
-- Enemy count scales with colony size (1-20% of friendly ants)
-- Combat triggers when ants are within 0.6 cells of each other
+**Combat System**: Inter-colony combat
+- Combat triggers when ants from different colonies are within proximity
 - Damage = `attacker.attack * variance - defender.defense * mitigation`
-- Dead ants are removed; surviving enemies continue toward nest
+- Dead ants are removed
+- Colony takeover events tracked via AnalyticsService
 
 ## Code Patterns
 
@@ -224,5 +235,10 @@ This codebase follows a clear separation between:
 - **Game engine** (lib/src/game/) - Flame integration, rendering, input
 - **UI layer** (lib/src/ui/) - Flutter widgets, overlays
 - **Persistence** (lib/src/state/) - Save/load functionality
+- **Services** (lib/src/services/) - Firebase analytics and other services
 
 The simulation can run headless for testing. The game layer is a thin rendering wrapper. The UI is stateless and driven by ValueNotifiers from the simulation.
+
+## Firebase Setup
+
+Firebase Analytics is configured for iOS, Android, macOS, and web. Firebase options are in `lib/firebase_options.dart` (generated by FlutterFire CLI). The `AnalyticsService` singleton handles all event tracking.

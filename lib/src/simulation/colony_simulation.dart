@@ -44,6 +44,11 @@ class ColonySimulation {
   // Per-colony food tracking for reproduction
   final List<int> _colonyFood = [0, 0, 0, 0]; // Supports up to 4 colonies
   final List<int> _colonyQueuedAnts = [0, 0, 0, 0]; // Supports up to 4 colonies
+  // Princess spawning: accumulate food, spawn princess egg when threshold reached
+  static const int _foodForPrincess = 50; // Food needed to spawn a princess egg
+  static const int _maxPrincessesPerColony = 2;
+  final List<int> _princessFoodAccumulator = [0, 0, 0, 0]; // Per-colony accumulator
+  final List<int> _colonyQueuedPrincesses = [0, 0, 0, 0]; // Pending princess larvae per colony
   int _physicsFrame = 0;
   int? _lastSeed;
   double _elapsedTime = 0.0;
@@ -66,12 +71,14 @@ class ColonySimulation {
   int _larvaCount = 0;
   int _eggCount = 0;
   int _queenCount = 0;
+  int _princessCount = 0;
   int _enemy1WorkerCount = 0;
   int _enemy1SoldierCount = 0;
   int _enemy1NurseCount = 0;
   int _enemy1LarvaCount = 0;
   int _enemy1EggCount = 0;
   int _enemy1QueenCount = 0;
+  int _enemy1PrincessCount = 0;
 
   bool get showPheromones => pheromonesVisible.value;
   bool get showFoodScent => foodScentVisible.value;
@@ -88,6 +95,7 @@ class ColonySimulation {
   int get larvaCount => _larvaCount;
   int get eggCount => _eggCount;
   int get queenCount => _queenCount;
+  int get princessCount => _princessCount;
 
   // Colony 1 stats
   int get enemy1WorkerCount => _enemy1WorkerCount;
@@ -96,6 +104,7 @@ class ColonySimulation {
   int get enemy1LarvaCount => _enemy1LarvaCount;
   int get enemy1EggCount => _enemy1EggCount;
   int get enemy1QueenCount => _enemy1QueenCount;
+  int get enemy1PrincessCount => _enemy1PrincessCount;
 
   void initialize() {
     world.reset();
@@ -106,6 +115,8 @@ class ColonySimulation {
     for (var i = 0; i < 4; i++) {
       _colonyFood[i] = 0;
       _colonyQueuedAnts[i] = 0;
+      _princessFoodAccumulator[i] = 0;
+      _colonyQueuedPrincesses[i] = 0;
     }
     _elapsedTime = 0.0;
     elapsedTime.value = 0.0;
@@ -226,6 +237,16 @@ class ColonySimulation {
         // Food enables egg production - queue eggs instead of adults
         if (_colonyFood[ant.colonyId] % config.foodPerNewAnt == 0) {
           _colonyQueuedAnts[ant.colonyId] += 1;
+        }
+        // Princess spawning: accumulate food for princess production
+        _princessFoodAccumulator[ant.colonyId] += 1;
+        if (_princessFoodAccumulator[ant.colonyId] >= _foodForPrincess) {
+          // Check if colony can have more princesses
+          final currentPrincessCount = _getPrincessCountForColony(ant.colonyId);
+          if (currentPrincessCount < _maxPrincessesPerColony) {
+            _spawnPrincessEgg(ant.colonyId);
+          }
+          _princessFoodAccumulator[ant.colonyId] = 0;
         }
       }
     }
@@ -619,6 +640,39 @@ class ColonySimulation {
     _updateAntCount();
   }
 
+  /// Get the count of princesses for a specific colony
+  int _getPrincessCountForColony(int colonyId) {
+    return ants.where((ant) => ant.colonyId == colonyId && ant.caste == AntCaste.princess).length;
+  }
+
+  /// Spawn a princess egg at the queen's position
+  void _spawnPrincessEgg(int colonyId) {
+    // Find the queen for this colony
+    final queen = ants.where((ant) => ant.colonyId == colonyId && ant.caste == AntCaste.queen).firstOrNull;
+    if (queen == null) return;
+
+    // Spawn princess egg near the queen
+    final offset = Vector2(
+      (_rng.nextDouble() - 0.5) * 2,
+      (_rng.nextDouble() - 0.5) * 2,
+    );
+    final spawnPos = queen.position + offset;
+    ants.add(
+      Ant(
+        startPosition: spawnPos,
+        angle: _rng.nextDouble() * math.pi * 2,
+        energy: config.energyCapacity,
+        rng: _rng,
+        caste: AntCaste.egg,
+        colonyId: colonyId,
+      ),
+    );
+    // Mark this egg as destined to become a princess (stored in larva stage)
+    // Note: We'll handle princess maturation in _matureLarva by tracking which eggs should become princesses
+    _colonyQueuedPrincesses[colonyId] += 1;
+    _updateAntCount();
+  }
+
   void _hatchEgg(Ant egg) {
     // Transform egg into larva at the same position
     ants.remove(egg);
@@ -636,8 +690,16 @@ class ColonySimulation {
   }
 
   void _matureLarva(Ant larva) {
-    // Determine what caste the colony needs most
-    final neededCaste = _determineNeededCaste(larva.colonyId);
+    AntCaste neededCaste;
+
+    // Check if this larva should become a princess (queued from food collection)
+    if (_colonyQueuedPrincesses[larva.colonyId] > 0) {
+      neededCaste = AntCaste.princess;
+      _colonyQueuedPrincesses[larva.colonyId] -= 1;
+    } else {
+      // Determine what caste the colony needs most
+      neededCaste = _determineNeededCaste(larva.colonyId);
+    }
 
     // Remove the larva and spawn the needed caste at its position
     ants.remove(larva);
@@ -846,12 +908,14 @@ class ColonySimulation {
     _larvaCount = 0;
     _eggCount = 0;
     _queenCount = 0;
+    _princessCount = 0;
     _enemy1WorkerCount = 0;
     _enemy1SoldierCount = 0;
     _enemy1NurseCount = 0;
     _enemy1LarvaCount = 0;
     _enemy1EggCount = 0;
     _enemy1QueenCount = 0;
+    _enemy1PrincessCount = 0;
 
     // Single pass through all ants
     for (final ant in ants) {
@@ -873,6 +937,8 @@ class ColonySimulation {
             _eggCount++;
           case AntCaste.queen:
             _queenCount++;
+          case AntCaste.princess:
+            _princessCount++;
           case AntCaste.drone:
             break;
         }
@@ -893,6 +959,8 @@ class ColonySimulation {
               _enemy1EggCount++;
             case AntCaste.queen:
               _enemy1QueenCount++;
+            case AntCaste.princess:
+              _enemy1PrincessCount++;
             case AntCaste.drone:
               break;
           }
@@ -1135,29 +1203,29 @@ class ColonySimulation {
                   // Winner picks up dead enemy as food
                   if (a.isDead && !b.isDead && !b.hasFood) {
                     deadAnts.add(a);
-                    // COLONY TAKEOVER: If a queen dies, attacker's colony takes over
+                    // QUEEN DEATH: Check for princess succession before takeover
                     if (a.caste == AntCaste.queen) {
-                      _handleColonyTakeover(a.colonyId, b.colonyId);
+                      _handleQueenDeath(a.colonyId, b.colonyId);
                     }
                     b.pickUpFood(); // Eat the enemy!
                   } else if (b.isDead && !a.isDead && !a.hasFood) {
                     deadAnts.add(b);
-                    // COLONY TAKEOVER: If a queen dies, attacker's colony takes over
+                    // QUEEN DEATH: Check for princess succession before takeover
                     if (b.caste == AntCaste.queen) {
-                      _handleColonyTakeover(b.colonyId, a.colonyId);
+                      _handleQueenDeath(b.colonyId, a.colonyId);
                     }
                     a.pickUpFood(); // Eat the enemy!
                   } else {
                     if (a.isDead) {
                       deadAnts.add(a);
                       if (a.caste == AntCaste.queen && !b.isDead) {
-                        _handleColonyTakeover(a.colonyId, b.colonyId);
+                        _handleQueenDeath(a.colonyId, b.colonyId);
                       }
                     }
                     if (b.isDead) {
                       deadAnts.add(b);
                       if (b.caste == AntCaste.queen && !a.isDead) {
-                        _handleColonyTakeover(b.colonyId, a.colonyId);
+                        _handleQueenDeath(b.colonyId, a.colonyId);
                       }
                     }
                   }
@@ -1176,10 +1244,11 @@ class ColonySimulation {
   }
 
   void _removeStuckAnts() {
-    // Don't remove queens, larvae, or eggs - they don't move by design
+    // Don't remove queens, princesses, larvae, or eggs - they don't move much by design
     final stuckAnts = ants.where((a) =>
       a.isStuck &&
       a.caste != AntCaste.queen &&
+      a.caste != AntCaste.princess &&
       a.caste != AntCaste.larva &&
       a.caste != AntCaste.egg
     ).toList();
@@ -1196,6 +1265,24 @@ class ColonySimulation {
     if (oldAnts.isNotEmpty) {
       ants.removeWhere(oldAnts.contains);
       _updateAntCount();
+    }
+  }
+
+  /// Handle queen death - check for princess succession before takeover
+  void _handleQueenDeath(int defeatedColonyId, int conquerorColonyId) {
+    // Check if the defeated colony has a princess to take over
+    final princess = ants.where(
+      (ant) => ant.colonyId == defeatedColonyId && ant.caste == AntCaste.princess && !ant.isDead
+    ).firstOrNull;
+
+    if (princess != null) {
+      // Princess succession! Colony survives with new queen
+      princess.promoteToQueen();
+      // ignore: avoid_print
+      print('PRINCESS SUCCESSION: Colony $defeatedColonyId princess became queen!');
+    } else {
+      // No princess available - colony is taken over
+      _handleColonyTakeover(defeatedColonyId, conquerorColonyId);
     }
   }
 
