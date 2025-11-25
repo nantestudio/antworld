@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flame/events.dart';
 import 'package:flame/game.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
@@ -25,6 +27,7 @@ class AntWorldGame extends FlameGame
   final ValueNotifier<bool> editMode = ValueNotifier<bool>(
     false,
   ); // Default: navigation mode
+  final FrameTelemetry _frameTelemetry = FrameTelemetry();
 
   double _worldScale = 1;
   double _baseScale = 1;
@@ -225,7 +228,9 @@ class AntWorldGame extends FlameGame
   @override
   void update(double dt) {
     super.update(dt);
+    _frameTelemetry.beginUpdate();
     simulation.update(dt);
+    _frameTelemetry.endUpdate(dt);
     _collectDeathEvents();
     _updateDeathPops(dt);
   }
@@ -726,26 +731,24 @@ class AntWorldGame extends FlameGame
 
     // Draw food scent visualization (bright lime green showing smell spreading through tunnels)
     if (simulation.showFoodScent) {
-      final worldRows = world.rows;
-      for (var y = 0; y < worldRows; y++) {
-        for (var x = 0; x < cols; x++) {
-          final idx = world.index(x, y);
-          if (world.cells[idx] != CellType.air.index) continue;
-
-          final scent = world.foodScent[idx];
-          if (scent < 0.005) continue; // Lower threshold to show more diffusion
-
-          final dx = x * cellSize;
-          final dy = y * cellSize;
-          final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
-
-          // Bright lime green for food scent, highly visible alpha
-          final alpha = (scent * 1.2).clamp(0.1, 0.8); // Much more visible
-          _foodScentPaint.color = const Color(
-            0xFF00FF00,
-          ).withValues(alpha: alpha);
-          canvas.drawRect(rect, _foodScentPaint);
+      for (final idx in world.activeFoodScentCells) {
+        if (world.cells[idx] != CellType.air.index) {
+          continue;
         }
+        final scent = world.foodScent[idx];
+        if (scent < 0.005) {
+          continue;
+        }
+        final x = idx % cols;
+        final y = idx ~/ cols;
+        final dx = x * cellSize;
+        final dy = y * cellSize;
+        final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
+        final alpha = (scent * 1.2).clamp(0.1, 0.8);
+        _foodScentPaint.color = const Color(
+          0xFF00FF00,
+        ).withValues(alpha: alpha);
+        canvas.drawRect(rect, _foodScentPaint);
       }
     }
   }
@@ -994,4 +997,48 @@ class _DeathPop {
   final Vector2 position;
   final int colonyId;
   double elapsed = 0;
+}
+
+class FrameTelemetry {
+  FrameTelemetry()
+    : _logFile = kIsWeb
+          ? null
+          : File('${Directory.systemTemp.path}/antworld_telemetry.log');
+
+  final Stopwatch _stopwatch = Stopwatch();
+  final File? _logFile;
+  double _accumulatedTime = 0;
+  double _accumulatedUpdateMs = 0;
+  int _frames = 0;
+  static const double _logInterval = 5.0;
+
+  void beginUpdate() {
+    _stopwatch
+      ..reset()
+      ..start();
+  }
+
+  void endUpdate(double dt) {
+    _stopwatch.stop();
+    _accumulatedTime += dt;
+    _accumulatedUpdateMs += _stopwatch.elapsedMicroseconds / 1000.0;
+    _frames++;
+    if (_accumulatedTime >= _logInterval) {
+      final avgUpdate = _accumulatedUpdateMs / _frames;
+      final fps = _frames / _accumulatedTime;
+      final line =
+          '[Telemetry] avgUpdate=${avgUpdate.toStringAsFixed(2)}ms fps=${fps.toStringAsFixed(1)}';
+      final file = _logFile;
+      if (file != null) {
+        try {
+          file.writeAsStringSync('$line\n', mode: FileMode.append);
+        } catch (_) {}
+      } else {
+        debugPrint(line);
+      }
+      _accumulatedTime = 0;
+      _accumulatedUpdateMs = 0;
+      _frames = 0;
+    }
+  }
 }

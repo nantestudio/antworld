@@ -188,6 +188,9 @@ class WorldGrid {
   final Set<int> _reinforcedCells = <int>{};
   late final UnmodifiableSetView<int> _reinforcedCellsView =
       UnmodifiableSetView(_reinforcedCells);
+  final Set<int> _activeFoodScentCells = <int>{};
+  late final UnmodifiableSetView<int> _activeFoodScentCellsView =
+      UnmodifiableSetView(_activeFoodScentCells);
 
   // Legacy getters for backwards compatibility
   Vector2 get nestPosition => nestPositions[0];
@@ -211,6 +214,7 @@ class WorldGrid {
   Iterable<int> get foodCells =>
       _foodCells; // Public access for queen food guidance
   int get foodCount => _foodCells.length;
+  Iterable<int> get activeFoodScentCells => _activeFoodScentCellsView;
   Iterable<int> get reinforcedCells => _reinforcedCellsView;
 
   void reset() {
@@ -232,6 +236,7 @@ class WorldGrid {
     _activePheromoneCells.clear();
     rooms.clear();
     _reinforcedCells.clear();
+    _activeFoodScentCells.clear();
     _homeDistance0Dirty = true;
     _homeDistance1Dirty = true;
     _terrainVersion++;
@@ -533,6 +538,13 @@ class WorldGrid {
         if (iterations < maxDistance * _foodCells.length) {
           queue.add((nidx, newStrength));
         }
+      }
+    }
+
+    _activeFoodScentCells.clear();
+    for (var i = 0; i < foodScent.length; i++) {
+      if (foodScent[i] > 0.01) {
+        _activeFoodScentCells.add(i);
       }
     }
   }

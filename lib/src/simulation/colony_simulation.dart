@@ -17,7 +17,7 @@ class ColonySimulation {
       colony0Food = ValueNotifier<int>(0),
       colony1Food = ValueNotifier<int>(0),
       pheromonesVisible = ValueNotifier<bool>(true),
-      foodScentVisible = ValueNotifier<bool>(true),
+      foodScentVisible = ValueNotifier<bool>(false),
       foodPheromonesVisible = ValueNotifier<bool>(true),
       homePheromonesVisible = ValueNotifier<bool>(true),
       antSpeedMultiplier = ValueNotifier<double>(0.2),
