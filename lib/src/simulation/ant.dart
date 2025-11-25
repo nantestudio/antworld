@@ -478,17 +478,29 @@ class Ant {
       return false;
     }
 
-    // Check if destination is out of bounds
     final gx = nextX.floor();
     final gy = nextY.floor();
-    if (!world.isInsideIndex(gx, gy)) {
-      angle += math.pi;
-      // Pause after hitting boundary
-      _collisionPauseTimer = _collisionPauseDuration;
+    final walkable =
+        world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy);
+    if (!walkable) {
+      _rotateAway(rng);
       return false;
     }
 
-    position.setValues(nextX, nextY);
+    var steppedOnFood = false;
+    final destBlock = world.cellTypeAt(gx, gy);
+    if (destBlock == CellType.food && !hasFood) {
+      position.setValues(gx + 0.5, gy + 0.5);
+      if (world.consumeFood(gx, gy)) {
+        _carryingFood = true;
+        state = AntState.returnHome;
+        angle += config.foodPickupRotation + (rng.nextDouble() - 0.5) * 0.2;
+        _collisionPauseTimer = math.max(_collisionPauseTimer, 0.05);
+        steppedOnFood = true;
+      }
+    } else {
+      position.setValues(nextX, nextY);
+    }
 
     // Successfully moved - reset collision tracking
     if (_collisionCooldown > 0) {
@@ -513,18 +525,6 @@ class Ant {
       }
     }
 
-    // Check for food at destination
-    final destBlock = world.cellTypeAt(gx, gy);
-    if (destBlock == CellType.food && !hasFood) {
-      _carryingFood = true;
-      state = AntState.returnHome;
-      world.consumeFood(
-        gx,
-        gy,
-      ); // Decrements food amount, removes cell when empty
-      angle += config.foodPickupRotation + (rng.nextDouble() - 0.5) * 0.2;
-    }
-
     final myNest = world.getNestPosition(colonyId);
     final dropRoom = world.getFoodRoom(colonyId);
     final dropCenter = dropRoom?.center ?? myNest;
@@ -546,13 +546,13 @@ class Ant {
       if (position.distanceTo(target) < restRadius) {
         state = AntState.forage;
         _enterRest();
-        return deliveredFood;
+        return deliveredFood || steppedOnFood;
       }
     }
 
-    if (deliveredFood) {
+    if (deliveredFood || steppedOnFood) {
       state = AntState.forage;
-      return true;
+      return deliveredFood || steppedOnFood;
     }
 
     return false;
