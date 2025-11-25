@@ -271,13 +271,9 @@ class ColonySimulation {
         nursesSignaling.add(ant);
       } else if (ant.caste == AntCaste.egg && ant.isReadyToHatch) {
         final nurseryRoom = world.getNurseryRoom(ant.colonyId);
-        if (nurseryRoom == null) {
-          eggsToHatch.add(ant);
-        } else if (nurseryRoom.contains(ant.position)) {
-          eggsToHatch.add(ant);
-        } else {
-          // If nursery has room, gently nudge ready eggs inside so they can hatch
-          if (!nurseryRoom.isOverCapacity) {
+        if (nurseryRoom != null) {
+          if (!nurseryRoom.contains(ant.position) &&
+              !nurseryRoom.isOverCapacity) {
             final jitter = Vector2(
               (_rng.nextDouble() - 0.5) * 1.5,
               (_rng.nextDouble() - 0.5) * 1.5,
@@ -288,10 +284,9 @@ class ColonySimulation {
             } else {
               ant.position.setFrom(nurseryRoom.center);
             }
-            eggsToHatch.add(ant);
           }
-          // If nursery overflowing, let eggs continue waiting until space frees up
         }
+        eggsToHatch.add(ant);
       } else if (ant.caste == AntCaste.larva && ant.isReadyToMature) {
         // Larva ready to become an adult
         larvaeToMature.add(ant);
