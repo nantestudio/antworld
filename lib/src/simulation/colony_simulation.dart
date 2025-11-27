@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:flame/components.dart';
 import 'package:flutter/foundation.dart';
 
+import '../core/event_bus.dart';
+import '../core/game_event.dart';
 import '../progression/progression_service.dart';
 import '../services/analytics_service.dart';
 import 'ant.dart';
@@ -12,7 +14,7 @@ import 'world_generator.dart';
 import 'world_grid.dart';
 
 class ColonySimulation {
-  ColonySimulation(this.config)
+  ColonySimulation(this.config, {GameEventBus? eventBus})
     : antCount = ValueNotifier<int>(0),
       foodCollected = ValueNotifier<int>(0),
       colony0Food = ValueNotifier<int>(0),
@@ -26,12 +28,14 @@ class ColonySimulation {
       antSpeedMultiplier = ValueNotifier<double>(0.2),
       daysPassed = ValueNotifier<int>(1),
       elapsedTime = ValueNotifier<double>(0.0),
-      paused = ValueNotifier<bool>(false) {
+      paused = ValueNotifier<bool>(false),
+      eventBus = eventBus ?? GameEventBus() {
     world = WorldGrid(config);
   }
 
   SimulationConfig config;
   late WorldGrid world;
+  final GameEventBus eventBus;
   final List<Ant> ants = []; // Contains ants from all colonies
   final ValueNotifier<int> antCount;
   final ValueNotifier<int> foodCollected;
@@ -91,7 +95,8 @@ class ColonySimulation {
   // Index = colonyId, value = threat position (null = no threat)
   final List<Vector2?> _defenseAlertPositions = [null, null, null, null];
   final List<double> _defenseAlertTimers = [0, 0, 0, 0]; // Cooldown timers
-  static const double _defenseAlertDuration = 5.0; // How long alert stays active
+  static const double _defenseAlertDuration =
+      5.0; // How long alert stays active
   static const double _defenseAlertRadius = 12.0; // Detection radius from nest
 
   // Cached stats (updated in _updateAntCount for O(1) access)
@@ -411,6 +416,7 @@ class ColonySimulation {
         _storedFood += 1;
         foodCollected.value = _storedFood;
         _colonyFood[ant.colonyId] += 1;
+        _emitFoodCollected(ant.colonyId, 1);
         // Update per-colony food ValueNotifiers for UI
         _syncColonyFoodNotifier(ant.colonyId);
         // Track progression XP for food collection
@@ -673,7 +679,7 @@ class ColonySimulation {
 
   Map<String, dynamic> toSnapshot() {
     return {
-      'config': _configToJson(),
+      'config': simulationConfigToJson(config),
       'world': _worldToJson(),
       'ants': ants.map((ant) => ant.toJson()).toList(),
       'foodCollected': _storedFood,
@@ -687,7 +693,7 @@ class ColonySimulation {
 
   void restoreFromSnapshot(Map<String, dynamic> snapshot) {
     final configData = (snapshot['config'] as Map<String, dynamic>?) ?? {};
-    config = _configFromJson(configData, config);
+    config = simulationConfigFromJson(configData, fallback: config);
 
     final worldData = snapshot['world'] as Map<String, dynamic>?;
     final nestOverride = _vectorFromJson(
@@ -845,6 +851,7 @@ class ColonySimulation {
       ),
     );
     _updateAntCount();
+    _emitAntCreated(caste, colonyId);
   }
 
   void _spawnEggAtQueen(Ant queen) {
@@ -865,6 +872,7 @@ class ColonySimulation {
       ),
     );
     _updateAntCount();
+    _emitAntCreated(AntCaste.egg, queen.colonyId);
   }
 
   /// Get the count of princesses for a specific colony
@@ -904,6 +912,7 @@ class ColonySimulation {
     // Note: We'll handle princess maturation in _matureLarva by tracking which eggs should become princesses
     _colonyQueuedPrincesses[colonyId] += 1;
     _updateAntCount();
+    _emitAntCreated(AntCaste.egg, colonyId);
   }
 
   void _hatchEgg(Ant egg) {
@@ -920,6 +929,7 @@ class ColonySimulation {
       ),
     );
     // No need to update count - same number of ants
+    _emitAntCreated(AntCaste.larva, egg.colonyId);
   }
 
   void _matureLarva(Ant larva) {
@@ -950,6 +960,7 @@ class ColonySimulation {
       ),
     );
     // No need to update count - same number of ants
+    _emitAntCreated(neededCaste, larva.colonyId);
   }
 
   /// Process nurses that are signaling egg pickup or drop
@@ -1166,6 +1177,7 @@ class ColonySimulation {
       ),
     );
     _updateAntCount();
+    _emitAntCreated(AntCaste.egg, colonyId);
   }
 
   void _updateAntCount() {
@@ -1310,6 +1322,14 @@ class ColonySimulation {
     antCount.value = ants.length;
   }
 
+  void _emitAntCreated(AntCaste caste, int colonyId) {
+    eventBus.emit(AntBornEvent(caste: caste, colonyId: colonyId));
+  }
+
+  void _emitFoodCollected(int colonyId, int amount) {
+    eventBus.emit(FoodCollectedEvent(amount: amount, colonyId: colonyId));
+  }
+
   void _scheduleNextFoodCheck() {
     _foodCheckTimer = 0;
     // Spawn new food every ~5 minutes (270-330 seconds)
@@ -1337,8 +1357,9 @@ class ColonySimulation {
       );
       for (final room in colonyRooms) {
         if (room.type == RoomType.home) {
-          room.currentOccupancy =
-              _measureRoomOccupancy(room); // still track, no expansion
+          room.currentOccupancy = _measureRoomOccupancy(
+            room,
+          ); // still track, no expansion
           continue; // only one hatchery per colony
         }
         final occupancy = _measureRoomOccupancy(room);
@@ -1364,7 +1385,8 @@ class ColonySimulation {
     // Check barracks capacity vs worker/soldier/builder population
     final workerPop = _getColonyWorkerPopulation(colonyId);
     final barracksCapacity = _getTotalRoomCapacity(colonyId, RoomType.barracks);
-    if (barracksCapacity > 0 && workerPop > barracksCapacity * barracksThreshold) {
+    if (barracksCapacity > 0 &&
+        workerPop > barracksCapacity * barracksThreshold) {
       _queueNewRoom(colonyId, RoomType.barracks);
     }
 
@@ -1378,7 +1400,8 @@ class ColonySimulation {
     // Check nursery capacity vs egg/larva population
     final nurseryPop = _getColonyNurseryPopulation(colonyId);
     final nurseryCapacity = _getTotalRoomCapacity(colonyId, RoomType.nursery);
-    if (nurseryCapacity > 0 && nurseryPop > nurseryCapacity * nurseryThreshold) {
+    if (nurseryCapacity > 0 &&
+        nurseryPop > nurseryCapacity * nurseryThreshold) {
       _queueNewRoom(colonyId, RoomType.nursery);
     }
   }
@@ -1788,7 +1811,8 @@ class ColonySimulation {
               // Same-colony pass-through: if either ant is stuck, let them
               // phase through each other briefly to break congestion
               if (sameColony) {
-                const stuckPassThroughTime = 2.0; // seconds stuck before pass-through
+                const stuckPassThroughTime =
+                    2.0; // seconds stuck before pass-through
                 if (a.stuckTime > stuckPassThroughTime ||
                     b.stuckTime > stuckPassThroughTime) {
                   // Skip separation - allow them to pass through
@@ -1953,10 +1977,12 @@ class ColonySimulation {
               final distSq = a.position.distanceToSquared(b.position);
               if (distSq <= fightRadiusSq) {
                 // Defending soldiers get boosted aggression (always fight)
-                final aAggression = (a.caste == AntCaste.soldier && a.isDefending)
+                final aAggression =
+                    (a.caste == AntCaste.soldier && a.isDefending)
                     ? 1.0
                     : a.aggression;
-                final bAggression = (b.caste == AntCaste.soldier && b.isDefending)
+                final bAggression =
+                    (b.caste == AntCaste.soldier && b.isDefending)
                     ? 1.0
                     : b.aggression;
                 final aWillFight = _rng.nextDouble() < aAggression;
@@ -1965,9 +1991,13 @@ class ColonySimulation {
                 if (aWillFight || bWillFight) {
                   // Defending soldiers deal 50% more damage
                   final aDefenseBonus =
-                      (a.caste == AntCaste.soldier && a.isDefending) ? 1.5 : 1.0;
+                      (a.caste == AntCaste.soldier && a.isDefending)
+                      ? 1.5
+                      : 1.0;
                   final bDefenseBonus =
-                      (b.caste == AntCaste.soldier && b.isDefending) ? 1.5 : 1.0;
+                      (b.caste == AntCaste.soldier && b.isDefending)
+                      ? 1.5
+                      : 1.0;
                   final damageToA = _computeDamage(b, a) * bDefenseBonus;
                   final damageToB = _computeDamage(a, b) * aDefenseBonus;
                   a.applyDamage(damageToA);
@@ -2159,6 +2189,7 @@ class ColonySimulation {
       ),
     );
     _updateAntCount();
+    _emitAntCreated(AntCaste.queen, colonyId);
   }
 
   /// Handle colony takeover when a queen dies in combat.
@@ -2257,37 +2288,6 @@ class ColonySimulation {
     return math.max(0.2, attacker.attack * variance - mitigation);
   }
 
-  Map<String, dynamic> _configToJson() {
-    return {
-      'cols': config.cols,
-      'rows': config.rows,
-      'cellSize': config.cellSize,
-      'startingAnts': config.startingAnts,
-      'antSpeed': config.antSpeed,
-      'sensorDistance': config.sensorDistance,
-      'sensorAngle': config.sensorAngle,
-      'foodDepositStrength': config.foodDepositStrength,
-      'homeDepositStrength': config.homeDepositStrength,
-      'foodPickupRotation': config.foodPickupRotation,
-      'foodPerNewAnt': config.foodPerNewAnt,
-      'nestRadius': config.nestRadius,
-      'decayPerFrame': config.decayPerFrame,
-      'decayThreshold': config.decayThreshold,
-      'digBrushRadius': config.digBrushRadius,
-      'foodBrushRadius': config.foodBrushRadius,
-      'dirtMaxHealth': config.dirtMaxHealth,
-      'digEnergyCost': config.digEnergyCost,
-      'digDamagePerEnergy': config.digDamagePerEnergy,
-      'foodSenseRange': config.foodSenseRange,
-      'energyCapacity': config.energyCapacity,
-      'energyDecayPerSecond': config.energyDecayPerSecond,
-      'energyRecoveryPerSecond': config.energyRecoveryPerSecond,
-      'restEnabled': config.restEnabled,
-      'explorerRatio': config.explorerRatio,
-      'randomTurnStrength': config.randomTurnStrength,
-    };
-  }
-
   Map<String, dynamic> _worldToJson() {
     return {
       'cells': _encodeUint8(Uint8List.fromList(world.cells)),
@@ -2306,67 +2306,6 @@ class ColonySimulation {
       'rooms': world.rooms.map((r) => r.toJson()).toList(),
     };
   }
-}
-
-SimulationConfig _configFromJson(
-  Map<String, dynamic> data,
-  SimulationConfig fallback,
-) {
-  return SimulationConfig(
-    cols: (data['cols'] as num?)?.toInt() ?? fallback.cols,
-    rows: (data['rows'] as num?)?.toInt() ?? fallback.rows,
-    cellSize: (data['cellSize'] as num?)?.toDouble() ?? fallback.cellSize,
-    startingAnts:
-        (data['startingAnts'] as num?)?.toInt() ?? fallback.startingAnts,
-    antSpeed: (data['antSpeed'] as num?)?.toDouble() ?? fallback.antSpeed,
-    sensorDistance:
-        (data['sensorDistance'] as num?)?.toDouble() ?? fallback.sensorDistance,
-    sensorAngle:
-        (data['sensorAngle'] as num?)?.toDouble() ?? fallback.sensorAngle,
-    foodDepositStrength:
-        (data['foodDepositStrength'] as num?)?.toDouble() ??
-        fallback.foodDepositStrength,
-    homeDepositStrength:
-        (data['homeDepositStrength'] as num?)?.toDouble() ??
-        fallback.homeDepositStrength,
-    foodPickupRotation:
-        (data['foodPickupRotation'] as num?)?.toDouble() ??
-        fallback.foodPickupRotation,
-    foodPerNewAnt:
-        (data['foodPerNewAnt'] as num?)?.toInt() ?? fallback.foodPerNewAnt,
-    nestRadius: (data['nestRadius'] as num?)?.toInt() ?? fallback.nestRadius,
-    decayPerFrame:
-        (data['decayPerFrame'] as num?)?.toDouble() ?? fallback.decayPerFrame,
-    decayThreshold:
-        (data['decayThreshold'] as num?)?.toDouble() ?? fallback.decayThreshold,
-    digBrushRadius:
-        (data['digBrushRadius'] as num?)?.toInt() ?? fallback.digBrushRadius,
-    foodBrushRadius:
-        (data['foodBrushRadius'] as num?)?.toInt() ?? fallback.foodBrushRadius,
-    dirtMaxHealth:
-        (data['dirtMaxHealth'] as num?)?.toDouble() ?? fallback.dirtMaxHealth,
-    digEnergyCost:
-        (data['digEnergyCost'] as num?)?.toDouble() ?? fallback.digEnergyCost,
-    digDamagePerEnergy:
-        (data['digDamagePerEnergy'] as num?)?.toDouble() ??
-        fallback.digDamagePerEnergy,
-    foodSenseRange:
-        (data['foodSenseRange'] as num?)?.toDouble() ?? fallback.foodSenseRange,
-    energyCapacity:
-        (data['energyCapacity'] as num?)?.toDouble() ?? fallback.energyCapacity,
-    energyDecayPerSecond:
-        (data['energyDecayPerSecond'] as num?)?.toDouble() ??
-        fallback.energyDecayPerSecond,
-    energyRecoveryPerSecond:
-        (data['energyRecoveryPerSecond'] as num?)?.toDouble() ??
-        fallback.energyRecoveryPerSecond,
-    restEnabled: data['restEnabled'] as bool? ?? fallback.restEnabled,
-    explorerRatio:
-        (data['explorerRatio'] as num?)?.toDouble() ?? fallback.explorerRatio,
-    randomTurnStrength:
-        (data['randomTurnStrength'] as num?)?.toDouble() ??
-        fallback.randomTurnStrength,
-  );
 }
 
 String _encodeUint8(Uint8List data) => base64Encode(data);

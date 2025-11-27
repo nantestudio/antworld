@@ -8,6 +8,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'firebase_options.dart';
+import 'src/core/game_mode.dart';
+import 'src/core/game_state_manager.dart';
+import 'src/core/mode_config.dart';
 import 'src/game/ant_world_game.dart';
 import 'src/progression/progression_service.dart';
 import 'src/progression/unlockables.dart';
@@ -15,7 +18,6 @@ import 'src/services/ad_service.dart';
 import 'src/services/analytics_service.dart';
 import 'src/simulation/colony_simulation.dart';
 import 'src/simulation/simulation_config.dart';
-import 'src/state/simulation_storage.dart';
 import 'src/ui/ant_gallery_page.dart';
 import 'src/ui/ant_hud.dart';
 import 'src/ui/mobile_hud.dart';
@@ -42,22 +44,25 @@ class _AntWorldAppState extends State<AntWorldApp> {
   ColonySimulation? _simulation;
   AntWorldGame? _game;
   late final FocusNode _focusNode;
-  late final SimulationStorage _storage;
+  late final GameStateManager _gameStateManager;
   _AppScreen _screen = _AppScreen.menu;
   bool _loading = false;
   String? _menuError;
   int _selectedColonyCount = 2;
+  bool _hasSandboxSave = false;
 
   @override
   void initState() {
     super.initState();
-    _storage = SimulationStorage();
+    _gameStateManager = GameStateManager();
     _focusNode = FocusNode();
+    _refreshSandboxSaveState();
   }
 
   @override
   void dispose() {
     _focusNode.dispose();
+    _gameStateManager.dispose();
     super.dispose();
   }
 
@@ -100,7 +105,11 @@ class _AntWorldAppState extends State<AntWorldApp> {
     final isMobile = !kIsWeb && (Platform.isIOS || Platform.isAndroid);
 
     // Build the game widget with appropriate gesture handling
-    Widget gameWidget = GameWidget(game: game, focusNode: _focusNode, autofocus: true);
+    Widget gameWidget = GameWidget(
+      game: game,
+      focusNode: _focusNode,
+      autofocus: true,
+    );
 
     if (isMobile) {
       // Mobile: Use GestureDetector for pinch-to-zoom and two-finger pan
@@ -123,7 +132,8 @@ class _AntWorldAppState extends State<AntWorldApp> {
       gameWidget = Listener(
         onPointerSignal: (event) {
           if (event is PointerScrollEvent) {
-            final isZoomModifier = HardwareKeyboard.instance.isControlPressed ||
+            final isZoomModifier =
+                HardwareKeyboard.instance.isControlPressed ||
                 HardwareKeyboard.instance.isMetaPressed;
 
             if (isZoomModifier) {
@@ -148,16 +158,18 @@ class _AntWorldAppState extends State<AntWorldApp> {
             key: ValueKey(sim),
             simulation: sim,
             game: game,
-            storage: _storage,
-            onQuitToMenu: _quitToMenu,
+            gameStateManager: _gameStateManager,
+            onQuitToMenu: () => _quitToMenu(),
+            onGameSaved: _refreshSandboxSaveState,
           )
         else
           AntHud(
             key: ValueKey(sim),
             simulation: sim,
             game: game,
-            storage: _storage,
-            onQuitToMenu: _quitToMenu,
+            gameStateManager: _gameStateManager,
+            onQuitToMenu: () => _quitToMenu(),
+            onGameSaved: _refreshSandboxSaveState,
           ),
       ],
     );
@@ -188,7 +200,10 @@ class _AntWorldAppState extends State<AntWorldApp> {
                   const SizedBox(height: 8),
                   // Level indicator
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.greenAccent.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(20),
@@ -208,7 +223,9 @@ class _AntWorldAppState extends State<AntWorldApp> {
                           child: LinearProgressIndicator(
                             value: progression.levelProgress,
                             backgroundColor: Colors.white24,
-                            valueColor: const AlwaysStoppedAnimation(Colors.amber),
+                            valueColor: const AlwaysStoppedAnimation(
+                              Colors.amber,
+                            ),
                           ),
                         ),
                       ],
@@ -223,7 +240,9 @@ class _AntWorldAppState extends State<AntWorldApp> {
                       const SizedBox(width: 8),
                       DropdownButton<int>(
                         value: _selectedColonyCount,
-                        items: List.generate(maxColonies, (i) => i + 1).map((count) {
+                        items: List.generate(maxColonies, (i) => i + 1).map((
+                          count,
+                        ) {
                           return DropdownMenuItem(
                             value: count,
                             child: Text('$count'),
@@ -265,7 +284,9 @@ class _AntWorldAppState extends State<AntWorldApp> {
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton(
-                    onPressed: _loading ? null : _continueGame,
+                    onPressed: _loading || !_hasSandboxSave
+                        ? null
+                        : _continueGame,
                     child: const Text('Continue Last Colony'),
                   ),
                   const SizedBox(height: 12),
@@ -326,30 +347,44 @@ class _AntWorldAppState extends State<AntWorldApp> {
       _menuError = null;
     });
 
-    final config = defaultSimulationConfig.copyWith(
-      colonyCount: _selectedColonyCount,
+    final config = SandboxModeConfig(
+      config: defaultSimulationConfig.copyWith(
+        colonyCount: _selectedColonyCount,
+      ),
     );
-    final simulation = ColonySimulation(config);
-    simulation.initialize();
-    simulation.generateRandomWorld();
-    final game = AntWorldGame(simulation);
 
-    // Track game start and trigger potential interstitial ad
-    AnalyticsService.instance.logGameStart(
-      colonyCount: _selectedColonyCount,
-      mapCols: simulation.config.cols,
-      mapRows: simulation.config.rows,
-    );
-    AnalyticsService.instance.setUserColonyPreference(_selectedColonyCount);
-    AdService.instance.onGameStart();
-    ProgressionService.instance.onGameStarted();
+    try {
+      final simulation = await _gameStateManager.startMode(config);
+      final game = AntWorldGame(simulation);
 
-    setState(() {
-      _simulation = simulation;
-      _game = game;
-      _screen = _AppScreen.playing;
-      _loading = false;
-    });
+      // Track game start and trigger potential interstitial ad
+      AnalyticsService.instance.logGameStart(
+        colonyCount: _selectedColonyCount,
+        mapCols: simulation.config.cols,
+        mapRows: simulation.config.rows,
+      );
+      AnalyticsService.instance.setUserColonyPreference(_selectedColonyCount);
+      AdService.instance.onGameStart();
+      ProgressionService.instance.onGameStarted();
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _simulation = simulation;
+        _game = game;
+        _screen = _AppScreen.playing;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loading = false;
+        _menuError = 'Failed to start game: $error';
+      });
+    }
   }
 
   Future<void> _continueGame() async {
@@ -357,18 +392,21 @@ class _AntWorldAppState extends State<AntWorldApp> {
       _loading = true;
       _menuError = null;
     });
-    final simulation = ColonySimulation(defaultSimulationConfig);
-    final restored = await _storage.restore(simulation);
+    final restored = await _gameStateManager.loadSavedGame(GameMode.sandbox);
+
     if (!mounted) {
       return;
     }
-    if (!restored) {
+
+    if (!restored || _gameStateManager.simulation == null) {
       setState(() {
         _loading = false;
         _menuError = 'No saved colony found';
       });
       return;
     }
+
+    final simulation = _gameStateManager.simulation!;
     final game = AntWorldGame(simulation);
 
     // Track game load
@@ -386,12 +424,24 @@ class _AntWorldAppState extends State<AntWorldApp> {
     });
   }
 
-  void _quitToMenu() {
+  Future<void> _quitToMenu() async {
+    await _gameStateManager.endMode(save: false);
     // Clear references to allow garbage collection
     setState(() {
       _simulation = null;
       _game = null;
       _screen = _AppScreen.menu;
+    });
+    _refreshSandboxSaveState();
+  }
+
+  Future<void> _refreshSandboxSaveState() async {
+    final hasSave = await _gameStateManager.hasSavedGame(GameMode.sandbox);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _hasSandboxSave = hasSave;
     });
   }
 }

@@ -3,13 +3,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 
+import '../core/game_state_manager.dart';
 import '../game/ant_world_game.dart';
 import '../progression/progression_service.dart';
 import '../progression/unlockables.dart';
 import '../services/analytics_service.dart';
 import '../simulation/ant.dart';
 import '../simulation/colony_simulation.dart';
-import '../state/simulation_storage.dart';
 import 'widgets/native_ad_widget.dart';
 
 /// Mobile-optimized HUD with bottom sheet controls and floating tools
@@ -18,14 +18,16 @@ class MobileHud extends StatefulWidget {
     super.key,
     required this.simulation,
     required this.game,
-    required this.storage,
+    required this.gameStateManager,
     this.onQuitToMenu,
+    this.onGameSaved,
   });
 
   final ColonySimulation simulation;
   final AntWorldGame game;
-  final SimulationStorage storage;
+  final GameStateManager gameStateManager;
   final VoidCallback? onQuitToMenu;
+  final VoidCallback? onGameSaved;
 
   @override
   State<MobileHud> createState() => _MobileHudState();
@@ -37,7 +39,9 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
   late AnimationController _toolsAnimController;
 
   // Haptic feedback helper
-  Future<void> _haptic([HapticFeedbackType type = HapticFeedbackType.lightImpact]) async {
+  Future<void> _haptic([
+    HapticFeedbackType type = HapticFeedbackType.lightImpact,
+  ]) async {
     if (Platform.isIOS || Platform.isAndroid) {
       final hasVibrator = await Vibration.hasVibrator();
       if (hasVibrator == true) {
@@ -111,9 +115,7 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
       right: 0,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: const BoxDecoration(
-          color: Colors.black87,
-        ),
+        decoration: const BoxDecoration(color: Colors.black87),
         child: SafeArea(
           bottom: false,
           child: StreamBuilder<void>(
@@ -244,9 +246,7 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
       left: 0,
       right: 0,
       child: Container(
-        decoration: const BoxDecoration(
-          color: Colors.black87,
-        ),
+        decoration: const BoxDecoration(color: Colors.black87),
         child: SafeArea(
           top: false,
           child: Padding(
@@ -470,11 +470,36 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
               Wrap(
                 spacing: 8,
                 children: [
-                  _SpeedButton(label: '1x', speed: 1.0, maxSpeed: maxSpeed, sim: widget.simulation),
-                  _SpeedButton(label: '2x', speed: 2.0, maxSpeed: maxSpeed, sim: widget.simulation),
-                  _SpeedButton(label: '3x', speed: 3.0, maxSpeed: maxSpeed, sim: widget.simulation),
-                  _SpeedButton(label: '5x', speed: 5.0, maxSpeed: maxSpeed, sim: widget.simulation),
-                  _SpeedButton(label: '10x', speed: 10.0, maxSpeed: maxSpeed, sim: widget.simulation),
+                  _SpeedButton(
+                    label: '1x',
+                    speed: 1.0,
+                    maxSpeed: maxSpeed,
+                    sim: widget.simulation,
+                  ),
+                  _SpeedButton(
+                    label: '2x',
+                    speed: 2.0,
+                    maxSpeed: maxSpeed,
+                    sim: widget.simulation,
+                  ),
+                  _SpeedButton(
+                    label: '3x',
+                    speed: 3.0,
+                    maxSpeed: maxSpeed,
+                    sim: widget.simulation,
+                  ),
+                  _SpeedButton(
+                    label: '5x',
+                    speed: 5.0,
+                    maxSpeed: maxSpeed,
+                    sim: widget.simulation,
+                  ),
+                  _SpeedButton(
+                    label: '10x',
+                    speed: 10.0,
+                    maxSpeed: maxSpeed,
+                    sim: widget.simulation,
+                  ),
                 ],
               ),
             ],
@@ -539,7 +564,7 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
 
   Future<void> _saveGame(BuildContext context) async {
     setState(() => _saving = true);
-    final success = await widget.storage.save(widget.simulation);
+    final success = await widget.gameStateManager.saveCurrentGame();
 
     if (mounted) {
       setState(() => _saving = false);
@@ -551,6 +576,7 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
           antCount: widget.simulation.ants.length,
           totalFood: widget.simulation.foodCollected.value,
         );
+        widget.onGameSaved?.call();
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -659,15 +685,13 @@ class _ToolFab extends StatelessWidget {
         backgroundColor: isActive
             ? colorScheme.primary
             : isPrimary
-                ? colorScheme.primaryContainer
-                : Colors.grey.shade800,
+            ? colorScheme.primaryContainer
+            : Colors.grey.shade800,
         onPressed: onPressed,
         child: Icon(
           icon,
           size: isPrimary ? 24 : 20,
-          color: isActive || isPrimary
-              ? colorScheme.onPrimary
-              : Colors.white70,
+          color: isActive || isPrimary ? colorScheme.onPrimary : Colors.white70,
         ),
       ),
     );
@@ -706,10 +730,7 @@ class _BottomBarButton extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               label,
-              style: TextStyle(
-                color: color ?? Colors.white70,
-                fontSize: 10,
-              ),
+              style: TextStyle(color: color ?? Colors.white70, fontSize: 10),
             ),
           ],
         ),
@@ -749,7 +770,9 @@ class _SpeedButton extends StatelessWidget {
               ? null
               : (_) {
                   sim.setAntSpeedMultiplier(speed * base);
-                  AnalyticsService.instance.logSpeedChanged(speedMultiplier: speed);
+                  AnalyticsService.instance.logSpeedChanged(
+                    speedMultiplier: speed,
+                  );
                 },
           avatar: locked ? const Icon(Icons.lock, size: 14) : null,
         );
@@ -810,7 +833,10 @@ class _MobileAntCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   _MiniStat('State', _stateLabel(ant)),
-                  _MiniStat('Energy', '${ant.energy.toInt()}/${simulation.config.energyCapacity.toInt()}'),
+                  _MiniStat(
+                    'Energy',
+                    '${ant.energy.toInt()}/${simulation.config.energyCapacity.toInt()}',
+                  ),
                   _MiniStat('HP', '${ant.hp.toInt()}/${ant.maxHp.toInt()}'),
                   if (ant.hasFood) _MiniStat('Carrying', 'Food'),
                 ],
@@ -870,7 +896,10 @@ class _MiniStat extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 10, color: Colors.white54)),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 10, color: Colors.white54),
+          ),
           Text(value, style: const TextStyle(fontSize: 10)),
         ],
       ),
@@ -1043,15 +1072,19 @@ class _ColonyCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Text(
                   '$name ($total)',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: color),
                 ),
                 const Spacer(),
-                Icon(Icons.restaurant, size: 14, color: Colors.lightGreenAccent),
+                Icon(
+                  Icons.restaurant,
+                  size: 14,
+                  color: Colors.lightGreenAccent,
+                ),
                 const SizedBox(width: 4),
-                Text('$food', style: const TextStyle(color: Colors.lightGreenAccent)),
+                Text(
+                  '$food',
+                  style: const TextStyle(color: Colors.lightGreenAccent),
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -1086,7 +1119,14 @@ class _CasteChip extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.bold)),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: color,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         const SizedBox(width: 2),
         Text('$count', style: TextStyle(fontSize: 11, color: color)),
       ],
@@ -1095,10 +1135,7 @@ class _CasteChip extends StatelessWidget {
 }
 
 class _MobileSettingsContent extends StatefulWidget {
-  const _MobileSettingsContent({
-    required this.simulation,
-    required this.game,
-  });
+  const _MobileSettingsContent({required this.simulation, required this.game});
 
   final ColonySimulation simulation;
   final AntWorldGame game;
