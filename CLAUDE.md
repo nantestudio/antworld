@@ -76,25 +76,32 @@ AntWorldGame
 - Manages ant list and spawning for multiple colonies (up to 4)
 - Tracks food per colony with separate ValueNotifiers (colony0Food, colony1Food)
 - Coordinates between ants and world grid
-- Combat resolution between colonies
+- Combat resolution between colonies with spatial hashing for O(n) performance
 - Automatic food replenishment to maintain minimum supply
 - Caches ant statistics per caste and colony for O(1) UI access
-- Spatial hashing for efficient collision/separation calculations
+- **Defense System**: Detects enemy ants within 12 cells of nest, triggers defense alerts (5s duration), assigns attack targets to soldiers
+- **Room Management**: Tracks room occupancy, triggers expansion when over capacity (checked every 30s)
+- **Princess Breeding**: Queens spawn princesses after 75 food threshold (max 2 per colony), automatic succession on queen death
+- **Smart Queen Guidance**: Queens use BFS pathfinding to compute walkable paths to food and deposit pheromones along routes
 - ValueNotifiers expose state to UI (antCount, foodCollected, daysPassed, elapsedTime, pheromonesVisible, foodScentVisible, foodPheromonesVisible, homePheromonesVisible, antSpeedMultiplier, paused)
-- Tracks death events for visual effects (DeathEvent list)
+- Tracks death events for visual effects (DeathEvent list with position, colonyId, timestamp)
 
 **`WorldGrid`** (`lib/src/simulation/world_grid.dart`)
 - 2D grid storing cell types (air, dirt, food, rock) with corresponding health values
 - Dirt has variable hardness via DirtType enum (softSand, looseSoil, packedEarth, clay, hardite, bedrock)
-- Float32List arrays for pheromone layers - supports per-colony home pheromones
-- Pheromone decay happens every frame (only active cells tracked for efficiency)
+- **Per-colony pheromone layers**: `foodPheromones0/1`, `homePheromones0/1` with ownership tracking
+- Pheromone decay happens every frame (only active cells tracked via `_activePheromoneCells` Set)
+- **Food scent diffusion**: BFS-based scent spreading every 10 frames with `_activeFoodScentCells` dirty set
 - Food positions cached in a Set for O(1) lookup
 - BFS pathfinding via `_homeDistances` array for returning ants (per-colony)
+- **Room System**: `RoomType` enum (home, nursery, foodStorage, barracks) with `Room` class tracking capacity and occupancy
+- `computePathToFood()` provides BFS pathfinding for queen guidance
 - Grid indices calculated as: `index(x, y) = y * cols + x`
 
 **`WorldGenerator`** (`lib/src/simulation/world_generator.dart`)
 - Procedural world generation with seeded randomness
-- Generates tunnels, rooms, and initial food placement
+- Generates tunnels, rooms (hatchery, nursery, food storage, barracks), and initial food placement
+- Creates colony-specific room layouts with appropriate capacities
 
 **`Ant`** (`lib/src/simulation/ant.dart`)
 - Individual ant with position, angle, energy, colonyId, caste
@@ -104,18 +111,29 @@ AntWorldGame
 - 3-sensor system for pheromone detection (left, front, right at ±0.6 radians)
 - Direct food sensing within 30 cells when not following pheromone trails
 - Grid pathfinding (BFS) guides ants home via `WorldGrid.directionToNest()`
+- **Food delivery**: Workers deliver to food storage room instead of nest center
 - Energy system: drains while moving, recovers while resting, digging costs extra
 - Combat stats: attack, defense, HP for fighting ants from other colonies
 - Explorer ants (5% by default) ignore pheromones more often to discover new food
-- Queens produce eggs, princesses wait for succession, nurses care for larvae, soldiers patrol and defend
+- **Queen mechanics**: Produces eggs every 45s, uses BFS pathfinding for food guidance
+- **Princess mechanics**: High HP (300), slow movement (0.4x), auto-promotes to queen on succession
+- **Soldier patrol**: Maintains position within nest radius (0.5x inner, 2x outer), defense mode with 1.3x speed boost and 50% damage bonus
+- **Egg/Larva lifecycle**: Eggs hatch after 20s (`_growthProgress`), larvae mature after 60s into adult caste
+- Nurses care for larvae, soldiers patrol and defend with attack targets from defense system
 - Builders have BuilderTask enum: idle, buildingRoom, reinforcingWall, emergencyDefense, returningHome
 
 **`AntWorldGame`** (`lib/src/game/ant_world_game.dart`)
 - Flame game component that renders the simulation
 - Caches static terrain in a Picture object for performance
+- **LOD rendering**: Simple dot (< 5px), medium (< 8px), full detail with legs/antennae
+- **Colony-colored pheromones**: Uses `bodyColorForColony()` to colorize trails per colony
+- **Death pop effects**: Expanding circles with fade animation (0.35s duration)
+- **Viewport culling**: Skip rendering elements outside visible bounds
+- **Pheromone caching**: Updates rendering only every 3 frames
 - Handles mouse/touch input for digging and placing food/rocks
 - Keyboard shortcuts (P for pheromone toggle)
 - Manages brush modes (dig, food, rock)
+- **Frame telemetry**: Logs average update time and FPS every 5 seconds
 
 **`SimulationConfig`** (`lib/src/simulation/simulation_config.dart`)
 - Immutable configuration object with all tunable parameters
@@ -141,11 +159,15 @@ AntWorldGame
 - Separate `Float32List` for dirt health values
 - Separate `Float32List` arrays for each pheromone type
 
-**Pheromone System**: Two separate overlays on the grid
-- Food pheromones (blue): deposited by ants carrying food (strength 0.5)
-- Home pheromones (gray): deposited by foraging ants (strength 0.2)
+**Pheromone System**: Per-colony pheromone overlays
+- Food pheromones: deposited by ants carrying food (strength 0.5), colored per colony
+- Home pheromones: deposited by foraging ants (strength 0.2), colored per colony
+- Separate layers per colony: `foodPheromones0/1`, `homePheromones0/1`
+- `foodPheromoneOwner0/1` tracks which colony deposited each pheromone
+- Ants only sense their own colony's pheromones
 - Nest center always has max home pheromone (1.0)
 - Decay factor: 0.985 per frame (configurable)
+- **Food scent**: Separate BFS-based diffusion from food cells, spreads 0.97x per cell distance
 
 **Ant Sensing**: 3 sensors reach out from ant's position
 - Each sensor is 6 cells away (configurable)
@@ -160,11 +182,36 @@ AntWorldGame
 - Recomputed when terrain changes (`_homeDistanceDirty` flag)
 - Ants returning home use this instead of pheromone following
 
+**Room System**: Specialized colony rooms
+- `RoomType.home` (Hatchery): Queen's chamber, capacity 5, cannot expand
+- `RoomType.nursery`: Egg/larva care, capacity 20, expands when over capacity
+- `RoomType.foodStorage`: Food stockpile, capacity 100, visual golden spiral pattern for food items
+- `RoomType.barracks`: Worker/soldier rest area, capacity 15, expands when over capacity
+- Room occupancy checked every 30 seconds, triggers builder tasks when over 120% capacity
+- `_assignRestLocation()` selects barracks over nest center for resting ants
+
+**Defense System**: Colony threat response
+- `_defenseAlertRadius` (12 cells): Detection range around nest
+- `_defenseAlertPositions`: Stores threat location per colony
+- `_defenseAlertTimers`: Alert duration (5 seconds)
+- Soldiers receive attack targets via `getDefenseTarget(colonyId)`
+- **Defending soldiers**: 1.3x speed, 50% damage boost, aggression = 1.0
+- Emergency builder tasks: Construct defensive walls between nest and threat
+
 **Combat System**: Inter-colony combat
 - Combat triggers when ants from different colonies are within proximity
+- Spatial hashing enables O(n) collision detection instead of O(n²)
 - Damage = `attacker.attack * variance - defender.defense * mitigation`
-- Dead ants are removed
+- Dead ants are removed, death events queued for visual effects
 - Colony takeover events tracked via AnalyticsService
+
+**Princess/Breeding System**: Colony succession
+- Queens lay eggs every 45 seconds (`_eggLayInterval`)
+- Eggs hatch after 20 seconds, larvae mature after 60 seconds
+- Princess threshold: 75 food units (`_foodForPrincess`)
+- Max 2 princesses per colony (`_maxPrincessesPerColony`)
+- Princess stats: 300 HP, 0.4x speed, no combat aggression
+- Automatic succession: Princess promotes to queen when current queen dies
 
 ## Code Patterns
 
@@ -203,6 +250,12 @@ world.depositFoodPheromone(x, y, 0.5);
 - Pheromone decay only processes active cells tracked in `_activePheromoneCells` Set
 - Food positions stored in `Set<int>` for fast collision detection
 - BFS pathfinding is lazy-computed and cached until terrain changes
+- **LOD rendering**: Ants render as dots (< 5px), simplified (< 8px), or full detail based on zoom
+- **Viewport culling**: Skip rendering ants and death effects outside visible bounds
+- **Pheromone caching**: Pheromone rendering updates every 3 frames, not every frame
+- **Food scent dirty sets**: `_activeFoodScentCells` tracks only cells with active scent for efficient iteration
+- **Spatial hashing**: Combat and separation calculations use O(n) spatial hashing instead of O(n²)
+- **Frame telemetry**: `FrameTelemetry` class logs average update time and FPS every 5 seconds
 
 ### State Management
 
@@ -235,13 +288,13 @@ All simulation state is in `ColonySimulation`, game state is in `AntWorldGame`, 
 
 This codebase follows a clear separation between:
 - **Simulation logic** (lib/src/simulation/) - Pure Dart, no rendering
-- **Game engine** (lib/src/game/) - Flame integration, rendering, input
+- **Game engine** (lib/src/game/) - Flame integration, rendering, input, death effects
 - **UI layer** (lib/src/ui/) - Flutter widgets, overlays (includes AntHud and AntGalleryPage)
-- **Visuals** (lib/src/visuals/) - Ant sprite rendering and visual components
+- **Visuals** (lib/src/visuals/) - Ant sprite rendering with LOD levels and visual components
 - **Persistence** (lib/src/state/) - Save/load functionality
 - **Services** (lib/src/services/) - Firebase analytics and other services
 
-The simulation can run headless for testing. The game layer is a thin rendering wrapper. The UI is stateless and driven by ValueNotifiers from the simulation.
+The simulation can run headless for testing. The game layer is a thin rendering wrapper with LOD optimization. The UI is stateless and driven by ValueNotifiers from the simulation.
 
 ## Firebase Setup
 

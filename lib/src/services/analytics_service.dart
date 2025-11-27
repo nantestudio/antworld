@@ -153,4 +153,59 @@ class AnalyticsService {
       value: colonyCount.toString(),
     );
   }
+
+  /// Track ad events (impressions, clicks, completions)
+  Future<void> logAdEvent({
+    required String adType,
+    required String event,
+  }) async {
+    await _analytics.logEvent(
+      name: 'ad_$event',
+      parameters: {
+        'ad_type': adType,
+      },
+    );
+  }
+
+  /// Track level up in progression system
+  Future<void> logLevelUp({
+    required int newLevel,
+    required int totalXP,
+  }) async {
+    await _analytics.logEvent(
+      name: 'level_up',
+      parameters: {
+        'new_level': newLevel,
+        'total_xp': totalXP,
+      },
+    );
+  }
+
+  /// Track achievement unlocked
+  Future<void> logAchievementUnlocked({
+    required String achievementId,
+    required int xpReward,
+  }) async {
+    await _analytics.logEvent(
+      name: 'achievement_unlocked',
+      parameters: {
+        'achievement_id': achievementId,
+        'xp_reward': xpReward,
+      },
+    );
+  }
+
+  /// Track feature unlocked via progression
+  Future<void> logFeatureUnlocked({
+    required String featureId,
+    required int level,
+  }) async {
+    await _analytics.logEvent(
+      name: 'feature_unlocked',
+      parameters: {
+        'feature_id': featureId,
+        'level': level,
+      },
+    );
+  }
 }

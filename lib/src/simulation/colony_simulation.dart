@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flame/components.dart';
 import 'package:flutter/foundation.dart';
 
+import '../progression/progression_service.dart';
 import '../services/analytics_service.dart';
 import 'ant.dart';
 import 'simulation_config.dart';
@@ -330,6 +331,11 @@ class ColonySimulation {
       final oldDays = daysPassed.value;
       daysPassed.value = newDays;
 
+      // Track progression XP for surviving another day
+      ProgressionService.instance.onDayPassed(newDays);
+      // Check for progression achievements
+      ProgressionService.instance.checkAchievements(this);
+
       // Track day milestones (10, 25, 50, 100, etc)
       const milestones = [10, 25, 50, 100, 200, 500];
       for (final milestone in milestones) {
@@ -407,6 +413,8 @@ class ColonySimulation {
         _colonyFood[ant.colonyId] += 1;
         // Update per-colony food ValueNotifiers for UI
         _syncColonyFoodNotifier(ant.colonyId);
+        // Track progression XP for food collection
+        ProgressionService.instance.onFoodCollected(_storedFood);
         // Food enables egg production - queue eggs instead of adults
         if (_colonyFood[ant.colonyId] % config.foodPerNewAnt == 0) {
           _colonyQueuedAnts[ant.colonyId] += 1;
@@ -2197,6 +2205,11 @@ class ColonySimulation {
       convertedAnts: convertedCount,
       daysPassed: daysPassed.value,
     );
+
+    // Award progression XP for conquest (only for player colony 0)
+    if (conquerorColonyId == 0) {
+      ProgressionService.instance.onColonyConquered();
+    }
 
     // Log the takeover (could add a notification system later)
     // ignore: avoid_print

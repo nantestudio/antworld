@@ -47,7 +47,7 @@ flutter run -d linux    # Linux
 
 ## What is AntWorld?
 
-AntWorld simulates a realistic ant colony using **emergent behavior** - complex patterns that arise from simple individual rules. Each ant operates independently with basic logic:
+AntWorld simulates realistic ant colonies using **emergent behavior** - complex patterns that arise from simple individual rules. Each ant operates independently with basic logic:
 
 - **Look** for pheromone trails with 3 sensors
 - **Move** toward stronger signals
@@ -55,11 +55,14 @@ AntWorld simulates a realistic ant colony using **emergent behavior** - complex 
 - **Pick up** food when found
 - **Return** home following a different pheromone
 
-From these simple behaviors, the colony collectively:
-- Discovers food sources through random exploration
-- Creates optimal highways between food and nest
-- Self-organizes without central coordination
-- Adapts to terrain changes dynamically
+From these simple behaviors, colonies collectively:
+- Discover food sources through random exploration
+- Create optimal highways between food and nest
+- Self-organize without central coordination
+- Adapt to terrain changes dynamically
+- Defend against enemy colonies with soldier patrols
+- Build specialized rooms for food storage and nurseries
+- Raise new generations through egg-laying queens
 
 ---
 
@@ -71,43 +74,55 @@ From these simple behaviors, the colony collectively:
 
 The world is a 2D grid where each cell can be:
 - **Air** (walkable, transparent)
-- **Dirt** (obstacle, can be dug through)
+- **Dirt** (obstacle, can be dug through with varying hardness)
 - **Food** (collectible resource)
 - **Rock** (permanent obstacle)
 
-The **nest** is located at the center of the world `(cols/2, rows/2)` and serves as the home base where ants spawn and deliver food.
+Colonies have specialized **rooms**:
+- **Hatchery** (Home): Queen's chamber, egg laying (capacity: 5)
+- **Nursery**: Egg and larva care (capacity: 20, expandable)
+- **Food Storage**: Food stockpile with visual display (capacity: 100, expandable)
+- **Barracks**: Worker/soldier rest area (capacity: 15, expandable)
 
 ```
-Grid Structure:
-┌─────────────────────────────┐
-│ □ □ ▓ □ □ □ □ ▓ □ □ □ □ □ │  □ = Air
-│ □ □ ▓ ▓ □ □ □ □ □ □ ● □ □ │  ▓ = Dirt
-│ □ □ □ □ □ □ · □ □ □ □ □ □ │  ● = Food
-│ □ □ □ · · · · · □ □ □ □ □ │  · = Air (with nest)
-│ □ □ · · · ♔ · · · □ □ □ □ │  ♔ = Nest (center)
-│ □ □ □ · · · · · □ □ □ □ □ │
-│ □ □ □ □ □ □ · □ □ □ □ □ □ │
-│ □ □ ▓ □ □ □ □ □ □ ● □ □ □ │
-└─────────────────────────────┘
+Colony Structure:
+┌─────────────────────────────────────────┐
+│ □ □ ▓ □ □ □ □ ▓ □ □ □ □ □ □ □ □ □ □ □ │  □ = Air
+│ □ □ ▓ ▓ □ □ □ □ □ □ ● □ □ □ □ □ □ □ □ │  ▓ = Dirt
+│ □ □ □ □ □ □ · · · · · □ □ □ □ □ □ □ □ │  ● = Food
+│ □ □ □ · · · · [N] · · · □ □ □ □ □ □ □ │  ♔ = Queen
+│ □ □ · · · · ♔ · · · · · · □ □ □ □ □ □ │  [N] = Nursery
+│ □ □ □ · · · · · · · · · □ □ □ □ □ □ □ │  [F] = Food Storage
+│ □ □ □ · · · [F] · · [B] □ □ □ □ □ □ □ │  [B] = Barracks
+│ □ □ ▓ □ □ □ □ □ □ □ □ □ □ ● □ □ □ □ □ │
+└─────────────────────────────────────────┘
 ```
 
 #### 2. Pheromones - The Chemical Language
 
-Ants communicate using two types of pheromones:
+Ants communicate using **colony-specific pheromones** (each colony has its own trails that only its ants can sense):
 
-- **Food Pheromone (Blue)** - "Food is this way!"
+- **Food Pheromone** - "Food is this way!"
   - Deposited by ants carrying food (strength: 0.5)
   - Followed by ants in "foraging" state
+  - Colored per colony for visual distinction
 
-- **Home Pheromone (Gray)** - "Nest is this way!"
+- **Home Pheromone** - "Nest is this way!"
   - Deposited by ants without food (strength: 0.2)
   - Followed by ants in "returning home" state
   - Nest center always has strength 1.0
+  - Colored per colony for visual distinction
+
+- **Food Scent** - Natural scent diffusing from food
+  - BFS-based diffusion from food cells
+  - Spreads 0.97x intensity per cell distance
+  - Helps ants discover new food sources
 
 Pheromones:
 - **Decay** over time (multiply by 0.985 per frame)
 - **Accumulate** when multiple ants travel the same path
 - **Guide** other ants using their sensors
+- **Colony-isolated** - ants only sense their own colony's trails
 
 ---
 
@@ -117,8 +132,24 @@ Each ant has:
 - **Position** (x, y coordinates)
 - **Angle** (direction in radians)
 - **Energy** (100 max, depletes as they move)
-- **State** (forage, returnHome, or rest)
+- **State** (forage, returnHome, rest, or caste-specific states)
 - **Carrying Food** (boolean flag)
+- **Caste** (determines role and abilities)
+- **Colony ID** (which colony this ant belongs to)
+
+#### Ant Castes
+
+| Caste | Role | Speed | HP | Special Ability |
+|-------|------|-------|-----|-----------------|
+| **Worker** | Foraging, building | 1.0x | 100 | Dig tunnels, carry food |
+| **Soldier** | Defense, patrol | 0.9x | 150 | Higher attack, defense boost when defending |
+| **Nurse** | Egg/larva care | 0.8x | 80 | Care for eggs in nursery |
+| **Queen** | Egg laying | 0.5x | 500 | Lays eggs every 45s, BFS food guidance |
+| **Princess** | Succession | 0.4x | 300 | Promotes to queen when queen dies |
+| **Builder** | Construction | 0.7x | 120 | Build rooms, reinforce walls |
+| **Drone** | (Reserved) | 1.0x | 50 | Future breeding mechanics |
+| **Egg** | Development | 0x | - | Hatches after 20 seconds |
+| **Larva** | Maturation | 0x | - | Matures after 60 seconds |
 
 #### Ant State Machine
 
@@ -352,11 +383,92 @@ Digging Cost: 0.5 per dig attempt
 ```
 
 **Digging Mechanics:**
-- Dirt has 100 health
+- Dirt has variable hardness (softSand: 5, looseSoil: 12, packedEarth: 25, clay: 50, hardite: 100, bedrock: 200)
 - Each dig attempt costs 0.5 energy
 - Deals 0.5 damage (1:1 ratio)
 - Ant turns away after hitting dirt
 - When dirt health reaches 0, cell becomes air
+
+---
+
+### Defense System
+
+Colonies automatically defend against enemy ants:
+
+**Threat Detection:**
+- Defense alert radius: 12 cells around nest
+- Alert duration: 5 seconds
+- Checked every 30 frames
+
+**Soldier Response:**
+```
+WHEN enemy detected near nest:
+    1. Alert triggered for colony
+    2. Soldiers receive attack target via getDefenseTarget()
+    3. Defending soldiers:
+       - Speed boost: 1.3x
+       - Damage bonus: +50%
+       - Aggression: 100% (always attack)
+    4. Emergency builders may construct defensive walls
+```
+
+**Patrol Behavior (when no threats):**
+- Inner radius: `nestRadius * 0.5` - soldiers move outward if too close
+- Outer radius: `nestRadius * 2.0` - soldiers return if too far
+- Subtle bias toward nest center for coverage
+
+---
+
+### Combat System
+
+Combat occurs when ants from different colonies encounter each other:
+
+**Combat Mechanics:**
+- Spatial hashing enables O(n) collision detection
+- Damage = `attacker.attack * variance - defender.defense * mitigation`
+- Dead ants are removed from simulation
+- Death events trigger visual effects (expanding colored circles)
+
+**Combat Stats by Caste:**
+| Caste | Attack | Defense | Aggression |
+|-------|--------|---------|------------|
+| Worker | Low | Low | 0.3 (30% chance to fight) |
+| Soldier | High | High | 0.8 (80% chance to fight) |
+| Soldier (defending) | High+50% | High | 1.0 (always fights) |
+| Queen | Low | Medium | 0.0 (never fights) |
+| Princess | Low | Medium | 0.0 (never fights) |
+
+---
+
+### Breeding & Succession System
+
+Colonies grow and maintain succession through the princess system:
+
+**Egg Laying:**
+- Queens lay eggs every 45 seconds
+- Eggs spawn near queen position with random jitter
+- Eggs are transported to nursery by nurses
+
+**Lifecycle:**
+```
+Egg (20 seconds) → Larva (60 seconds) → Adult Caste
+```
+
+**Princess Breeding:**
+- Threshold: 75 food units collected triggers princess development
+- Maximum: 2 princesses per colony
+- Princess stats: 300 HP, 0.4x speed, no combat
+
+**Succession:**
+```
+WHEN queen dies:
+    IF princess exists:
+        → Princess promotes to queen (promoteToQueen())
+        → Colony continues
+    ELSE:
+        → Colony undergoes takeover
+        → Ants may join conquering colony
+```
 
 ---
 
@@ -784,61 +896,48 @@ Map<String, dynamic> getAnalytics() {
 
 ---
 
-### Implementing Multi-Colony Simulation
+### Multi-Colony System (Already Implemented)
 
-**1. Make nests identifiable:**
+The game now supports up to 4 competing colonies. Here's how it works:
 
+**Colony-Specific Pheromones:**
 ```dart
-class Nest {
-  final Vector2 position;
-  final Color color;
-  final int id;
-  int storedFood = 0;
+// WorldGrid has separate pheromone layers per colony
+Float32List foodPheromones0;     // Colony 0's food trails
+Float32List foodPheromones1;     // Colony 1's food trails
+Float32List homePheromones0;     // Colony 0's home trails
+Float32List homePheromones1;     // Colony 1's home trails
 
-  Nest(this.id, this.position, this.color);
+// Ants only sense their own colony's pheromones
+double homePheromoneAt(int x, int y, int colonyId) {
+  return colonyId == 0 ? homePheromones0[idx] : homePheromones1[idx];
 }
 ```
 
-**2. Assign ants to colonies:**
-
+**Per-Colony Rooms:**
 ```dart
-class Ant {
-  final int colonyId;
-  // ... existing fields ...
+// Each colony has its own set of rooms
+Map<int, List<Room>> colonyRooms;  // colonyId → rooms
 
-  Ant({
-    required this.colonyId,  // ← Which nest this ant belongs to
-    // ... existing params ...
-  });
-}
+// Room types: home, nursery, foodStorage, barracks
+Room? getFoodRoom(int colonyId);
+Room? getNursery(int colonyId);
 ```
 
-**3. Use colony-specific pheromones:**
-
+**Defense System:**
 ```dart
-class WorldGrid {
-  // Instead of:
-  // final Float32List homePheromones;
+// Per-colony defense alerts
+List<Vector2?> _defenseAlertPositions;  // Attack target per colony
+List<double> _defenseAlertTimers;        // Alert duration per colony
 
-  // Use:
-  final Map<int, Float32List> colonyHomePheromones;  // One per colony
-
-  double homePheromoneAt(int x, int y, int colonyId) {
-    return colonyHomePheromones[colonyId]![index(x, y)];
-  }
-}
+Vector2? getDefenseTarget(int colonyId);  // Soldiers query this
 ```
 
-**4. Update ant sensing to use colony ID:**
-
+**Colony Colors:**
 ```dart
-double _sense(double direction, SimulationConfig config, WorldGrid world) {
-  // ... existing code ...
-
-  if (behavior == AntState.returnHome) {
-    return world.homePheromoneAt(gx, gy, this.colonyId);  // ← Colony-specific
-  }
-}
+// Colony-specific rendering colors
+Color bodyColorForColony(int paletteIndex, bool carrying);
+// Pheromone trails colored to match their colony
 ```
 
 ---
@@ -848,9 +947,15 @@ double _sense(double direction, SimulationConfig config, WorldGrid world) {
 ### Performance Optimizations
 
 1. **Terrain Caching** - Static terrain is rendered once to a `Picture` object and reused every frame
-2. **Pheromone Decay** - Only processes cells above threshold (0.01)
+2. **Pheromone Decay** - Only processes cells above threshold (0.01) via `_activePheromoneCells` Set
 3. **Food Indexing** - Maintains a `Set<int>` of food cell indices for O(1) lookup instead of scanning entire grid
 4. **Delta Time Clamping** - Caps `dt` at 0.05s to prevent physics instability during lag spikes
+5. **LOD Rendering** - Ants render as simple dots (< 5px), simplified shapes (< 8px), or full detail based on zoom level
+6. **Viewport Culling** - Ants and death effects outside visible bounds are skipped during rendering
+7. **Pheromone Caching** - Pheromone layer rendering updates every 3 frames, not every frame
+8. **Food Scent Dirty Sets** - `_activeFoodScentCells` tracks only cells with active scent for efficient iteration
+9. **Spatial Hashing** - Combat and separation calculations use O(n) spatial hashing instead of O(n²)
+10. **Frame Telemetry** - `FrameTelemetry` class logs average update time and FPS every 5 seconds for profiling
 
 ### Save/Load System
 
@@ -897,12 +1002,16 @@ Here are some ideas for extending AntWorld:
 - [ ] Predators that hunt ants
 - [ ] Weather system (rain slows ants)
 - [ ] Obstacles that require teamwork to overcome
-- [ ] Ant specialization (workers, soldiers, scouts)
+- [x] Ant specialization (workers, soldiers, scouts) - **IMPLEMENTED** (9 castes)
 - [ ] Multiple food sources with priorities
 - [ ] Replay system to watch simulations
 
 ### Advanced Extensions
-- [ ] Multi-colony competition/cooperation
+- [x] Multi-colony competition/cooperation - **IMPLEMENTED** (up to 4 colonies with combat)
+- [x] Colony-specific pheromone trails - **IMPLEMENTED**
+- [x] Room-based logistics (storage, nursery, barracks) - **IMPLEMENTED**
+- [x] Defense system with soldier patrols - **IMPLEMENTED**
+- [x] Princess breeding and succession - **IMPLEMENTED**
 - [ ] Genetic algorithms for ant behavior evolution
 - [ ] 3D visualization mode
 - [ ] Machine learning for optimal foraging
