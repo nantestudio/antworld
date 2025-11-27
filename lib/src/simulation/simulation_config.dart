@@ -7,7 +7,8 @@ class SimulationConfig {
     this.cellSize = 8,
     this.colonyCount = 2,
     this.startingAnts = 100,
-    this.antSpeed = 36, // cells per second - slower for more deliberate movement
+    this.antSpeed =
+        36, // cells per second - slower for more deliberate movement
     this.sensorDistance = 8, // longer sensing reach
     this.sensorAngle = 0.52, // ~30° tighter cone for focused trails
     this.foodDepositStrength = 0.4, // reduced to prevent pheromone saturation
@@ -145,3 +146,99 @@ class SimulationConfig {
 }
 
 const defaultSimulationConfig = SimulationConfig();
+
+Map<String, dynamic> simulationConfigToJson(SimulationConfig config) {
+  return {
+    'cols': config.cols,
+    'rows': config.rows,
+    'cellSize': config.cellSize,
+    'colonyCount': config.colonyCount,
+    'startingAnts': config.startingAnts,
+    'antSpeed': config.antSpeed,
+    'sensorDistance': config.sensorDistance,
+    'sensorAngle': config.sensorAngle,
+    'foodDepositStrength': config.foodDepositStrength,
+    'homeDepositStrength': config.homeDepositStrength,
+    'foodPickupRotation': config.foodPickupRotation,
+    'foodPerNewAnt': config.foodPerNewAnt,
+    'nestRadius': config.nestRadius,
+    'decayPerFrame': config.decayPerFrame,
+    'decayThreshold': config.decayThreshold,
+    'digBrushRadius': config.digBrushRadius,
+    'foodBrushRadius': config.foodBrushRadius,
+    'dirtMaxHealth': config.dirtMaxHealth,
+    'digEnergyCost': config.digEnergyCost,
+    'digDamagePerEnergy': config.digDamagePerEnergy,
+    'foodSenseRange': config.foodSenseRange,
+    'energyCapacity': config.energyCapacity,
+    'energyDecayPerSecond': config.energyDecayPerSecond,
+    'energyRecoveryPerSecond': config.energyRecoveryPerSecond,
+    'restEnabled': config.restEnabled,
+    'explorerRatio': config.explorerRatio,
+    'randomTurnStrength': config.randomTurnStrength,
+  };
+}
+
+SimulationConfig simulationConfigFromJson(
+  Map<String, dynamic>? data, {
+  SimulationConfig? fallback,
+}) {
+  final base = fallback ?? defaultSimulationConfig;
+  if (data == null) {
+    return base;
+  }
+  return SimulationConfig(
+    cols: (data['cols'] as num?)?.toInt() ?? base.cols,
+    rows: (data['rows'] as num?)?.toInt() ?? base.rows,
+    cellSize: (data['cellSize'] as num?)?.toDouble() ?? base.cellSize,
+    colonyCount: (data['colonyCount'] as num?)?.toInt() ?? base.colonyCount,
+    startingAnts: (data['startingAnts'] as num?)?.toInt() ?? base.startingAnts,
+    antSpeed: (data['antSpeed'] as num?)?.toDouble() ?? base.antSpeed,
+    sensorDistance:
+        (data['sensorDistance'] as num?)?.toDouble() ?? base.sensorDistance,
+    sensorAngle: (data['sensorAngle'] as num?)?.toDouble() ?? base.sensorAngle,
+    foodDepositStrength:
+        (data['foodDepositStrength'] as num?)?.toDouble() ??
+        base.foodDepositStrength,
+    homeDepositStrength:
+        (data['homeDepositStrength'] as num?)?.toDouble() ??
+        base.homeDepositStrength,
+    foodPickupRotation:
+        (data['foodPickupRotation'] as num?)?.toDouble() ??
+        base.foodPickupRotation,
+    foodPerNewAnt:
+        (data['foodPerNewAnt'] as num?)?.toInt() ?? base.foodPerNewAnt,
+    nestRadius: (data['nestRadius'] as num?)?.toInt() ?? base.nestRadius,
+    decayPerFrame:
+        (data['decayPerFrame'] as num?)?.toDouble() ?? base.decayPerFrame,
+    decayThreshold:
+        (data['decayThreshold'] as num?)?.toDouble() ?? base.decayThreshold,
+    digBrushRadius:
+        (data['digBrushRadius'] as num?)?.toInt() ?? base.digBrushRadius,
+    foodBrushRadius:
+        (data['foodBrushRadius'] as num?)?.toInt() ?? base.foodBrushRadius,
+    dirtMaxHealth:
+        (data['dirtMaxHealth'] as num?)?.toDouble() ?? base.dirtMaxHealth,
+    digEnergyCost:
+        (data['digEnergyCost'] as num?)?.toDouble() ?? base.digEnergyCost,
+    digDamagePerEnergy:
+        (data['digDamagePerEnergy'] as num?)?.toDouble() ??
+        base.digDamagePerEnergy,
+    foodSenseRange:
+        (data['foodSenseRange'] as num?)?.toDouble() ?? base.foodSenseRange,
+    energyCapacity:
+        (data['energyCapacity'] as num?)?.toDouble() ?? base.energyCapacity,
+    energyDecayPerSecond:
+        (data['energyDecayPerSecond'] as num?)?.toDouble() ??
+        base.energyDecayPerSecond,
+    energyRecoveryPerSecond:
+        (data['energyRecoveryPerSecond'] as num?)?.toDouble() ??
+        base.energyRecoveryPerSecond,
+    restEnabled: (data['restEnabled'] as bool?) ?? base.restEnabled,
+    explorerRatio:
+        (data['explorerRatio'] as num?)?.toDouble() ?? base.explorerRatio,
+    randomTurnStrength:
+        (data['randomTurnStrength'] as num?)?.toDouble() ??
+        base.randomTurnStrength,
+  );
+}

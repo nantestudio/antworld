@@ -9,11 +9,11 @@ import 'package:antworld/main.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('renders ant stats overlay', (tester) async {
+  testWidgets('renders main menu actions', (tester) async {
     await tester.pumpWidget(const AntWorldApp());
 
-    expect(find.text('Ants'), findsWidgets);
-    expect(find.text('Food'), findsWidgets);
-    expect(find.textContaining('Controls'), findsOneWidget);
+    expect(find.text('AntWorld'), findsOneWidget);
+    expect(find.textContaining('Start New Colony'), findsOneWidget);
+    expect(find.text('Continue Last Colony'), findsOneWidget);
   });
 }

@@ -2,26 +2,28 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../core/game_state_manager.dart';
 import '../game/ant_world_game.dart';
 import '../services/analytics_service.dart';
 import '../simulation/ant.dart';
 import '../simulation/colony_simulation.dart';
 import '../simulation/world_generator.dart';
-import '../state/simulation_storage.dart';
 
 class AntHud extends StatefulWidget {
   const AntHud({
     super.key,
     required this.simulation,
     required this.game,
-    required this.storage,
+    required this.gameStateManager,
     this.onQuitToMenu,
+    this.onGameSaved,
   });
 
   final ColonySimulation simulation;
   final AntWorldGame game;
-  final SimulationStorage storage;
+  final GameStateManager gameStateManager;
   final VoidCallback? onQuitToMenu;
+  final VoidCallback? onGameSaved;
 
   @override
   State<AntHud> createState() => _AntHudState();
@@ -1192,7 +1194,7 @@ class _AntHudState extends State<AntHud> {
 
   Future<void> _saveWorld() async {
     setState(() => _saving = true);
-    final success = await widget.storage.save(widget.simulation);
+    final success = await widget.gameStateManager.saveCurrentGame();
     if (!mounted) return;
     setState(() => _saving = false);
 
@@ -1202,6 +1204,7 @@ class _AntHudState extends State<AntHud> {
         antCount: widget.simulation.ants.length,
         totalFood: widget.simulation.foodCollected.value,
       );
+      widget.onGameSaved?.call();
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
