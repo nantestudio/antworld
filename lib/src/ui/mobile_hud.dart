@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 
 import '../core/game_state_manager.dart';
+import '../core/god_actions_controller.dart';
+import '../core/mode_config.dart';
+import '../core/game_mode.dart';
 import '../game/ant_world_game.dart';
 import '../progression/progression_service.dart';
 import '../progression/unlockables.dart';
@@ -93,6 +96,8 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
         children: [
           // Top stats bar
           _buildTopBar(context),
+          _buildGoalChip(context),
+          _buildPerfBadge(context),
           // Floating tool palette (right side)
           _buildToolPalette(context),
           // Bottom control bar
@@ -159,6 +164,7 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
   }
 
   Widget _buildToolPalette(BuildContext context) {
+    final canEdit = widget.gameStateManager.currentMode == GameMode.sandbox;
     return Positioned(
       right: 12,
       top: MediaQuery.of(context).padding.top + 60,
@@ -178,64 +184,171 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
                 ? Column(
                     children: [
                       const SizedBox(height: 8),
-                      ValueListenableBuilder<bool>(
-                        valueListenable: widget.game.editMode,
-                        builder: (context, editMode, _) {
-                          return _ToolFab(
-                            icon: editMode ? Icons.lock_open : Icons.lock,
-                            onPressed: () {
-                              _haptic();
-                              widget.game.editMode.value = !editMode;
-                            },
-                            isActive: editMode,
-                            tooltip: editMode ? 'Lock' : 'Unlock editing',
-                          );
-                        },
+                      if (canEdit)
+                        ValueListenableBuilder<bool>(
+                          valueListenable: widget.game.editMode,
+                          builder: (context, editMode, _) {
+                            return _ToolFab(
+                              icon: editMode ? Icons.lock_open : Icons.lock,
+                              onPressed: () {
+                                _haptic();
+                                widget.game.editMode.value = !editMode;
+                              },
+                              isActive: editMode,
+                              tooltip: editMode ? 'Lock' : 'Unlock editing',
+                            );
+                          },
+                        ),
+                      if (canEdit) const SizedBox(height: 8),
+                      if (canEdit)
+                        ValueListenableBuilder<BrushMode>(
+                          valueListenable: widget.game.brushMode,
+                          builder: (context, mode, _) {
+                            return Column(
+                              children: [
+                                _ToolFab(
+                                  icon: Icons.construction,
+                                  onPressed: () {
+                                    _haptic();
+                                    widget.game.setBrushMode(BrushMode.dig);
+                                  },
+                                  isActive: mode == BrushMode.dig,
+                                  tooltip: 'Dig',
+                                ),
+                                const SizedBox(height: 8),
+                                _ToolFab(
+                                  icon: Icons.fastfood,
+                                  onPressed: () {
+                                    _haptic();
+                                    widget.game.setBrushMode(BrushMode.food);
+                                  },
+                                  isActive: mode == BrushMode.food,
+                                  tooltip: 'Food',
+                                ),
+                                const SizedBox(height: 8),
+                                _ToolFab(
+                                  icon: Icons.landscape,
+                                  onPressed: () {
+                                    _haptic();
+                                    widget.game.setBrushMode(BrushMode.rock);
+                                  },
+                                  isActive: mode == BrushMode.rock,
+                                  tooltip: 'Rock',
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      if (canEdit) const SizedBox(height: 8),
+                      _GodToolButton(
+                        label: 'Dig Burst',
+                        icon: Icons.flash_on,
+                        type: GodActionType.digBurst,
+                        controller: widget.gameStateManager.godActions,
+                        onUse: () => widget.gameStateManager.godActions.use(
+                          GodActionType.digBurst,
+                          widget.simulation,
+                        ),
                       ),
                       const SizedBox(height: 8),
-                      ValueListenableBuilder<BrushMode>(
-                        valueListenable: widget.game.brushMode,
-                        builder: (context, mode, _) {
-                          return Column(
-                            children: [
-                              _ToolFab(
-                                icon: Icons.construction,
-                                onPressed: () {
-                                  _haptic();
-                                  widget.game.setBrushMode(BrushMode.dig);
-                                },
-                                isActive: mode == BrushMode.dig,
-                                tooltip: 'Dig',
-                              ),
-                              const SizedBox(height: 8),
-                              _ToolFab(
-                                icon: Icons.fastfood,
-                                onPressed: () {
-                                  _haptic();
-                                  widget.game.setBrushMode(BrushMode.food);
-                                },
-                                isActive: mode == BrushMode.food,
-                                tooltip: 'Food',
-                              ),
-                              const SizedBox(height: 8),
-                              _ToolFab(
-                                icon: Icons.landscape,
-                                onPressed: () {
-                                  _haptic();
-                                  widget.game.setBrushMode(BrushMode.rock);
-                                },
-                                isActive: mode == BrushMode.rock,
-                                tooltip: 'Rock',
-                              ),
-                            ],
-                          );
-                        },
+                      _GodToolButton(
+                        label: 'Food Drop',
+                        icon: Icons.restaurant,
+                        type: GodActionType.foodDrop,
+                        controller: widget.gameStateManager.godActions,
+                        onUse: () => widget.gameStateManager.godActions.use(
+                          GodActionType.foodDrop,
+                          widget.simulation,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _GodToolButton(
+                        label: 'Rock Wall',
+                        icon: Icons.shield,
+                        type: GodActionType.rockWall,
+                        controller: widget.gameStateManager.godActions,
+                        onUse: () => widget.gameStateManager.godActions.use(
+                          GodActionType.rockWall,
+                          widget.simulation,
+                        ),
                       ),
                     ],
                   )
                 : const SizedBox.shrink(),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildGoalChip(BuildContext context) {
+    final config = widget.gameStateManager.currentConfig;
+    if (config == null) return const SizedBox.shrink();
+    final objective =
+        (config is CampaignLevelConfig) ? config.objective.description : 'Survive and thrive';
+    final levelLabel =
+        (config is CampaignLevelConfig) ? config.levelId : config.mode.displayName;
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + 36,
+      left: 12,
+      right: 90, // leave space for tool palette on the right
+      child: Card(
+        color: Colors.black.withValues(alpha: 0.65),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(levelLabel, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 2),
+                    Text(
+                      objective,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.75),
+                        fontSize: 12,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Day ${widget.simulation.daysPassed.value}',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPerfBadge(BuildContext context) {
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + 8,
+      right: 12,
+      child: ValueListenableBuilder<PerfSample>(
+        valueListenable: widget.game.perfStats,
+        builder: (context, perf, _) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.65),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Text(
+              'FPS ${perf.fps.toStringAsFixed(0)} • ${perf.updateMs.toStringAsFixed(1)}ms',
+              style: const TextStyle(fontSize: 11),
+            ),
+          );
+        },
       ),
     );
   }
@@ -700,6 +813,49 @@ class _ToolFab extends StatelessWidget {
       return Tooltip(message: tooltip!, child: button);
     }
     return button;
+  }
+}
+
+class _GodToolButton extends StatelessWidget {
+  const _GodToolButton({
+    required this.label,
+    required this.icon,
+    required this.type,
+    required this.controller,
+    required this.onUse,
+  });
+
+  final String label;
+  final IconData icon;
+  final GodActionType type;
+  final GodActionsController controller;
+  final Future<void> Function() onUse;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = controller.state(type);
+    final remaining = controller.cooldownRemaining(type);
+    final ready = controller.canUse(type);
+    final cooldownText = remaining == Duration.zero ? 'Ready' : '${remaining.inSeconds}s';
+    return Column(
+      children: [
+        _ToolFab(
+          icon: icon,
+          onPressed: ready ? onUse : () {},
+          isActive: ready,
+          tooltip: '$label (${state.charges}/${state.maxCharges})',
+        ),
+        const SizedBox(height: 2),
+        Text(
+          '${state.charges}/${state.maxCharges} • $cooldownText',
+          style: const TextStyle(fontSize: 10, color: Colors.white70),
+        ),
+        TextButton(
+          onPressed: () => controller.watchAdForCharge(type),
+          child: const Text('+1 via ad', style: TextStyle(fontSize: 10)),
+        ),
+      ],
+    );
   }
 }
 

@@ -9,6 +9,7 @@ import '../core/game_event.dart';
 import '../progression/progression_service.dart';
 import '../services/analytics_service.dart';
 import 'ant.dart';
+import 'level_layout.dart';
 import 'simulation_config.dart';
 import 'world_generator.dart';
 import 'world_grid.dart';
@@ -335,6 +336,7 @@ class ColonySimulation {
     if (newDays != daysPassed.value) {
       final oldDays = daysPassed.value;
       daysPassed.value = newDays;
+      eventBus.emit(DayAdvancedEvent(day: newDays));
 
       // Track progression XP for surviving another day
       ProgressionService.instance.onDayPassed(newDays);
@@ -661,6 +663,7 @@ class ColonySimulation {
     int? cols,
     int? rows,
     int? colonyCount,
+    LevelLayout? layout,
   }) {
     // Clean up first to free resources
     prepareForNewWorld();
@@ -673,6 +676,7 @@ class ColonySimulation {
       cols: cols,
       rows: rows,
       colonyCount: colonyCount,
+      layout: layout,
     );
     applyGeneratedWorld(generated);
   }
@@ -1348,6 +1352,22 @@ class ColonySimulation {
     }
     final radius = 2 + _rng.nextInt(3);
     world.placeFood(spot, radius);
+  }
+
+  /// Drops a lump of bonus food near the given colony's nest (used for idle rewards).
+  void dropBonusFood(int amount, {int colonyId = 0}) {
+    if (amount <= 0) return;
+    final nest = world.getNestPosition(colonyId);
+    final clusters = math.max(1, (amount / 40).ceil());
+    final perCluster = math.max(5, (amount / clusters).ceil());
+    for (var i = 0; i < clusters; i++) {
+      final jitter = Vector2(
+        (_rng.nextDouble() - 0.5) * 6,
+        (_rng.nextDouble() - 0.5) * 6,
+      );
+      final target = nest + jitter;
+      world.placeFood(target, 2 + _rng.nextInt(2), amount: perCluster);
+    }
   }
 
   void _checkRoomCapacity() {

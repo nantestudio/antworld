@@ -1,5 +1,7 @@
 import '../simulation/colony_simulation.dart';
+import '../simulation/level_layout.dart';
 import '../simulation/simulation_config.dart';
+import 'level_catalog.dart';
 import 'game_mode.dart';
 
 typedef SimulationPredicate = bool Function(ColonySimulation simulation);
@@ -124,6 +126,7 @@ abstract class ModeConfig {
   bool get trackMilestones;
   WinCondition? get winCondition;
   LoseCondition? get loseCondition;
+  LevelLayout? get layout => null;
 
   Map<String, dynamic> toJson();
 }
@@ -241,6 +244,7 @@ class CampaignLevelConfig extends ModeConfig {
     this.timeLimitOverride,
     this.win,
     this.lose,
+    this.layoutOverride,
   });
 
   final String levelId;
@@ -250,6 +254,7 @@ class CampaignLevelConfig extends ModeConfig {
   final Duration? timeLimitOverride;
   final WinCondition? win;
   final LoseCondition? lose;
+  final LevelLayout? layoutOverride;
 
   @override
   GameMode get mode => GameMode.campaign;
@@ -274,6 +279,9 @@ class CampaignLevelConfig extends ModeConfig {
 
   @override
   LoseCondition? get loseCondition => lose;
+
+  @override
+  LevelLayout? get layout => layoutOverride;
 
   @override
   Map<String, dynamic> toJson() {
@@ -326,6 +334,9 @@ class CampaignLevelConfig extends ModeConfig {
               ),
             )
           : null,
+      layoutOverride: campaignLayoutById(
+        json['levelId'] as String? ?? 'level',
+      ),
     );
   }
 }
@@ -372,6 +383,9 @@ class DailyChallengeModeConfig extends ModeConfig {
 
   @override
   LoseCondition? get loseCondition => lose;
+
+  @override
+  LevelLayout? get layout => dailyLayoutForDate(generatedAt);
 
   @override
   Map<String, dynamic> toJson() {

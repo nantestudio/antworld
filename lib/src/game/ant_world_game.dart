@@ -12,6 +12,7 @@ import '../simulation/ant.dart';
 import '../simulation/colony_simulation.dart';
 import '../simulation/world_grid.dart';
 import '../visuals/ant_sprite.dart';
+import '../core/perf_recorder.dart';
 
 enum BrushMode { dig, food, rock }
 
@@ -19,11 +20,17 @@ class AntWorldGame extends FlameGame
     with TapCallbacks, SecondaryTapCallbacks, DragCallbacks, KeyboardEvents {
   AntWorldGame(this.simulation)
     : brushMode = ValueNotifier<BrushMode>(BrushMode.dig),
-      selectedAnt = ValueNotifier<Ant?>(null);
+      selectedAnt = ValueNotifier<Ant?>(null),
+      perfStats = ValueNotifier<PerfSample>(const PerfSample(fps: 0, updateMs: 0)),
+      perfRecorder = PerfRecorder() {
+    perfRecorder.attach(perfStats);
+  }
 
   final ColonySimulation simulation;
   final ValueNotifier<BrushMode> brushMode;
   final ValueNotifier<Ant?> selectedAnt;
+  final ValueNotifier<PerfSample> perfStats;
+  final PerfRecorder perfRecorder;
   final ValueNotifier<bool> editMode = ValueNotifier<bool>(
     false,
   ); // Default: navigation mode
@@ -38,6 +45,10 @@ class AntWorldGame extends FlameGame
   bool _draggingDig = false;
   bool _draggingFood = false;
   static const double _antSelectRadius = 2.0; // cells
+  final Stopwatch _perfStopwatch = Stopwatch();
+  double _perfAccumTime = 0;
+  double _perfAccumUpdate = 0;
+  int _perfFrames = 0;
 
   // Pinch zoom / pan state (called from Flutter widget)
   double _scaleStartZoom = 1;
@@ -237,7 +248,12 @@ class AntWorldGame extends FlameGame
   void update(double dt) {
     super.update(dt);
     _frameTelemetry.beginUpdate();
+    _perfStopwatch
+      ..reset()
+      ..start();
     simulation.update(dt);
+    _perfStopwatch.stop();
+    _accumulatePerf(dt, _perfStopwatch.elapsedMicroseconds / 1000.0);
     _frameTelemetry.endUpdate(dt);
     _collectDeathEvents();
     _updateDeathPops(dt);
@@ -252,6 +268,20 @@ class AntWorldGame extends FlameGame
     canvas.scale(_worldScale);
     _renderWorld(canvas);
     canvas.restore();
+  }
+
+  void _accumulatePerf(double dt, double updateMs) {
+    _perfAccumTime += dt;
+    _perfAccumUpdate += updateMs;
+    _perfFrames++;
+    if (_perfAccumTime >= 1.0 && _perfFrames > 0) {
+      final fps = _perfFrames / _perfAccumTime;
+      final avgUpdate = _perfAccumUpdate / _perfFrames;
+      perfStats.value = PerfSample(fps: fps, updateMs: avgUpdate);
+      _perfAccumTime = 0;
+      _perfAccumUpdate = 0;
+      _perfFrames = 0;
+    }
   }
 
   @override
@@ -1115,6 +1145,13 @@ class AntWorldGame extends FlameGame
   void clearSelection() {
     selectedAnt.value = null;
   }
+}
+
+class PerfSample {
+  const PerfSample({required this.fps, required this.updateMs});
+
+  final double fps;
+  final double updateMs;
 }
 
 class _DeathPop {

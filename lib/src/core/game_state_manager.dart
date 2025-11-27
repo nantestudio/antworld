@@ -7,14 +7,20 @@ import 'game_event.dart';
 import 'game_mode.dart';
 import 'mode_config.dart';
 import 'player_progress.dart';
+import 'god_actions_controller.dart';
+import '../progression/daily_goal_service.dart';
+import '../services/idle_progress_service.dart';
 
 class GameStateManager extends ChangeNotifier {
   GameStateManager({UnifiedStorage? storage, GameEventBus? eventBus})
     : _storage = storage ?? UnifiedStorage(),
-      _eventBus = eventBus ?? GameEventBus();
+      _eventBus = eventBus ?? GameEventBus(),
+      _dailyGoals = DailyGoalService.instance;
 
   final UnifiedStorage _storage;
   final GameEventBus _eventBus;
+  final DailyGoalService _dailyGoals;
+  final GodActionsController godActions = GodActionsController();
 
   GameMode? _currentMode;
   ModeConfig? _currentConfig;
@@ -34,9 +40,11 @@ class GameStateManager extends ChangeNotifier {
   bool get canWin => _currentConfig?.winCondition != null;
   bool get canLose => _currentConfig?.loseCondition != null;
   bool get hasActiveSimulation => _simulation != null;
+  DailyGoalService get dailyGoals => _dailyGoals;
 
   @override
   void dispose() {
+    _dailyGoals.disposeListeners();
     _eventBus.dispose();
     super.dispose();
   }
@@ -46,6 +54,8 @@ class GameStateManager extends ChangeNotifier {
       return;
     }
     _playerProgress = await _storage.loadPlayerProgress();
+    await _dailyGoals.load();
+    await _dailyGoals.attach(_eventBus);
     _progressLoaded = true;
     notifyListeners();
   }
@@ -66,15 +76,26 @@ class GameStateManager extends ChangeNotifier {
     } else {
       simulation.initialize();
       if (config is SandboxModeConfig && config.seed != null) {
-        simulation.generateRandomWorld(seed: config.seed);
+        simulation.generateRandomWorld(
+          seed: config.seed,
+          layout: config.layout,
+        );
       } else {
-        simulation.generateRandomWorld();
+        simulation.generateRandomWorld(layout: config.layout);
       }
     }
 
     _simulation = simulation;
     _currentConfig = config;
     _currentMode = config.mode;
+
+    _applyBankedIdleRewards(simulation);
+
+    // Record snapshot for idle rewards
+    await IdleProgressService.instance.recordSession(
+      mode: config.mode,
+      simulation: simulation,
+    );
 
     _eventBus.emit(GameModeChangedEvent(mode: config.mode));
     _eventBus.emit(SimulationLifecycleEvent.starting(mode: config.mode));
@@ -92,6 +113,10 @@ class GameStateManager extends ChangeNotifier {
     if (save && (_currentConfig?.allowSave ?? false)) {
       await saveCurrentGame();
     }
+    await IdleProgressService.instance.recordSession(
+      mode: mode,
+      simulation: _simulation,
+    );
     _simulation = null;
     _currentConfig = null;
     _currentMode = null;
@@ -169,6 +194,13 @@ class GameStateManager extends ChangeNotifier {
       _storage.savePlayerProgress(progress);
     }
     notifyListeners();
+  }
+
+  void _applyBankedIdleRewards(ColonySimulation simulation) {
+    final bankedFood = IdleProgressService.instance.takeBankedFood();
+    if (bankedFood > 0) {
+      simulation.dropBonusFood(bankedFood);
+    }
   }
 
   void _setLoading(bool value) {

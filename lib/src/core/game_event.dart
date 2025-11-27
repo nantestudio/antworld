@@ -25,6 +25,12 @@ class MilestoneReachedEvent extends GameEvent {
   final String milestoneId;
 }
 
+class DayAdvancedEvent extends GameEvent {
+  const DayAdvancedEvent({required this.day});
+
+  final int day;
+}
+
 class LevelCompletedEvent extends GameEvent {
   const LevelCompletedEvent({
     required this.levelId,
@@ -45,14 +51,14 @@ class GameModeChangedEvent extends GameEvent {
 
 class SimulationLifecycleEvent extends GameEvent {
   const SimulationLifecycleEvent.starting({required this.mode})
-    : type = _LifecycleType.starting;
+    : phase = SimulationLifecyclePhase.starting;
   const SimulationLifecycleEvent.ended({required this.mode})
-    : type = _LifecycleType.ended;
+    : phase = SimulationLifecyclePhase.ended;
 
   final GameMode mode;
-  final _LifecycleType type;
+  final SimulationLifecyclePhase phase;
 
-  bool get isStarting => type == _LifecycleType.starting;
+  bool get isStarting => phase == SimulationLifecyclePhase.starting;
 }
 
-enum _LifecycleType { starting, ended }
+enum SimulationLifecyclePhase { starting, ended }

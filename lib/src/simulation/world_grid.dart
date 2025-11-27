@@ -173,7 +173,8 @@ class WorldGrid {
         return Vector2.zero(); // Positions 2,3 set by world generator
       });
 
-  static const int defaultFoodPerCell = 100;
+  // Reduced to slow early snowballing; tuned alongside foodPerNewAnt in SimulationConfig.
+  static const int defaultFoodPerCell = 24;
 
   final SimulationConfig config;
   final Uint8List cells;

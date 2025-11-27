@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import '../simulation/ant.dart';
+import '../services/cosmetics_service.dart';
 
 class AntSpriteStyle {
   const AntSpriteStyle({
@@ -115,6 +116,10 @@ const List<ColonyPalette> colonyPalettes = [
 ];
 
 Color bodyColorForColony(int colonyId, {required bool carrying}) {
+  if (colonyId == 0 && CosmeticsService.instance.selectedPalette != null) {
+    final palette = CosmeticsService.instance.selectedPalette!;
+    return carrying ? palette.carrying : palette.body;
+  }
   final palette = colonyPalettes[colonyId.clamp(0, colonyPalettes.length - 1)];
   return carrying ? palette.carrying : palette.body;
 }

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flame/components.dart';
 
 import 'simulation_config.dart';
+import 'level_layout.dart';
 import 'world_grid.dart';
 
 class GeneratedWorld {
@@ -44,11 +45,13 @@ class WorldGenerator {
     int? cols,
     int? rows,
     int? colonyCount,
+    LevelLayout? layout,
   }) {
-    final rng = math.Random(seed);
-    final actualCols = cols ?? defaultCols;
-    final actualRows = rows ?? defaultRows;
-    final actualColonyCount = (colonyCount ?? baseConfig.colonyCount).clamp(
+    final effectiveSeed = layout?.seed ?? seed;
+    final rng = math.Random(effectiveSeed);
+    final actualCols = layout?.cols ?? cols ?? defaultCols;
+    final actualRows = layout?.rows ?? rows ?? defaultRows;
+    final actualColonyCount = (layout?.colonyCount ?? colonyCount ?? baseConfig.colonyCount).clamp(
       1,
       4,
     );
@@ -60,6 +63,8 @@ class WorldGenerator {
     final grid = WorldGrid(config);
     grid.reset(); // Fills entire grid with dirt
 
+    final biome = layout?.biome ?? const BiomeSettings();
+
     // Distribute dirt types based on distance from nests
     final tempNest0 = Vector2(actualCols * 0.75, actualRows * 0.75);
     final tempNest1 = Vector2(actualCols * 0.25, actualRows * 0.25);
@@ -70,6 +75,7 @@ class WorldGenerator {
       tempNest1,
       actualCols,
       actualRows,
+      hardnessBias: biome.hardnessBias,
     );
 
     // Carve nest chambers for all colonies
@@ -79,13 +85,30 @@ class WorldGenerator {
       actualCols,
       actualRows,
       actualColonyCount,
+      overrides: layout?.nestPositions,
     );
 
+    _applyAnchors(grid, layout);
+
     // 1. First place rock formations (obstacles)
-    _createRockFormations(grid, rng, actualCols, actualRows);
+    _createRockFormations(
+      grid,
+      rng,
+      actualCols,
+      actualRows,
+      countOverride: biome.rockFormations,
+    );
 
     // 2. Generate food positions first (so tunnels can connect to them)
-    final foodPositions = _scatterFood(grid, rng, actualCols, actualRows);
+    final foodPositions = _scatterFood(
+      grid,
+      rng,
+      actualCols,
+      actualRows,
+      countOverride: biome.foodClusters,
+      minDistFactor: biome.minFoodDistanceFactor,
+      overridePositions: layout?.foodOverride,
+    );
 
     // 3. Carve tunnels from each nest to nearest food source
     for (final nest in nestPositions) {
@@ -94,7 +117,13 @@ class WorldGenerator {
     }
 
     // 4. Small caverns for exploration
-    _carveCaverns(grid, rng, actualCols, actualRows);
+    _carveCaverns(
+      grid,
+      rng,
+      actualCols,
+      actualRows,
+      countOverride: biome.caverns,
+    );
 
     // Ensure solid dirt border around entire map
     _ensureDirtBorder(grid, 3);
@@ -102,7 +131,7 @@ class WorldGenerator {
     return GeneratedWorld(
       config: config,
       world: grid,
-      seed: seed,
+      seed: effectiveSeed,
       nestPositions: nestPositions,
     );
   }
@@ -114,10 +143,11 @@ class WorldGenerator {
     Vector2 nest0,
     Vector2 nest1,
     int cols,
-    int rows,
-  ) {
+    int rows, {
+    double hardnessBias = 1.0,
+  }) {
     final nestRadius = grid.config.nestRadius;
-    final maxDist = math.sqrt(cols * cols + rows * rows) * 0.5;
+    final maxDist = math.sqrt(cols * cols + rows * rows) * 0.5 * hardnessBias;
 
     // Pre-generate noise offsets for variation
     final noiseOffsetX = rng.nextDouble() * 1000;
@@ -210,9 +240,16 @@ class WorldGenerator {
     grid.placeFood(pos, 2, amount: WorldGrid.defaultFoodPerCell ~/ 2);
   }
 
-  void _carveCaverns(WorldGrid grid, math.Random rng, int cols, int rows) {
+  void _carveCaverns(
+    WorldGrid grid,
+    math.Random rng,
+    int cols,
+    int rows, {
+    int? countOverride,
+  }) {
     // Minimal caverns - small pockets for ants to discover
-    final cavernCount = rng.nextInt(8) + 5; // Only 5-12 small caverns
+    final base = countOverride ?? 0;
+    final cavernCount = base > 0 ? base : rng.nextInt(8) + 5; // Only 5-12 small caverns
     for (var i = 0; i < cavernCount; i++) {
       final pos = _randomPoint(rng, cols, rows);
       final radius = rng.nextInt(2) + 1; // Small radius 1-2
@@ -225,17 +262,36 @@ class WorldGenerator {
     WorldGrid grid,
     math.Random rng,
     int cols,
-    int rows,
-  ) {
+    int rows, {
+    int? countOverride,
+    double? minDistFactor,
+    List<Vector2>? overridePositions,
+  }) {
     final foodPositions = <Vector2>[];
+    if (overridePositions != null && overridePositions.isNotEmpty) {
+      for (final pos in overridePositions) {
+        final clamped = Vector2(
+          pos.x.clamp(2, cols - 3),
+          pos.y.clamp(2, rows - 3),
+        );
+        final radius = rng.nextInt(3) + 4; // Radius 4-6
+        grid.digCircle(clamped, radius);
+        grid.placeFood(clamped, radius);
+        foodPositions.add(clamped);
+      }
+      return foodPositions;
+    }
 
     // Place food sources away from both nests
     final nest0 = grid.nestPosition;
     final nest1 = grid.nest1Position;
-    final minDistFromNest = rows * 0.2; // At least 20% of map away from nests
+    final minDistFromNest =
+        rows * (minDistFactor ?? 0.2); // At least 20% of map away from nests
 
-    // Place 3 food clusters initially - spread across the map
-    for (var i = 0; i < 3; i++) {
+    final clusterCount = countOverride ?? 3;
+
+    // Place food clusters initially - spread across the map
+    for (var i = 0; i < clusterCount; i++) {
       Vector2 pos;
       var attempts = 0;
       do {
@@ -371,10 +427,11 @@ class WorldGenerator {
     WorldGrid grid,
     math.Random rng,
     int cols,
-    int rows,
-  ) {
+    int rows, {
+    int? countOverride,
+  }) {
     // Reduced: 8-15 formations (was 25-45) for better navigation
-    final formationCount = rng.nextInt(8) + 8;
+    final formationCount = countOverride ?? (rng.nextInt(8) + 8);
 
     for (var i = 0; i < formationCount; i++) {
       final pos = _randomPoint(rng, cols, rows);
@@ -583,6 +640,31 @@ class WorldGenerator {
     }
   }
 
+  void _applyAnchors(
+    WorldGrid grid,
+    LevelLayout? layout,
+  ) {
+    if (layout == null || layout.anchors.isEmpty) return;
+    const margin = 2;
+    for (final anchor in layout.anchors) {
+      final pos = Vector2(
+        anchor.position.x.clamp(margin, grid.cols - margin).toDouble(),
+        anchor.position.y.clamp(margin, grid.rows - margin).toDouble(),
+      );
+      switch (anchor.type) {
+        case LayoutAnchorType.tunnelWaypoint:
+          grid.digCircle(pos, anchor.radius.ceil());
+          break;
+        case LayoutAnchorType.cavern:
+          grid.digCircle(pos, anchor.radius.ceil());
+          break;
+        case LayoutAnchorType.harditeWall:
+          grid.placeHardite(pos, anchor.radius.ceil());
+          break;
+      }
+    }
+  }
+
   Vector2 _randomPoint(math.Random rng, int cols, int rows) {
     return Vector2(
       rng.nextInt(cols - 4).toDouble() + 2,
@@ -596,8 +678,9 @@ class WorldGenerator {
     math.Random rng,
     int cols,
     int rows,
-    int colonyCount,
-  ) {
+    int colonyCount, {
+    List<Vector2>? overrides,
+  }) {
     final safeMargin = 25;
     final nestPositions = <Vector2>[];
 
@@ -606,24 +689,25 @@ class WorldGenerator {
     // 2 colonies: bottom-left, top-right (diagonal)
     // 3 colonies: bottom-left, top-right, top-left
     // 4 colonies: all four corners
-    final cornerPositions = [
-      Vector2(
-        (safeMargin + rng.nextInt(20)).toDouble(),
-        (rows - safeMargin - rng.nextInt(20)).toDouble(),
-      ), // bottom-left
-      Vector2(
-        (cols - safeMargin - rng.nextInt(20)).toDouble(),
-        (safeMargin + rng.nextInt(20)).toDouble(),
-      ), // top-right
-      Vector2(
-        (safeMargin + rng.nextInt(20)).toDouble(),
-        (safeMargin + rng.nextInt(20)).toDouble(),
-      ), // top-left
-      Vector2(
-        (cols - safeMargin - rng.nextInt(20)).toDouble(),
-        (rows - safeMargin - rng.nextInt(20)).toDouble(),
-      ), // bottom-right
-    ];
+    final cornerPositions = overrides ??
+        [
+          Vector2(
+            (safeMargin + rng.nextInt(20)).toDouble(),
+            (rows - safeMargin - rng.nextInt(20)).toDouble(),
+          ), // bottom-left
+          Vector2(
+            (cols - safeMargin - rng.nextInt(20)).toDouble(),
+            (safeMargin + rng.nextInt(20)).toDouble(),
+          ), // top-right
+          Vector2(
+            (safeMargin + rng.nextInt(20)).toDouble(),
+            (safeMargin + rng.nextInt(20)).toDouble(),
+          ), // top-left
+          Vector2(
+            (cols - safeMargin - rng.nextInt(20)).toDouble(),
+            (rows - safeMargin - rng.nextInt(20)).toDouble(),
+          ), // bottom-right
+        ];
 
     for (var i = 0; i < colonyCount; i++) {
       final nest = cornerPositions[i];

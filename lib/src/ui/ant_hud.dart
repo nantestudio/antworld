@@ -3,6 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../core/game_state_manager.dart';
+import '../core/god_actions_controller.dart';
+import '../core/game_mode.dart';
+import '../core/mode_config.dart';
 import '../game/ant_world_game.dart';
 import '../services/analytics_service.dart';
 import '../simulation/ant.dart';
@@ -54,16 +57,20 @@ class _AntHudState extends State<AntHud> {
 
   @override
   Widget build(BuildContext context) {
+    final isSandbox = widget.gameStateManager.currentMode == GameMode.sandbox;
     return Positioned.fill(
       child: Stack(
         children: [
           // Left-side drawer tabs
-          _buildDrawerTabs(context),
+          _buildDrawerTabs(context, isSandbox: isSandbox),
           // Drawer panels
           _buildStatsDrawer(context),
-          _buildControlsDrawer(context),
-          _buildSettingsDrawer(context),
-          _buildGameDrawer(context),
+          if (isSandbox) _buildControlsDrawer(context),
+          _buildSettingsDrawer(context, isSandbox: isSandbox),
+          _buildGameDrawer(context, isSandbox: isSandbox),
+          _buildGoalOverlay(context),
+          _buildGodActionsPanel(context),
+          _buildPerfBadge(context),
           // Selected ant panel (stays separate)
           _buildSelectedAntPanel(context),
         ],
@@ -71,46 +78,213 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
-  Widget _buildDrawerTabs(BuildContext context) {
+  Widget _buildGoalOverlay(BuildContext context) {
+    final config = widget.gameStateManager.currentConfig;
+    if (config == null) return const SizedBox.shrink();
+    final objective =
+        (config is CampaignLevelConfig) ? config.objective.description : 'Survive and thrive';
+    final levelLabel =
+        (config is CampaignLevelConfig) ? config.levelId : config.mode.displayName;
+    return Positioned(
+      top: 12,
+      left: 72, // clear left tabs
+      right: 180, // leave room for right-side buttons
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 260),
+          child: Card(
+            color: Colors.black.withValues(alpha: 0.6),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    levelLabel,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    objective,
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.75), fontSize: 12),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Food: ${widget.simulation.foodCollected.value} • Day ${widget.simulation.daysPassed.value}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPerfBadge(BuildContext context) {
+    return Positioned(
+      top: 70,
+      right: 16,
+      child: ValueListenableBuilder<PerfSample>(
+        valueListenable: widget.game.perfStats,
+        builder: (context, perf, _) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.65),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Text(
+              'FPS ${perf.fps.toStringAsFixed(0)} • upd ${perf.updateMs.toStringAsFixed(1)}ms',
+              style: const TextStyle(fontSize: 12),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildGodActionsPanel(BuildContext context) {
+    final controller = widget.gameStateManager.godActions;
+    return Positioned(
+      right: 12,
+      bottom: 16,
+      child: StreamBuilder<void>(
+        stream: controller.changes,
+        builder: (context, _) {
+          return Card(
+            color: Colors.black.withValues(alpha: 0.65),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _godActionButton(
+                    context,
+                    controller,
+                    GodActionType.digBurst,
+                    'Dig Burst',
+                    Icons.construction,
+                    () => controller.use(GodActionType.digBurst, widget.simulation),
+                  ),
+                  _godActionButton(
+                    context,
+                    controller,
+                    GodActionType.foodDrop,
+                    'Food Drop',
+                    Icons.restaurant,
+                    () => controller.use(GodActionType.foodDrop, widget.simulation),
+                  ),
+                  _godActionButton(
+                    context,
+                    controller,
+                    GodActionType.rockWall,
+                    'Rock Wall',
+                    Icons.shield,
+                    () => controller.use(GodActionType.rockWall, widget.simulation),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _godActionButton(
+    BuildContext context,
+    GodActionsController controller,
+    GodActionType type,
+    String label,
+    IconData icon,
+    Future<void> Function() onUse,
+  ) {
+    final state = controller.state(type);
+    final remaining = controller.cooldownRemaining(type);
+    final cooldownText =
+        remaining == Duration.zero ? 'Ready' : '${remaining.inSeconds}s';
+    final canUse = controller.canUse(type);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: canUse ? onUse : null,
+              icon: Icon(icon, size: 16),
+              label: Text('$label (${state.charges}/${state.maxCharges})'),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                cooldownText,
+                style: const TextStyle(fontSize: 11),
+              ),
+              TextButton(
+                onPressed: () => controller.watchAdForCharge(type),
+                child: const Text('+1 via ad', style: TextStyle(fontSize: 11)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDrawerTabs(BuildContext context, {required bool isSandbox}) {
     final colorScheme = Theme.of(context).colorScheme;
+
+    final tabs = <Widget>[
+      _DrawerTab(
+        icon: Icons.bar_chart,
+        label: 'Stats',
+        isActive: _openDrawer == 0,
+        onTap: () => _toggleDrawer(0),
+        colorScheme: colorScheme,
+      ),
+      const SizedBox(height: 8),
+      if (isSandbox) ...[
+        _DrawerTab(
+          icon: Icons.gamepad,
+          label: 'Controls',
+          isActive: _openDrawer == 1,
+          onTap: () => _toggleDrawer(1),
+          colorScheme: colorScheme,
+        ),
+        const SizedBox(height: 8),
+      ],
+      _DrawerTab(
+        icon: Icons.tune,
+        label: 'Settings',
+        isActive: _openDrawer == 2,
+        onTap: () => _toggleDrawer(2),
+        colorScheme: colorScheme,
+      ),
+      const SizedBox(height: 8),
+      _DrawerTab(
+        icon: Icons.menu,
+        label: 'Game',
+        isActive: _openDrawer == 3,
+        onTap: () => _toggleDrawer(3),
+        colorScheme: colorScheme,
+      ),
+    ];
 
     return Positioned(
       left: 0,
       top: 16,
       child: Column(
-        children: [
-          _DrawerTab(
-            icon: Icons.bar_chart,
-            label: 'Stats',
-            isActive: _openDrawer == 0,
-            onTap: () => _toggleDrawer(0),
-            colorScheme: colorScheme,
-          ),
-          const SizedBox(height: 8),
-          _DrawerTab(
-            icon: Icons.gamepad,
-            label: 'Controls',
-            isActive: _openDrawer == 1,
-            onTap: () => _toggleDrawer(1),
-            colorScheme: colorScheme,
-          ),
-          const SizedBox(height: 8),
-          _DrawerTab(
-            icon: Icons.tune,
-            label: 'Settings',
-            isActive: _openDrawer == 2,
-            onTap: () => _toggleDrawer(2),
-            colorScheme: colorScheme,
-          ),
-          const SizedBox(height: 8),
-          _DrawerTab(
-            icon: Icons.menu,
-            label: 'Game',
-            isActive: _openDrawer == 3,
-            onTap: () => _toggleDrawer(3),
-            colorScheme: colorScheme,
-          ),
-        ],
+        children: tabs,
       ),
     );
   }
@@ -199,7 +373,7 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
-  Widget _buildSettingsDrawer(BuildContext context) {
+  Widget _buildSettingsDrawer(BuildContext context, {required bool isSandbox}) {
     final theme = Theme.of(context);
     final isOpen = _openDrawer == 2;
     final width = _drawerWidth(context);
@@ -231,13 +405,15 @@ class _AntHudState extends State<AntHud> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // Ant Tuning
-                        _buildTuningControls(theme),
+                        _buildTuningControls(theme, isSandbox: isSandbox),
                         const Divider(),
-                        // World Generation
-                        _buildGenerationControls(theme),
-                        const SizedBox(height: 8),
-                        _buildGridControls(theme),
-                        const Divider(),
+                        if (isSandbox) ...[
+                          // World Generation
+                          _buildGenerationControls(theme),
+                          const SizedBox(height: 8),
+                          _buildGridControls(theme),
+                          const Divider(),
+                        ],
                         // Utilities
                         _buildFoodControls(),
                         const SizedBox(height: 12),
@@ -255,10 +431,11 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
-  Widget _buildGameDrawer(BuildContext context) {
+  Widget _buildGameDrawer(BuildContext context, {required bool isSandbox}) {
     final theme = Theme.of(context);
     final isOpen = _openDrawer == 3;
     final width = _drawerWidth(context);
+    final allowSave = widget.gameStateManager.currentConfig?.allowSave ?? false;
 
     return AnimatedPositioned(
       duration: const Duration(milliseconds: 250),
@@ -285,7 +462,7 @@ class _AntHudState extends State<AntHud> {
                         Text('Save & Load', style: theme.textTheme.titleSmall),
                         const SizedBox(height: 12),
                         FilledButton.icon(
-                          onPressed: _saving ? null : _saveWorld,
+                          onPressed: _saving || !allowSave ? null : _saveWorld,
                           icon: _saving
                               ? const SizedBox(
                                   width: 16,
@@ -295,7 +472,11 @@ class _AntHudState extends State<AntHud> {
                                   ),
                                 )
                               : const Icon(Icons.save),
-                          label: Text(_saving ? 'Saving...' : 'Save Game'),
+                          label: Text(
+                            !allowSave
+                                ? 'Saving disabled for this mode'
+                                : (_saving ? 'Saving...' : 'Save Game'),
+                          ),
                           style: FilledButton.styleFrom(
                             minimumSize: const Size(double.infinity, 48),
                           ),
@@ -383,15 +564,15 @@ class _AntHudState extends State<AntHud> {
           icon: Icons.play_circle_fill,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildPauseButton(),
-              const SizedBox(height: 12),
-              _buildSpeedControls(theme),
-              const SizedBox(height: 12),
-              _buildBehaviorControls(theme),
-            ],
+              children: [
+                _buildPauseButton(),
+                const SizedBox(height: 12),
+                _buildSpeedControls(theme),
+                const SizedBox(height: 12),
+                _buildBehaviorControls(theme, isSandbox: true),
+              ],
+            ),
           ),
-        ),
         _ControlSection(
           title: 'Editing Tools',
           icon: Icons.app_registration,
@@ -632,7 +813,7 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
-  Widget _buildBehaviorControls(ThemeData theme) {
+  Widget _buildBehaviorControls(ThemeData theme, {required bool isSandbox}) {
     final allowResting = widget.simulation.config.restEnabled;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -642,40 +823,52 @@ class _AntHudState extends State<AntHud> {
         SwitchListTile.adaptive(
           contentPadding: EdgeInsets.zero,
           title: const Text('Allow Resting'),
-          subtitle: const Text('Disable to keep ants active at all times.'),
+          subtitle: Text(
+            isSandbox
+                ? 'Disable to keep ants active at all times.'
+                : 'Locked in this mode for fairness.',
+          ),
           value: allowResting,
-          onChanged: (value) {
-            setState(() {
-              widget.simulation.setRestingEnabled(value);
-            });
-          },
+          onChanged: isSandbox
+              ? (value) {
+                  setState(() {
+                    widget.simulation.setRestingEnabled(value);
+                  });
+                }
+              : null,
         ),
       ],
     );
   }
 
-  Widget _buildTuningControls(ThemeData theme) {
+  Widget _buildTuningControls(ThemeData theme, {required bool isSandbox}) {
     final config = widget.simulation.config;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Ant Behavior Tuning', style: theme.textTheme.titleSmall),
         const SizedBox(height: 4),
-        _ConfigSlider(
-          label: 'Explorer Ants',
-          tooltip:
-              'Percentage of ants that ignore pheromones and wander randomly to discover new food sources.',
-          value: config.explorerRatio,
-          min: 0,
-          max: 0.5,
-          divisions: 50,
-          displayValue: (v) => '${(v * 100).toStringAsFixed(0)}%',
-          onChanged: (value) {
-            setState(() {
-              widget.simulation.setExplorerRatio(value);
-            });
-          },
-        ),
+        if (isSandbox)
+          _ConfigSlider(
+            label: 'Explorer Ants',
+            tooltip:
+                'Percentage of ants that ignore pheromones and wander randomly to discover new food sources.',
+            value: config.explorerRatio,
+            min: 0,
+            max: 0.5,
+            divisions: 50,
+            displayValue: (v) => '${(v * 100).toStringAsFixed(0)}%',
+            onChanged: (value) {
+              setState(() {
+                widget.simulation.setExplorerRatio(value);
+              });
+            },
+          )
+        else
+          const Text(
+            'Behavior tuning locked for this mode.',
+            style: TextStyle(fontSize: 12, color: Colors.white70),
+          ),
         _ConfigSlider(
           label: 'Random Turn Strength',
           tooltip:

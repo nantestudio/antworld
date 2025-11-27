@@ -6,15 +6,15 @@ class SimulationConfig {
     this.rows = 75,
     this.cellSize = 8,
     this.colonyCount = 2,
-    this.startingAnts = 100,
+    this.startingAnts = 80,
     this.antSpeed =
-        36, // cells per second - slower for more deliberate movement
+        30, // cells per second - slower for more deliberate movement
     this.sensorDistance = 8, // longer sensing reach
     this.sensorAngle = 0.52, // ~30° tighter cone for focused trails
     this.foodDepositStrength = 0.4, // reduced to prevent pheromone saturation
     this.homeDepositStrength = 0.35, // balanced with food deposit
     this.foodPickupRotation = math.pi,
-    this.foodPerNewAnt = 5, // slower colony growth
+    this.foodPerNewAnt = 10, // slower colony growth
     this.nestRadius = 3,
     this.decayPerFrame = 0.985,
     this.decayThreshold = 0.01,
