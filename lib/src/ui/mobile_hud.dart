@@ -10,6 +10,7 @@ import '../services/analytics_service.dart';
 import '../simulation/ant.dart';
 import '../simulation/colony_simulation.dart';
 import '../state/simulation_storage.dart';
+import 'widgets/native_ad_widget.dart';
 
 /// Mobile-optimized HUD with bottom sheet controls and floating tools
 class MobileHud extends StatefulWidget {
@@ -92,6 +93,8 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
           _buildToolPalette(context),
           // Bottom control bar
           _buildBottomBar(context),
+          // Native ad at the very bottom
+          _buildNativeAd(context),
           // Selected ant panel
           _buildSelectedAntPanel(context),
         ],
@@ -237,7 +240,7 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
 
   Widget _buildBottomBar(BuildContext context) {
     return Positioned(
-      bottom: 0,
+      bottom: 60, // Make room for native ad below
       left: 0,
       right: 0,
       child: Container(
@@ -289,6 +292,15 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildNativeAd(BuildContext context) {
+    return const Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: NativeAdWidget(),
     );
   }
 

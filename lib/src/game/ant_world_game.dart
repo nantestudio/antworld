@@ -356,14 +356,16 @@ class AntWorldGame extends FlameGame
   }
 
   /// Called during pinch/pan gesture (from Flutter GestureDetector)
-  void onPinchUpdate(double scale, Offset delta) {
-    // Pinch zoom
+  /// [scale] is the cumulative scale since gesture start
+  /// [focalDelta] is the focal point delta since the LAST frame
+  void onPinchUpdate(double scale, Offset focalDelta) {
+    // Pinch zoom - scale is cumulative since start
     final newZoom = (_scaleStartZoom * scale).clamp(0.5, 5.0);
     _zoomFactor = newZoom;
 
-    // Two-finger pan
-    _panOffset.x = _scaleStartPan.x + delta.dx;
-    _panOffset.y = _scaleStartPan.y + delta.dy;
+    // Pan - add the per-frame delta
+    _panOffset.x += focalDelta.dx;
+    _panOffset.y += focalDelta.dy;
 
     _updateViewport();
   }

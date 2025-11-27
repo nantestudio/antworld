@@ -98,38 +98,51 @@ class _AntWorldAppState extends State<AntWorldApp> {
 
     // Use MobileHud on iOS/Android, AntHud on desktop/web
     final isMobile = !kIsWeb && (Platform.isIOS || Platform.isAndroid);
-    debugPrint('Platform: iOS=${Platform.isIOS}, Android=${Platform.isAndroid}, isMobile=$isMobile');
+
+    // Build the game widget with appropriate gesture handling
+    Widget gameWidget = GameWidget(game: game, focusNode: _focusNode, autofocus: true);
+
+    if (isMobile) {
+      // Mobile: Use GestureDetector for pinch-to-zoom and two-finger pan
+      gameWidget = GestureDetector(
+        onScaleStart: (details) {
+          game.onPinchStart();
+        },
+        onScaleUpdate: (details) {
+          // Calculate pan delta from focal point movement
+          final focalDelta = details.focalPointDelta;
+          game.onPinchUpdate(details.scale, focalDelta);
+        },
+        onScaleEnd: (details) {
+          // Nothing special needed
+        },
+        child: gameWidget,
+      );
+    } else {
+      // Desktop: Use Listener for trackpad/mouse wheel
+      gameWidget = Listener(
+        onPointerSignal: (event) {
+          if (event is PointerScrollEvent) {
+            final isZoomModifier = HardwareKeyboard.instance.isControlPressed ||
+                HardwareKeyboard.instance.isMetaPressed;
+
+            if (isZoomModifier) {
+              final zoomDelta = -event.scrollDelta.dy * 0.003;
+              game.setZoom(game.zoomFactor + zoomDelta);
+            } else {
+              game.addPan(-event.scrollDelta.dx, -event.scrollDelta.dy);
+            }
+          } else if (event is PointerScaleEvent) {
+            game.setZoom(game.zoomFactor * event.scale);
+          }
+        },
+        child: gameWidget,
+      );
+    }
 
     return Stack(
       children: [
-        Listener(
-          // Handle all pointer signals (trackpad scroll/pinch on macOS)
-          onPointerSignal: (event) {
-            if (event is PointerScrollEvent) {
-              // On macOS trackpad:
-              // - Two-finger scroll = PointerScrollEvent (no modifier)
-              // - Pinch gesture = PointerScrollEvent with platform-synthesized values
-              //
-              // We use Ctrl/Cmd+scroll for zoom, regular scroll for pan
-              final isZoomModifier = HardwareKeyboard.instance.isControlPressed ||
-                  HardwareKeyboard.instance.isMetaPressed;
-
-              if (isZoomModifier) {
-                // Ctrl/Cmd + scroll = zoom
-                final zoomDelta = -event.scrollDelta.dy * 0.003;
-                game.setZoom(game.zoomFactor + zoomDelta);
-              } else {
-                // Regular scroll = pan (two-finger drag on trackpad)
-                game.addPan(-event.scrollDelta.dx, -event.scrollDelta.dy);
-              }
-            } else if (event is PointerScaleEvent) {
-              // Some platforms send dedicated scale events for pinch
-              game.setZoom(game.zoomFactor * event.scale);
-            }
-          },
-          // Let all pointer events pass through to GameWidget for brush handling
-          child: GameWidget(game: game, focusNode: _focusNode, autofocus: true),
-        ),
+        gameWidget,
         if (isMobile)
           MobileHud(
             key: ValueKey(sim),
