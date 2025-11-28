@@ -26,6 +26,7 @@ enum BuilderTask {
   buildingRoom,
   reinforcingWall,
   emergencyDefense,
+  constructingBlueprint,
   returningHome,
 }
 
@@ -123,16 +124,18 @@ class CasteStats {
       baseAggression: 0.0, // Completely defenseless
     ),
     AntCaste.builder: CasteStats(
-      speedMultiplier: 0.7, // Slower, methodical
-      baseHp: 120, // Slightly tougher than worker
-      baseAttack: 4, // Can defend itself
-      baseDefense: 5, // Better defense than worker
-      canForage: false, // Doesn't gather food
-      explorerRange: (0.0, 0.1), // Stays near colony
-      baseAggression: 0.15, // Defensive, not aggressive
+      speedMultiplier: 0.6, // Deliberate movement
+      baseHp: 70, // Frailer than workers
+      baseAttack: 1, // Poor fighters
+      baseDefense: 2,
+      canForage: false, // Construction-only caste
+      explorerRange: (0.0, 0.05), // Stays near colony
+      baseAggression: 0.05, // Avoids combat
     ),
   };
 }
+
+const int _builderDigStepMultiplier = 8;
 
 class Ant {
   static int _nextId = 1;
@@ -1516,6 +1519,7 @@ class Ant {
     double radius = 3.0,
     bool emergency = false,
     int taskId = -1,
+    List<(int, int)>? blueprintCells,
   }) {
     if (caste != AntCaste.builder) return;
     _builderTask = task;
@@ -1523,6 +1527,9 @@ class Ant {
     _builderTargetRoomType = roomType;
     _builderTargetRadius = radius;
     _builderPendingCells.clear();
+    if (blueprintCells != null && blueprintCells.isNotEmpty) {
+      _builderPendingCells.addAll(blueprintCells);
+    }
     _builderEmergencyTask = emergency;
     _activeBuilderTaskId = taskId;
     _builderTaskTimer = 0;
@@ -1700,6 +1707,8 @@ class Ant {
         case BuilderTask.emergencyDefense:
           _builderPendingCells.addAll(_generateDefenseCells(world));
           break;
+        case BuilderTask.constructingBlueprint:
+          break; // Cells were pre-seeded by the colony
         default:
           break;
       }
@@ -1709,8 +1718,11 @@ class Ant {
       return true;
     }
 
+    final maxSteps = caste == AntCaste.builder
+        ? 4 * _builderDigStepMultiplier
+        : 4;
     var steps = 0;
-    while (_builderPendingCells.isNotEmpty && steps < 4) {
+    while (_builderPendingCells.isNotEmpty && steps < maxSteps) {
       final cell = _builderPendingCells.removeLast();
       final x = cell.$1;
       final y = cell.$2;
@@ -1721,6 +1733,7 @@ class Ant {
 
       switch (_builderTask) {
         case BuilderTask.buildingRoom:
+        case BuilderTask.constructingBlueprint:
           if (world.cellTypeAt(x, y) != CellType.rock) {
             world.setCell(x, y, CellType.air);
             if (config.restEnabled) {

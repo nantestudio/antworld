@@ -58,11 +58,21 @@ class _LevelPreviewState extends State<LevelPreview> {
       );
     }
 
-    return SizedBox(
-      height: 160,
-      child: CustomPaint(
-        painter: _LevelMiniMapPainter(world),
-        child: const SizedBox.expand(),
+    final aspectRatio = world.cols / world.rows;
+    return Align(
+      alignment: Alignment.center,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 160, maxWidth: 720),
+        child: AspectRatio(
+          aspectRatio: aspectRatio,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: CustomPaint(
+              painter: _LevelMiniMapPainter(world),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -124,11 +134,7 @@ class _LevelMiniMapPainter extends CustomPainter {
       ..color = const Color(0xFFE53935)
       ..style = PaintingStyle.fill;
     for (final nest in world.nestPositions) {
-      canvas.drawCircle(
-        Offset(nest.x * scaleX, nest.y * scaleY),
-        4,
-        paint,
-      );
+      canvas.drawCircle(Offset(nest.x * scaleX, nest.y * scaleY), 4, paint);
     }
     canvas.restore();
   }

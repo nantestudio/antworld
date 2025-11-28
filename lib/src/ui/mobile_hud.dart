@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 
@@ -12,6 +13,8 @@ import '../progression/progression_service.dart';
 import '../progression/unlockables.dart';
 import '../services/analytics_service.dart';
 import '../simulation/ant.dart';
+import '../simulation/room_blueprint.dart';
+import '../simulation/world_grid.dart';
 import '../simulation/colony_simulation.dart';
 import 'widgets/native_ad_widget.dart';
 
@@ -24,6 +27,7 @@ class MobileHud extends StatefulWidget {
     required this.gameStateManager,
     this.onQuitToMenu,
     this.onGameSaved,
+    this.isWideLayout = false,
   });
 
   final ColonySimulation simulation;
@@ -31,6 +35,7 @@ class MobileHud extends StatefulWidget {
   final GameStateManager gameStateManager;
   final VoidCallback? onQuitToMenu;
   final VoidCallback? onGameSaved;
+  final bool isWideLayout;
 
   @override
   State<MobileHud> createState() => _MobileHudState();
@@ -91,6 +96,12 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final showAds = Platform.isIOS || Platform.isAndroid;
+    debugPrint(
+      'MobileHud active: platform=${defaultTargetPlatform.name} '
+      'kIsWeb=$kIsWeb size=${MediaQuery.of(context).size} '
+      'wide=${widget.isWideLayout} showAds=$showAds',
+    );
     return Positioned.fill(
       child: Stack(
         children: [
@@ -101,9 +112,9 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
           // Floating tool palette (right side)
           _buildToolPalette(context),
           // Bottom control bar
-          _buildBottomBar(context),
+          _buildBottomBar(context, showAds: showAds),
           // Native ad at the very bottom
-          _buildNativeAd(context),
+          if (showAds) _buildNativeAd(context),
           // Selected ant panel
           _buildSelectedAntPanel(context),
         ],
@@ -164,82 +175,98 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
   }
 
   Widget _buildToolPalette(BuildContext context) {
-    final canEdit = widget.gameStateManager.currentMode == GameMode.sandbox;
+    final painter = widget.simulation.blueprintManager;
     return Positioned(
       right: 12,
       top: MediaQuery.of(context).padding.top + 60,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Main tool toggle button
           _ToolFab(
             icon: _toolsExpanded ? Icons.close : Icons.edit,
             onPressed: _toggleTools,
             isPrimary: true,
           ),
-          // Expandable tools
           AnimatedSize(
             duration: const Duration(milliseconds: 200),
             child: _toolsExpanded
                 ? Column(
                     children: [
                       const SizedBox(height: 8),
-                      if (canEdit)
-                        ValueListenableBuilder<bool>(
-                          valueListenable: widget.game.editMode,
-                          builder: (context, editMode, _) {
-                            return _ToolFab(
-                              icon: editMode ? Icons.lock_open : Icons.lock,
-                              onPressed: () {
-                                _haptic();
-                                widget.game.editMode.value = !editMode;
-                              },
-                              isActive: editMode,
-                              tooltip: editMode ? 'Lock' : 'Unlock editing',
-                            );
-                          },
-                        ),
-                      if (canEdit) const SizedBox(height: 8),
-                      if (canEdit)
-                        ValueListenableBuilder<BrushMode>(
-                          valueListenable: widget.game.brushMode,
-                          builder: (context, mode, _) {
-                            return Column(
-                              children: [
-                                _ToolFab(
-                                  icon: Icons.construction,
-                                  onPressed: () {
-                                    _haptic();
-                                    widget.game.setBrushMode(BrushMode.dig);
-                                  },
-                                  isActive: mode == BrushMode.dig,
-                                  tooltip: 'Dig',
-                                ),
-                                const SizedBox(height: 8),
-                                _ToolFab(
-                                  icon: Icons.fastfood,
-                                  onPressed: () {
-                                    _haptic();
-                                    widget.game.setBrushMode(BrushMode.food);
-                                  },
-                                  isActive: mode == BrushMode.food,
-                                  tooltip: 'Food',
-                                ),
-                                const SizedBox(height: 8),
-                                _ToolFab(
-                                  icon: Icons.landscape,
-                                  onPressed: () {
-                                    _haptic();
-                                    widget.game.setBrushMode(BrushMode.rock);
-                                  },
-                                  isActive: mode == BrushMode.rock,
-                                  tooltip: 'Rock',
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-                      if (canEdit) const SizedBox(height: 8),
+                      ValueListenableBuilder<bool>(
+                        valueListenable: widget.game.editMode,
+                        builder: (context, editMode, _) {
+                          return _ToolFab(
+                            icon: editMode ? Icons.lock_open : Icons.lock,
+                            onPressed: () {
+                              _haptic();
+                              widget.game.editMode.value = !editMode;
+                            },
+                            isActive: editMode,
+                            tooltip: editMode
+                                ? 'Lock editing'
+                                : 'Unlock editing',
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      ValueListenableBuilder<BrushMode>(
+                        valueListenable: widget.game.brushMode,
+                        builder: (context, mode, _) {
+                          return Column(
+                            children: [
+                              _ToolFab(
+                                icon: Icons.construction,
+                                onPressed: () {
+                                  _haptic();
+                                  widget.game.setBrushMode(BrushMode.dig);
+                                },
+                                isActive: mode == BrushMode.dig,
+                                tooltip: 'Dig terrain',
+                              ),
+                              const SizedBox(height: 8),
+                              _ToolFab(
+                                icon: Icons.fastfood,
+                                onPressed: () {
+                                  _haptic();
+                                  widget.game.setBrushMode(BrushMode.food);
+                                },
+                                isActive: mode == BrushMode.food,
+                                tooltip: 'Drop food',
+                              ),
+                              const SizedBox(height: 8),
+                              _ToolFab(
+                                icon: Icons.landscape,
+                                onPressed: () {
+                                  _haptic();
+                                  widget.game.setBrushMode(BrushMode.rock);
+                                },
+                                isActive: mode == BrushMode.rock,
+                                tooltip: 'Place rock',
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      ValueListenableBuilder<RoomPainterState>(
+                        valueListenable: painter.painterState,
+                        builder: (context, state, _) {
+                          final painting = state.isPainting;
+                          return _ToolFab(
+                            icon: painting ? Icons.fact_check : Icons.brush,
+                            onPressed: () {
+                              _haptic();
+                              _showPainterSheet();
+                            },
+                            isActive: painting,
+                            tooltip: painting
+                                ? 'Finish current blueprint'
+                                : 'Open room painter',
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
                       _GodToolButton(
                         label: 'Dig Burst',
                         icon: Icons.flash_on,
@@ -284,10 +311,12 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
   Widget _buildGoalChip(BuildContext context) {
     final config = widget.gameStateManager.currentConfig;
     if (config == null) return const SizedBox.shrink();
-    final objective =
-        (config is CampaignLevelConfig) ? config.objective.description : 'Survive and thrive';
-    final levelLabel =
-        (config is CampaignLevelConfig) ? config.levelId : config.mode.displayName;
+    final objective = (config is CampaignLevelConfig)
+        ? config.objective.description
+        : 'Survive and thrive';
+    final levelLabel = (config is CampaignLevelConfig)
+        ? config.levelId
+        : config.mode.displayName;
     return Positioned(
       top: MediaQuery.of(context).padding.top + 36,
       left: 12,
@@ -303,7 +332,10 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(levelLabel, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text(
+                      levelLabel,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       objective,
@@ -327,6 +359,181 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
         ),
       ),
     );
+  }
+
+  void _showPainterSheet() {
+    final manager = widget.simulation.blueprintManager;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.black.withValues(alpha: 0.85),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: ValueListenableBuilder<RoomPainterState>(
+              valueListenable: manager.painterState,
+              builder: (context, state, _) {
+                final queue = manager.blueprints;
+                return SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.brush, color: Colors.orangeAccent),
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Room Painter',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Colonies now start with only a queen chamber. Paint nurseries, food storage, and barracks to unlock logistics.',
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          for (final type in [
+                            RoomType.nursery,
+                            RoomType.foodStorage,
+                            RoomType.barracks,
+                          ])
+                            ChoiceChip(
+                              label: Text(_roomTypeLabel(type)),
+                              selected:
+                                  state.roomType == type && state.isPainting,
+                              onSelected: (_) {
+                                manager.startPainting(type, 0);
+                              },
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        state.isPainting
+                            ? 'Painting ${_roomTypeLabel(state.roomType!)} • ${state.cellCount} tiles'
+                            : 'Select a room type to start painting.',
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                      if (state.errorMessage != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          state.errorMessage!,
+                          style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: state.isPainting
+                                  ? () {
+                                      final result = manager.finishPainting(
+                                        widget.simulation.world,
+                                      );
+                                      if (!result.success &&
+                                          result.error != null) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(result.error!),
+                                          ),
+                                        );
+                                      } else if (result.blueprint != null) {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              '${_roomTypeLabel(result.blueprint!.type)} queued for digging.',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  : null,
+                              child: const Text('Finish Blueprint'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: state.isPainting
+                                  ? manager.cancelPainting
+                                  : null,
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      if (queue.isEmpty)
+                        const Text(
+                          'No queued rooms yet.',
+                          style: TextStyle(color: Colors.white70),
+                        )
+                      else
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: queue.map((bp) {
+                            final percent =
+                                (bp.buildProgress(widget.simulation.world) *
+                                        100)
+                                    .clamp(0, 100);
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                '${_roomTypeLabel(bp.type)} – ${bp.status.name}',
+                              ),
+                              subtitle: LinearProgressIndicator(
+                                value: percent / 100,
+                                minHeight: 4,
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.close),
+                                onPressed: () =>
+                                    widget.simulation.cancelBlueprint(bp.id),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _roomTypeLabel(RoomType type) {
+    switch (type) {
+      case RoomType.home:
+        return 'Hatchery';
+      case RoomType.nursery:
+        return 'Nursery';
+      case RoomType.foodStorage:
+        return 'Food';
+      case RoomType.barracks:
+        return 'Barracks';
+    }
   }
 
   Widget _buildPerfBadge(BuildContext context) {
@@ -353,54 +560,63 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildBottomBar(BuildContext context) {
+  Widget _buildBottomBar(BuildContext context, {required bool showAds}) {
+    final maxWidth = widget.isWideLayout ? 560.0 : double.infinity;
+    final bottomOffset = showAds ? 60.0 : 12.0;
     return Positioned(
-      bottom: 60, // Make room for native ad below
+      bottom: bottomOffset,
       left: 0,
       right: 0,
-      child: Container(
-        decoration: const BoxDecoration(color: Colors.black87),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                // Pause/Play
-                ValueListenableBuilder<bool>(
-                  valueListenable: widget.simulation.paused,
-                  builder: (context, isPaused, _) {
-                    return _BottomBarButton(
-                      icon: isPaused ? Icons.play_arrow : Icons.pause,
-                      label: isPaused ? 'Play' : 'Pause',
-                      onPressed: () {
-                        _haptic(HapticFeedbackType.mediumImpact);
-                        widget.simulation.togglePause();
+      child: Align(
+        alignment: Alignment.center,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: Container(
+            decoration: const BoxDecoration(color: Colors.black87),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    ValueListenableBuilder<bool>(
+                      valueListenable: widget.simulation.paused,
+                      builder: (context, isPaused, _) {
+                        return _BottomBarButton(
+                          icon: isPaused ? Icons.play_arrow : Icons.pause,
+                          label: isPaused ? 'Play' : 'Pause',
+                          onPressed: () {
+                            _haptic(HapticFeedbackType.mediumImpact);
+                            widget.simulation.togglePause();
+                          },
+                          color: isPaused ? Colors.green : Colors.orange,
+                        );
                       },
-                      color: isPaused ? Colors.green : Colors.orange,
-                    );
-                  },
+                    ),
+                    _BottomBarButton(
+                      icon: Icons.speed,
+                      label: 'Speed',
+                      onPressed: () => _showSpeedSheet(context),
+                    ),
+                    _BottomBarButton(
+                      icon: Icons.bar_chart,
+                      label: 'Stats',
+                      onPressed: () => _showStatsSheet(context),
+                    ),
+                    _BottomBarButton(
+                      icon: Icons.tune,
+                      label: 'Settings',
+                      onPressed: () => _showSettingsSheet(context),
+                    ),
+                  ],
                 ),
-                // Speed control
-                _BottomBarButton(
-                  icon: Icons.speed,
-                  label: 'Speed',
-                  onPressed: () => _showSpeedSheet(context),
-                ),
-                // Stats
-                _BottomBarButton(
-                  icon: Icons.bar_chart,
-                  label: 'Stats',
-                  onPressed: () => _showStatsSheet(context),
-                ),
-                // Settings
-                _BottomBarButton(
-                  icon: Icons.tune,
-                  label: 'Settings',
-                  onPressed: () => _showSettingsSheet(context),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -836,7 +1052,9 @@ class _GodToolButton extends StatelessWidget {
     final state = controller.state(type);
     final remaining = controller.cooldownRemaining(type);
     final ready = controller.canUse(type);
-    final cooldownText = remaining == Duration.zero ? 'Ready' : '${remaining.inSeconds}s';
+    final cooldownText = remaining == Duration.zero
+        ? 'Ready'
+        : '${remaining.inSeconds}s';
     return Column(
       children: [
         _ToolFab(

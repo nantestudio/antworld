@@ -51,10 +51,11 @@ class WorldGenerator {
     final rng = math.Random(effectiveSeed);
     final actualCols = layout?.cols ?? cols ?? defaultCols;
     final actualRows = layout?.rows ?? rows ?? defaultRows;
-    final actualColonyCount = (layout?.colonyCount ?? colonyCount ?? baseConfig.colonyCount).clamp(
-      1,
-      4,
-    );
+    final actualColonyCount =
+        (layout?.colonyCount ?? colonyCount ?? baseConfig.colonyCount).clamp(
+          1,
+          4,
+        );
     final config = baseConfig.copyWith(
       cols: actualCols,
       rows: actualRows,
@@ -249,7 +250,9 @@ class WorldGenerator {
   }) {
     // Minimal caverns - small pockets for ants to discover
     final base = countOverride ?? 0;
-    final cavernCount = base > 0 ? base : rng.nextInt(8) + 5; // Only 5-12 small caverns
+    final cavernCount = base > 0
+        ? base
+        : rng.nextInt(8) + 5; // Only 5-12 small caverns
     for (var i = 0; i < cavernCount; i++) {
       final pos = _randomPoint(rng, cols, rows);
       final radius = rng.nextInt(2) + 1; // Small radius 1-2
@@ -640,10 +643,7 @@ class WorldGenerator {
     }
   }
 
-  void _applyAnchors(
-    WorldGrid grid,
-    LevelLayout? layout,
-  ) {
+  void _applyAnchors(WorldGrid grid, LevelLayout? layout) {
     if (layout == null || layout.anchors.isEmpty) return;
     const margin = 2;
     for (final anchor in layout.anchors) {
@@ -689,7 +689,8 @@ class WorldGenerator {
     // 2 colonies: bottom-left, top-right (diagonal)
     // 3 colonies: bottom-left, top-right, top-left
     // 4 colonies: all four corners
-    final cornerPositions = overrides ??
+    final cornerPositions =
+        overrides ??
         [
           Vector2(
             (safeMargin + rng.nextInt(20)).toDouble(),
@@ -724,7 +725,7 @@ class WorldGenerator {
     return nestPositions;
   }
 
-  /// Create home, nursery, and food storage rooms for a colony
+  /// Create the initial home chamber for a colony.
   void _createColonyRooms(
     WorldGrid grid,
     Vector2 nestCenter,
@@ -732,11 +733,6 @@ class WorldGenerator {
     math.Random rng,
   ) {
     const homeRadius = 4.0;
-    const nurseryRadius = 3.0;
-    const foodStorageRadius = 3.5;
-    const barracksRadius = 3.5;
-    const roomGap = 2.0; // Gap between rooms
-    const margin = 8.0;
 
     // Create home room at nest center
     final homeRoom = Room(
@@ -746,96 +742,6 @@ class WorldGenerator {
       colonyId: colonyId,
     );
     grid.addRoom(homeRoom);
-
-    // Calculate nursery position - offset from home in random direction
-    final nurseryAngle = rng.nextDouble() * 2 * math.pi;
-    final nurseryDistance = homeRadius + roomGap + nurseryRadius;
-    var nurseryCenter = Vector2(
-      nestCenter.x + math.cos(nurseryAngle) * nurseryDistance,
-      nestCenter.y + math.sin(nurseryAngle) * nurseryDistance,
-    );
-    nurseryCenter.x = nurseryCenter.x.clamp(margin, grid.cols - margin);
-    nurseryCenter.y = nurseryCenter.y.clamp(margin, grid.rows - margin);
-
-    // Create nursery room
-    final nurseryRoom = Room(
-      type: RoomType.nursery,
-      center: nurseryCenter,
-      radius: nurseryRadius,
-      colonyId: colonyId,
-    );
-    grid.addRoom(nurseryRoom);
-
-    // Calculate food storage position - opposite side from nursery
-    final foodAngle = nurseryAngle + math.pi; // Opposite direction
-    final foodDistance = homeRadius + roomGap + foodStorageRadius;
-    var foodCenter = Vector2(
-      nestCenter.x + math.cos(foodAngle) * foodDistance,
-      nestCenter.y + math.sin(foodAngle) * foodDistance,
-    );
-    foodCenter.x = foodCenter.x.clamp(margin, grid.cols - margin);
-    foodCenter.y = foodCenter.y.clamp(margin, grid.rows - margin);
-
-    // Create food storage room
-    final foodRoom = Room(
-      type: RoomType.foodStorage,
-      center: foodCenter,
-      radius: foodStorageRadius,
-      colonyId: colonyId,
-    );
-    grid.addRoom(foodRoom);
-
-    // Calculate barracks position - perpendicular to nursery/food axis
-    final barracksAngle =
-        nurseryAngle + math.pi * 0.5; // 90 degrees from nursery
-    final barracksDistance = homeRadius + roomGap + barracksRadius;
-    var barracksCenter = Vector2(
-      nestCenter.x + math.cos(barracksAngle) * barracksDistance,
-      nestCenter.y + math.sin(barracksAngle) * barracksDistance,
-    );
-    barracksCenter.x = barracksCenter.x.clamp(margin, grid.cols - margin);
-    barracksCenter.y = barracksCenter.y.clamp(margin, grid.rows - margin);
-
-    // Create barracks room for workers/soldiers to rest
-    final barracksRoom = Room(
-      type: RoomType.barracks,
-      center: barracksCenter,
-      radius: barracksRadius,
-      colonyId: colonyId,
-    );
-    grid.addRoom(barracksRoom);
-
-    // Dig connecting tunnels between rooms
-    _digTunnel(grid, homeRoom.center, nurseryRoom.center);
-    _digTunnel(grid, homeRoom.center, foodRoom.center);
-    _digTunnel(grid, homeRoom.center, barracksRoom.center);
-  }
-
-  /// Dig a tunnel connecting two points
-  void _digTunnel(WorldGrid grid, Vector2 from, Vector2 to) {
-    final dx = to.x - from.x;
-    final dy = to.y - from.y;
-    final dist = math.sqrt(dx * dx + dy * dy);
-    final steps = (dist * 2).ceil();
-
-    for (var i = 0; i <= steps; i++) {
-      final t = i / steps;
-      final x = (from.x + dx * t).floor();
-      final y = (from.y + dy * t).floor();
-
-      // Dig a 2-cell wide tunnel
-      for (var ox = -1; ox <= 1; ox++) {
-        for (var oy = -1; oy <= 1; oy++) {
-          if (grid.isInsideIndex(x + ox, y + oy)) {
-            final idx = grid.index(x + ox, y + oy);
-            if (grid.cells[idx] != CellType.air.index) {
-              grid.cells[idx] = CellType.air.index;
-              grid.zones[idx] = NestZone.general.index;
-            }
-          }
-        }
-      }
-    }
   }
 
   /// Ensures a solid dirt border around the entire map edges

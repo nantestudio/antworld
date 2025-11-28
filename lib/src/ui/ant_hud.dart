@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/game_state_manager.dart';
@@ -11,6 +12,8 @@ import '../services/analytics_service.dart';
 import '../simulation/ant.dart';
 import '../simulation/colony_simulation.dart';
 import '../simulation/world_generator.dart';
+import '../simulation/world_grid.dart';
+import '../simulation/room_blueprint.dart';
 
 class AntHud extends StatefulWidget {
   const AntHud({
@@ -58,14 +61,18 @@ class _AntHudState extends State<AntHud> {
   @override
   Widget build(BuildContext context) {
     final isSandbox = widget.gameStateManager.currentMode == GameMode.sandbox;
+    debugPrint(
+      'AntHud active: platform=${defaultTargetPlatform.name} '
+      'kIsWeb=$kIsWeb size=${MediaQuery.of(context).size}',
+    );
     return Positioned.fill(
       child: Stack(
         children: [
           // Left-side drawer tabs
-          _buildDrawerTabs(context, isSandbox: isSandbox),
+          _buildDrawerTabs(context),
           // Drawer panels
           _buildStatsDrawer(context),
-          if (isSandbox) _buildControlsDrawer(context),
+          _buildControlsDrawer(context, isSandbox: isSandbox),
           _buildSettingsDrawer(context, isSandbox: isSandbox),
           _buildGameDrawer(context, isSandbox: isSandbox),
           _buildGoalOverlay(context),
@@ -81,10 +88,12 @@ class _AntHudState extends State<AntHud> {
   Widget _buildGoalOverlay(BuildContext context) {
     final config = widget.gameStateManager.currentConfig;
     if (config == null) return const SizedBox.shrink();
-    final objective =
-        (config is CampaignLevelConfig) ? config.objective.description : 'Survive and thrive';
-    final levelLabel =
-        (config is CampaignLevelConfig) ? config.levelId : config.mode.displayName;
+    final objective = (config is CampaignLevelConfig)
+        ? config.objective.description
+        : 'Survive and thrive';
+    final levelLabel = (config is CampaignLevelConfig)
+        ? config.levelId
+        : config.mode.displayName;
     return Positioned(
       top: 12,
       left: 72, // clear left tabs
@@ -108,7 +117,10 @@ class _AntHudState extends State<AntHud> {
                   const SizedBox(height: 4),
                   Text(
                     objective,
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.75), fontSize: 12),
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.75),
+                      fontSize: 12,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -171,7 +183,10 @@ class _AntHudState extends State<AntHud> {
                     GodActionType.digBurst,
                     'Dig Burst',
                     Icons.construction,
-                    () => controller.use(GodActionType.digBurst, widget.simulation),
+                    () => controller.use(
+                      GodActionType.digBurst,
+                      widget.simulation,
+                    ),
                   ),
                   _godActionButton(
                     context,
@@ -179,7 +194,10 @@ class _AntHudState extends State<AntHud> {
                     GodActionType.foodDrop,
                     'Food Drop',
                     Icons.restaurant,
-                    () => controller.use(GodActionType.foodDrop, widget.simulation),
+                    () => controller.use(
+                      GodActionType.foodDrop,
+                      widget.simulation,
+                    ),
                   ),
                   _godActionButton(
                     context,
@@ -187,7 +205,10 @@ class _AntHudState extends State<AntHud> {
                     GodActionType.rockWall,
                     'Rock Wall',
                     Icons.shield,
-                    () => controller.use(GodActionType.rockWall, widget.simulation),
+                    () => controller.use(
+                      GodActionType.rockWall,
+                      widget.simulation,
+                    ),
                   ),
                 ],
               ),
@@ -208,14 +229,18 @@ class _AntHudState extends State<AntHud> {
   ) {
     final state = controller.state(type);
     final remaining = controller.cooldownRemaining(type);
-    final cooldownText =
-        remaining == Duration.zero ? 'Ready' : '${remaining.inSeconds}s';
+    final cooldownText = remaining == Duration.zero
+        ? 'Ready'
+        : '${remaining.inSeconds}s';
     final canUse = controller.canUse(type);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
+      child: Flex(
+        direction: Axis.horizontal,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
+          Flexible(
+            fit: FlexFit.loose,
             child: ElevatedButton.icon(
               onPressed: canUse ? onUse : null,
               icon: Icon(icon, size: 16),
@@ -224,12 +249,10 @@ class _AntHudState extends State<AntHud> {
           ),
           const SizedBox(width: 8),
           Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                cooldownText,
-                style: const TextStyle(fontSize: 11),
-              ),
+              Text(cooldownText, style: const TextStyle(fontSize: 11)),
               TextButton(
                 onPressed: () => controller.watchAdForCharge(type),
                 child: const Text('+1 via ad', style: TextStyle(fontSize: 11)),
@@ -241,7 +264,7 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
-  Widget _buildDrawerTabs(BuildContext context, {required bool isSandbox}) {
+  Widget _buildDrawerTabs(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
     final tabs = <Widget>[
@@ -253,16 +276,14 @@ class _AntHudState extends State<AntHud> {
         colorScheme: colorScheme,
       ),
       const SizedBox(height: 8),
-      if (isSandbox) ...[
-        _DrawerTab(
-          icon: Icons.gamepad,
-          label: 'Controls',
-          isActive: _openDrawer == 1,
-          onTap: () => _toggleDrawer(1),
-          colorScheme: colorScheme,
-        ),
-        const SizedBox(height: 8),
-      ],
+      _DrawerTab(
+        icon: Icons.gamepad,
+        label: 'Controls',
+        isActive: _openDrawer == 1,
+        onTap: () => _toggleDrawer(1),
+        colorScheme: colorScheme,
+      ),
+      const SizedBox(height: 8),
       _DrawerTab(
         icon: Icons.tune,
         label: 'Settings',
@@ -280,13 +301,7 @@ class _AntHudState extends State<AntHud> {
       ),
     ];
 
-    return Positioned(
-      left: 0,
-      top: 16,
-      child: Column(
-        children: tabs,
-      ),
-    );
+    return Positioned(left: 0, top: 16, child: Column(children: tabs));
   }
 
   double _drawerWidth(BuildContext context) {
@@ -334,7 +349,7 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
-  Widget _buildControlsDrawer(BuildContext context) {
+  Widget _buildControlsDrawer(BuildContext context, {required bool isSandbox}) {
     final theme = Theme.of(context);
     final isOpen = _openDrawer == 1;
     final width = _drawerWidth(context);
@@ -362,7 +377,7 @@ class _AntHudState extends State<AntHud> {
                 const Divider(),
                 Expanded(
                   child: SingleChildScrollView(
-                    child: _buildControlsContent(theme),
+                    child: _buildControlsContent(theme, isSandbox),
                   ),
                 ),
               ],
@@ -555,7 +570,7 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
-  Widget _buildControlsContent(ThemeData theme) {
+  Widget _buildControlsContent(ThemeData theme, bool isSandbox) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -564,19 +579,24 @@ class _AntHudState extends State<AntHud> {
           icon: Icons.play_circle_fill,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildPauseButton(),
-                const SizedBox(height: 12),
-                _buildSpeedControls(theme),
-                const SizedBox(height: 12),
-                _buildBehaviorControls(theme, isSandbox: true),
-              ],
-            ),
+            children: [
+              _buildPauseButton(),
+              const SizedBox(height: 12),
+              _buildSpeedControls(theme),
+              const SizedBox(height: 12),
+              _buildBehaviorControls(theme, isSandbox: isSandbox),
+            ],
           ),
+        ),
         _ControlSection(
           title: 'Editing Tools',
           icon: Icons.app_registration,
           child: _buildEditTools(theme),
+        ),
+        _ControlSection(
+          title: 'Room Painter',
+          icon: Icons.brush,
+          child: _buildRoomPainterControls(theme),
         ),
         _ControlSection(
           title: 'Camera & View',
@@ -1298,6 +1318,223 @@ class _AntHudState extends State<AntHud> {
     );
   }
 
+  Widget _buildRoomPainterControls(ThemeData theme) {
+    final manager = widget.simulation.blueprintManager;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Select Room Type', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _PainterButton(
+              label: 'Nursery',
+              icon: Icons.baby_changing_station,
+              onPressed: () => manager.startPainting(RoomType.nursery, 0),
+            ),
+            _PainterButton(
+              label: 'Food Storage',
+              icon: Icons.restaurant,
+              onPressed: () => manager.startPainting(RoomType.foodStorage, 0),
+            ),
+            _PainterButton(
+              label: 'Barracks',
+              icon: Icons.shield,
+              onPressed: () => manager.startPainting(RoomType.barracks, 0),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Drag on dirt to paint the outline. Builders will carve a tunnel and room matching the painted footprint.',
+          style: TextStyle(fontSize: 12),
+        ),
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.orange.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.info, color: Colors.orangeAccent, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Colonies now begin with only a queen chamber. Plan nurseries, food storage, and barracks yourself.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        ValueListenableBuilder<RoomPainterState>(
+          valueListenable: manager.painterState,
+          builder: (context, state, _) {
+            final isPainting = state.isPainting;
+            final roomLabel = state.roomType != null
+                ? _roomTypeLabel(state.roomType!)
+                : 'No room selected';
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isPainting
+                      ? 'Painting $roomLabel'
+                      : 'Tap a room type to begin painting.',
+                ),
+                Text('Selected tiles: ${state.cellCount}'),
+                if (state.errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      state.errorMessage!,
+                      style: TextStyle(
+                        color: theme.colorScheme.error,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    FilledButton.icon(
+                      onPressed: isPainting ? _finishBlueprintPainting : null,
+                      icon: const Icon(Icons.check),
+                      label: const Text('Finish Blueprint'),
+                    ),
+                    const SizedBox(width: 12),
+                    OutlinedButton(
+                      onPressed: isPainting ? manager.cancelPainting : null,
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+        const Divider(height: 24),
+        ValueListenableBuilder<int>(
+          valueListenable: manager.revision,
+          builder: (context, value, child) {
+            return _buildBlueprintQueue(theme);
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBlueprintQueue(ThemeData theme) {
+    final queue = widget.simulation.blueprintManager.blueprints;
+    if (queue.isEmpty) {
+      return const Text('No queued blueprints yet.');
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Queued Blueprints', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        ...queue.map((blueprint) => _buildBlueprintTile(theme, blueprint)),
+      ],
+    );
+  }
+
+  Widget _buildBlueprintTile(ThemeData theme, RoomBlueprint blueprint) {
+    final progress = blueprint
+        .buildProgress(widget.simulation.world)
+        .clamp(0.0, 1.0);
+    final percent = (progress * 100).toStringAsFixed(0);
+    return Card(
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        dense: true,
+        leading: CircleAvatar(
+          radius: 14,
+          backgroundColor: theme.colorScheme.primary,
+          child: Text('$percent%', style: const TextStyle(fontSize: 10)),
+        ),
+        title: Text(
+          '${_roomTypeLabel(blueprint.type)} • ${_blueprintStatusText(blueprint.status)}',
+          style: theme.textTheme.bodyMedium,
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: LinearProgressIndicator(value: progress, minHeight: 6),
+        ),
+        trailing: IconButton(
+          tooltip: 'Cancel blueprint',
+          icon: const Icon(Icons.close),
+          onPressed: () => widget.simulation.cancelBlueprint(blueprint.id),
+        ),
+      ),
+    );
+  }
+
+  void _finishBlueprintPainting() {
+    final result = widget.simulation.blueprintManager.finishPainting(
+      widget.simulation.world,
+    );
+    final messenger = ScaffoldMessenger.of(context);
+    if (!result.success) {
+      if (result.error != null) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(result.error!),
+            backgroundColor: Theme.of(context).colorScheme.errorContainer,
+          ),
+        );
+      }
+      return;
+    }
+    final blueprint = result.blueprint;
+    if (blueprint != null) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${_roomTypeLabel(blueprint.type)} blueprint queued. Builders are on the way.',
+          ),
+        ),
+      );
+    }
+  }
+
+  String _roomTypeLabel(RoomType type) {
+    switch (type) {
+      case RoomType.home:
+        return 'Hatchery';
+      case RoomType.nursery:
+        return 'Nursery';
+      case RoomType.foodStorage:
+        return 'Food Storage';
+      case RoomType.barracks:
+        return 'Barracks';
+    }
+  }
+
+  String _blueprintStatusText(RoomBlueprintStatus status) {
+    switch (status) {
+      case RoomBlueprintStatus.pending:
+        return 'pending';
+      case RoomBlueprintStatus.queued:
+        return 'queued';
+      case RoomBlueprintStatus.digging:
+        return 'digging';
+      case RoomBlueprintStatus.complete:
+        return 'complete';
+      case RoomBlueprintStatus.cancelled:
+        return 'cancelled';
+      case RoomBlueprintStatus.rejected:
+        return 'rejected';
+    }
+  }
+
   Widget _buildOverlayControls(ThemeData theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1468,6 +1705,27 @@ class _PopulationButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return OutlinedButton(onPressed: onPressed, child: Text(label));
+  }
+}
+
+class _PainterButton extends StatelessWidget {
+  const _PainterButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      label: Text(label),
+    );
   }
 }
 

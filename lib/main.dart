@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flame/game.dart';
@@ -23,7 +24,6 @@ import 'src/services/idle_progress_service.dart';
 import 'src/simulation/colony_simulation.dart';
 import 'src/simulation/simulation_config.dart';
 import 'src/ui/ant_gallery_page.dart';
-import 'src/ui/ant_hud.dart';
 import 'src/ui/mobile_hud.dart';
 import 'src/ui/widgets/banner_ad_widget.dart';
 import 'src/ui/widgets/level_preview.dart';
@@ -48,8 +48,7 @@ class AntWorldApp extends StatefulWidget {
 
 enum _AppScreen { menu, playing, antGallery, settings }
 
-class _AntWorldAppState extends State<AntWorldApp>
-    with WidgetsBindingObserver {
+class _AntWorldAppState extends State<AntWorldApp> with WidgetsBindingObserver {
   ColonySimulation? _simulation;
   AntWorldGame? _game;
   late final FocusNode _focusNode;
@@ -141,9 +140,11 @@ class _AntWorldAppState extends State<AntWorldApp>
   Widget _buildGameView() {
     final sim = _simulation!;
     final game = _game!;
-
-    // Use MobileHud on iOS/Android, AntHud on desktop/web
-    final isMobile = !kIsWeb && (Platform.isIOS || Platform.isAndroid);
+    final isTouchPlatform = !kIsWeb && (Platform.isIOS || Platform.isAndroid);
+    final shortestSide = _logicalShortestSide();
+    final isTabletLayout = shortestSide >= 700;
+    final useMobileHud = true;
+    final isWideHud = !isTouchPlatform || isTabletLayout;
 
     // Build the game widget with appropriate gesture handling
     Widget gameWidget = GameWidget(
@@ -152,23 +153,23 @@ class _AntWorldAppState extends State<AntWorldApp>
       autofocus: true,
     );
 
-    if (isMobile) {
-      // Mobile: Use GestureDetector for pinch-to-zoom and two-finger pan
-      gameWidget = GestureDetector(
-        onScaleStart: (details) {
-          game.onPinchStart();
-        },
-        onScaleUpdate: (details) {
-          // Calculate pan delta from focal point movement
-          final focalDelta = details.focalPointDelta;
-          game.onPinchUpdate(details.scale, focalDelta);
-        },
-        onScaleEnd: (details) {
-          // Nothing special needed
-        },
-        child: gameWidget,
-      );
-    } else {
+    gameWidget = GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      supportedDevices: const {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+      },
+      onScaleStart: (_) {
+        game.onPinchStart();
+      },
+      onScaleUpdate: (details) {
+        game.onPinchUpdate(details.scale, details.focalPointDelta);
+      },
+      child: gameWidget,
+    );
+
+    if (!isTouchPlatform || isTabletLayout) {
       // Desktop: Use Listener for trackpad/mouse wheel
       gameWidget = Listener(
         onPointerSignal: (event) {
@@ -194,7 +195,7 @@ class _AntWorldAppState extends State<AntWorldApp>
     return Stack(
       children: [
         gameWidget,
-        if (isMobile)
+        if (useMobileHud)
           MobileHud(
             key: ValueKey(sim),
             simulation: sim,
@@ -202,18 +203,17 @@ class _AntWorldAppState extends State<AntWorldApp>
             gameStateManager: _gameStateManager,
             onQuitToMenu: () => _quitToMenu(),
             onGameSaved: _refreshSandboxSaveState,
-          )
-        else
-          AntHud(
-            key: ValueKey(sim),
-            simulation: sim,
-            game: game,
-            gameStateManager: _gameStateManager,
-            onQuitToMenu: () => _quitToMenu(),
-            onGameSaved: _refreshSandboxSaveState,
+            isWideLayout: isWideHud,
           ),
       ],
     );
+  }
+
+  double _logicalShortestSide() {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final logicalWidth = view.physicalSize.width / view.devicePixelRatio;
+    final logicalHeight = view.physicalSize.height / view.devicePixelRatio;
+    return math.min(logicalWidth, logicalHeight);
   }
 
   Widget _buildMenu() {
@@ -234,30 +234,35 @@ class _AntWorldAppState extends State<AntWorldApp>
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _buildHeroHeader(progression),
-                  const SizedBox(height: 12),
-                  _buildCampaignSelector(),
-                  const SizedBox(height: 20),
-                  _buildPrimaryActions(),
-                  if (_menuError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _menuError!,
-                      style: const TextStyle(color: Colors.redAccent),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  _buildIdleRewardCard(pendingIdle, idle),
-                  const SizedBox(height: 12),
-                  _buildGoalsCard(DailyGoalService.instance),
-                  const SizedBox(height: 16),
-                  _buildMenuLinks(),
-                  const SizedBox(height: 12),
-                  _buildNextUnlockHint(progression),
-                ],
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 960),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildHeroHeader(progression),
+                      const SizedBox(height: 12),
+                      _buildCampaignSelector(),
+                      const SizedBox(height: 20),
+                      _buildPrimaryActions(),
+                      if (_menuError != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _menuError!,
+                          style: const TextStyle(color: Colors.redAccent),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      _buildIdleRewardCard(pendingIdle, idle),
+                      const SizedBox(height: 12),
+                      _buildGoalsCard(DailyGoalService.instance),
+                      const SizedBox(height: 16),
+                      _buildMenuLinks(),
+                      const SizedBox(height: 12),
+                      _buildNextUnlockHint(progression),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -303,17 +308,12 @@ class _AntWorldAppState extends State<AntWorldApp>
         children: [
           const Text(
             'AntWorld',
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
           Text(
             'Mesmerizing colonies. Build, observe, relax.',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.8),
-            ),
+            style: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
           ),
           const SizedBox(height: 8),
           Row(
@@ -329,9 +329,7 @@ class _AntWorldAppState extends State<AntWorldApp>
                 child: LinearProgressIndicator(
                   value: progression.levelProgress,
                   backgroundColor: Colors.white24,
-                  valueColor: const AlwaysStoppedAnimation(
-                    Colors.amber,
-                  ),
+                  valueColor: const AlwaysStoppedAnimation(Colors.amber),
                 ),
               ),
             ],
@@ -363,34 +361,53 @@ class _AntWorldAppState extends State<AntWorldApp>
 
   Widget _buildPrimaryActions() {
     final canContinue = _hasSandboxSave;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        FilledButton(
-          onPressed: _loading ? null : _startCampaign,
-          child: _loading
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Start Campaign'),
+    return Align(
+      alignment: Alignment.center,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: 52,
+              child: FilledButton(
+                onPressed: _loading ? null : _startCampaign,
+                child: _loading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Start Campaign'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 48,
+              child: FilledButton.tonal(
+                onPressed: _loading ? null : _startSandbox,
+                child: const Text('Launch Sandbox'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 48,
+              child: OutlinedButton(
+                onPressed: _loading || !canContinue ? null : _continueGame,
+                child: const Text('Continue Last Colony'),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 10),
-        OutlinedButton(
-          onPressed: _loading || !canContinue ? null : _continueGame,
-          child: const Text('Continue Last Colony'),
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _buildIdleRewardCard(
-    IdleReward? reward,
-    IdleProgressService idle,
-  ) {
+  Widget _buildIdleRewardCard(IdleReward? reward, IdleProgressService idle) {
     final hasReward = reward != null;
-    final awayLabel = reward != null ? _formatDuration(reward.awayDuration) : null;
+    final awayLabel = reward != null
+        ? _formatDuration(reward.awayDuration)
+        : null;
     final pendingFood = reward?.food ?? 0;
     final pendingXp = reward?.xp ?? 0;
     final banked = idle.bankedFood;
@@ -435,16 +452,8 @@ class _AntWorldAppState extends State<AntWorldApp>
                 label: 'Food ready',
                 value: '+$pendingFood',
               ),
-              _statPill(
-                icon: Icons.explore,
-                label: 'Banked',
-                value: '$banked',
-              ),
-              _statPill(
-                icon: Icons.bolt,
-                label: 'XP',
-                value: '+$pendingXp',
-              ),
+              _statPill(icon: Icons.explore, label: 'Banked', value: '$banked'),
+              _statPill(icon: Icons.bolt, label: 'XP', value: '+$pendingXp'),
               _statPill(
                 icon: Icons.grain,
                 label: 'Total drop',
@@ -459,8 +468,9 @@ class _AntWorldAppState extends State<AntWorldApp>
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               FilledButton.tonal(
-                onPressed:
-                    (!_claimingIdle && hasReward) ? _claimIdleReward : null,
+                onPressed: (!_claimingIdle && hasReward)
+                    ? _claimIdleReward
+                    : null,
                 child: _claimingIdle
                     ? const SizedBox(
                         width: 18,
@@ -490,7 +500,9 @@ class _AntWorldAppState extends State<AntWorldApp>
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.lightBlueAccent.withValues(alpha: 0.2)),
+        border: Border.all(
+          color: Colors.lightBlueAccent.withValues(alpha: 0.2),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -571,9 +583,7 @@ class _AntWorldAppState extends State<AntWorldApp>
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: done ? Colors.greenAccent : Colors.white12,
-        ),
+        border: Border.all(color: done ? Colors.greenAccent : Colors.white12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -589,8 +599,7 @@ class _AntWorldAppState extends State<AntWorldApp>
               ),
               const SizedBox(width: 6),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.orangeAccent.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
@@ -670,11 +679,7 @@ class _AntWorldAppState extends State<AntWorldApp>
             runSpacing: 8,
             children: service.palettes
                 .map(
-                  (palette) => _buildPaletteChip(
-                    palette,
-                    progression,
-                    service,
-                  ),
+                  (palette) => _buildPaletteChip(palette, progression, service),
                 )
                 .toList(),
           ),
@@ -724,8 +729,9 @@ class _AntWorldAppState extends State<AntWorldApp>
                   palette.name,
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    color:
-                        unlocked ? Colors.white : Colors.white.withValues(alpha: 0.5),
+                    color: unlocked
+                        ? Colors.white
+                        : Colors.white.withValues(alpha: 0.5),
                   ),
                 ),
                 if (palette.description.isNotEmpty)
@@ -739,10 +745,7 @@ class _AntWorldAppState extends State<AntWorldApp>
                 if (!unlocked && palette.requiredLevel != null)
                   Text(
                     'Unlock at level ${palette.requiredLevel}',
-                    style: const TextStyle(
-                      color: Colors.amber,
-                      fontSize: 11,
-                    ),
+                    style: const TextStyle(color: Colors.amber, fontSize: 11),
                   ),
               ],
             ),
@@ -794,10 +797,7 @@ class _AntWorldAppState extends State<AntWorldApp>
             ),
           ),
           const SizedBox(width: 6),
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
         ],
       ),
     );
@@ -907,10 +907,7 @@ class _AntWorldAppState extends State<AntWorldApp>
         ],
         const SizedBox(height: 8),
         if (layout != null)
-          LevelPreview(
-            key: ValueKey(layout.id),
-            layout: layout,
-          ),
+          LevelPreview(key: ValueKey(layout.id), layout: layout),
       ],
     );
   }
@@ -923,13 +920,19 @@ class _AntWorldAppState extends State<AntWorldApp>
     await _beginGame(_tutorialConfig());
   }
 
+  Future<void> _startSandbox() async {
+    await _beginGame(const SandboxModeConfig());
+  }
+
   ModeConfig _campaignConfig() {
     final layout = campaignLayoutById(_selectedCampaignId);
     final baseConfig = defaultSimulationConfig.copyWith(
       colonyCount: layout?.colonyCount ?? 1,
       cols: layout?.cols ?? defaultSimulationConfig.cols,
       rows: layout?.rows ?? defaultSimulationConfig.rows,
-      startingAnts: _selectedCampaignId == 'trailhead' ? 60 : defaultSimulationConfig.startingAnts,
+      startingAnts: _selectedCampaignId == 'trailhead'
+          ? 60
+          : defaultSimulationConfig.startingAnts,
       foodPerNewAnt: _selectedCampaignId == 'trailhead'
           ? 8
           : defaultSimulationConfig.foodPerNewAnt,
@@ -959,7 +962,11 @@ class _AntWorldAppState extends State<AntWorldApp>
         description: 'Follow trails, dig a room, and stockpile 50 food.',
       ),
       starConditions: const [
-        StarCondition(id: 'food', description: 'Collect 50 food', threshold: 50),
+        StarCondition(
+          id: 'food',
+          description: 'Collect 50 food',
+          threshold: 50,
+        ),
         StarCondition(id: 'days', description: 'Survive 2 days', threshold: 2),
       ],
       config: defaultSimulationConfig.copyWith(

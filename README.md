@@ -78,11 +78,15 @@ The world is a 2D grid where each cell can be:
 - **Food** (collectible resource)
 - **Rock** (permanent obstacle)
 
+Default maps span **160×90 cells** (roughly a 16:9 canvas), giving you a naturally landscape-oriented underground to plan in.
+
 Colonies have specialized **rooms**:
 - **Hatchery** (Home): Queen's chamber, egg laying (capacity: 5)
 - **Nursery**: Egg and larva care (capacity: 20, expandable)
 - **Food Storage**: Food stockpile with visual display (capacity: 100, expandable)
 - **Barracks**: Worker/soldier rest area (capacity: 15, expandable)
+
+New colonies begin with only the hatchery dug out—the rest of the layout is up to you. Use the Room Painter to mark nurseries, food storage, and barracks on dirt, then assign builders to excavate those plans.
 
 ```
 Colony Structure:
@@ -146,7 +150,7 @@ Each ant has:
 | **Nurse** | Egg/larva care | 0.8x | 80 | Care for eggs in nursery |
 | **Queen** | Egg laying | 0.5x | 500 | Lays eggs every 45s, BFS food guidance |
 | **Princess** | Succession | 0.4x | 300 | Promotes to queen when queen dies |
-| **Builder** | Construction | 0.7x | 120 | Build rooms, reinforce walls |
+| **Builder** | Construction | 0.6x | 70 | Reinforces/digs 8× faster but weak in combat |
 | **Drone** | (Reserved) | 1.0x | 50 | Future breeding mechanics |
 | **Egg** | Development | 0x | - | Hatches after 20 seconds |
 | **Larva** | Maturation | 0x | - | Matures after 60 seconds |

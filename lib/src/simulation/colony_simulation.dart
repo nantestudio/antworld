@@ -11,6 +11,7 @@ import '../services/analytics_service.dart';
 import 'ant.dart';
 import 'level_layout.dart';
 import 'simulation_config.dart';
+import 'room_blueprint.dart';
 import 'world_generator.dart';
 import 'world_grid.dart';
 
@@ -30,7 +31,8 @@ class ColonySimulation {
       daysPassed = ValueNotifier<int>(1),
       elapsedTime = ValueNotifier<double>(0.0),
       paused = ValueNotifier<bool>(false),
-      eventBus = eventBus ?? GameEventBus() {
+      eventBus = eventBus ?? GameEventBus(),
+      blueprintManager = RoomBlueprintManager() {
     world = WorldGrid(config);
   }
 
@@ -52,6 +54,7 @@ class ColonySimulation {
   final ValueNotifier<int> daysPassed;
   final ValueNotifier<double> elapsedTime;
   final ValueNotifier<bool> paused;
+  final RoomBlueprintManager blueprintManager;
 
   final math.Random _rng = math.Random();
   int _storedFood = 0;
@@ -112,7 +115,6 @@ class ColonySimulation {
   int _eggCount = 0;
   int _queenCount = 0;
   int _princessCount = 0;
-  int _builderCount = 0;
   int _enemy1WorkerCount = 0;
   int _enemy1SoldierCount = 0;
   int _enemy1NurseCount = 0;
@@ -120,7 +122,6 @@ class ColonySimulation {
   int _enemy1EggCount = 0;
   int _enemy1QueenCount = 0;
   int _enemy1PrincessCount = 0;
-  int _enemy1BuilderCount = 0;
   // Colony 2 stats
   int _enemy2WorkerCount = 0;
   int _enemy2SoldierCount = 0;
@@ -129,7 +130,6 @@ class ColonySimulation {
   int _enemy2EggCount = 0;
   int _enemy2QueenCount = 0;
   int _enemy2PrincessCount = 0;
-  int _enemy2BuilderCount = 0;
   // Colony 3 stats
   int _enemy3WorkerCount = 0;
   int _enemy3SoldierCount = 0;
@@ -138,7 +138,6 @@ class ColonySimulation {
   int _enemy3EggCount = 0;
   int _enemy3QueenCount = 0;
   int _enemy3PrincessCount = 0;
-  int _enemy3BuilderCount = 0;
 
   bool get showPheromones => pheromonesVisible.value;
   bool get showFoodPheromones => foodPheromonesVisible.value;
@@ -281,7 +280,7 @@ class ColonySimulation {
 
       // Allocate remaining population between builders, workers, and seed larvae
       var remaining = config.startingAnts - 2 - nurseCount - soldierCount;
-      final builderCount = math.max(3, (remaining * 0.2).round());
+      final builderCount = math.max(2, (remaining * 0.08).round());
       remaining = math.max(0, remaining - builderCount);
 
       for (var i = 0; i < builderCount; i++) {
@@ -628,6 +627,8 @@ class ColonySimulation {
   /// Call this before generating a new world to free up resources.
   void prepareForNewWorld() {
     ants.clear();
+    _buildQueue.clear();
+    blueprintManager.clear();
     Ant.resetIdCounter();
     _updateAntCount();
     _storedFood = 0;
@@ -686,6 +687,9 @@ class ColonySimulation {
       'config': simulationConfigToJson(config),
       'world': _worldToJson(),
       'ants': ants.map((ant) => ant.toJson()).toList(),
+      'roomBlueprints': blueprintManager.blueprints
+          .map((bp) => bp.toJson())
+          .toList(),
       'foodCollected': _storedFood,
       'antSpeedMultiplier': antSpeedMultiplier.value,
       'pheromonesVisible': pheromonesVisible.value,
@@ -757,6 +761,16 @@ class ColonySimulation {
           world.rooms.add(Room.fromJson(Map<String, dynamic>.from(roomJson)));
         }
       }
+    }
+    final blueprintData = snapshot['roomBlueprints'];
+    if (blueprintData is List) {
+      final restored = blueprintData
+          .whereType<Map<String, dynamic>>()
+          .map(RoomBlueprint.fromJson)
+          .toList();
+      blueprintManager.replaceAll(restored);
+    } else {
+      blueprintManager.clear();
     }
 
     ants
@@ -1087,7 +1101,7 @@ class ColonySimulation {
   }
 
   /// Determines what caste the colony needs most based on current composition.
-  /// Target ratios: 55% workers, 15% soldiers, 15% nurses, 15% builders
+  /// Target ratios: 55% workers, 15% soldiers, 15% nurses, dynamic builders
   AntCaste _determineNeededCaste(int colonyId) {
     final colonyAnts = ants
         .where(
@@ -1117,7 +1131,8 @@ class ColonySimulation {
     const targetWorkerRatio = 0.55;
     const targetSoldierRatio = 0.15;
     const targetNurseRatio = 0.15;
-    const targetBuilderRatio = 0.15;
+    final builderBacklog = _builderBacklog(colonyId);
+    final targetBuilderRatio = _targetBuilderRatioFor(colonyId, builderBacklog);
 
     // Calculate how much each caste is underrepresented
     final workerDeficit = targetWorkerRatio - (workers / total);
@@ -1128,7 +1143,8 @@ class ColonySimulation {
     // Pick the caste with the biggest deficit
     if (builderDeficit > workerDeficit &&
         builderDeficit > soldierDeficit &&
-        builderDeficit > nurseDeficit) {
+        builderDeficit > nurseDeficit &&
+        (builderBacklog > 0 || builders < math.max(1, total ~/ 25))) {
       return AntCaste.builder;
     } else if (soldierDeficit > workerDeficit &&
         soldierDeficit > nurseDeficit) {
@@ -1137,6 +1153,38 @@ class ColonySimulation {
       return AntCaste.nurse;
     }
     return AntCaste.worker;
+  }
+
+  double _targetBuilderRatioFor(int colonyId, int backlog) {
+    final base = 0.05;
+    if (backlog <= 0) {
+      return base;
+    }
+    final extra = math.min(0.1, backlog * 0.02);
+    return base + extra;
+  }
+
+  int _builderBacklog(int colonyId) {
+    final pendingTasks = _buildQueue.where(
+      (task) =>
+          task.colonyId == colonyId &&
+          (task.kind == _BuildTaskKind.blueprint ||
+              task.kind == _BuildTaskKind.room ||
+              task.kind == _BuildTaskKind.defense),
+    );
+    final blueprintDemand = blueprintManager.blueprints.where(
+      (bp) =>
+          bp.colonyId == colonyId &&
+          bp.status != RoomBlueprintStatus.complete &&
+          bp.status != RoomBlueprintStatus.cancelled &&
+          bp.status != RoomBlueprintStatus.rejected,
+    );
+    final expansionDemand = world.rooms.where(
+      (room) => room.colonyId == colonyId && room.needsExpansion,
+    );
+    return pendingTasks.length +
+        blueprintDemand.length +
+        expansionDemand.length;
   }
 
   void _flushSpawnQueue() {
@@ -1197,7 +1245,6 @@ class ColonySimulation {
     _eggCount = 0;
     _queenCount = 0;
     _princessCount = 0;
-    _builderCount = 0;
     _enemy1WorkerCount = 0;
     _enemy1SoldierCount = 0;
     _enemy1NurseCount = 0;
@@ -1205,7 +1252,6 @@ class ColonySimulation {
     _enemy1EggCount = 0;
     _enemy1QueenCount = 0;
     _enemy1PrincessCount = 0;
-    _enemy1BuilderCount = 0;
     _enemy2WorkerCount = 0;
     _enemy2SoldierCount = 0;
     _enemy2NurseCount = 0;
@@ -1213,7 +1259,6 @@ class ColonySimulation {
     _enemy2EggCount = 0;
     _enemy2QueenCount = 0;
     _enemy2PrincessCount = 0;
-    _enemy2BuilderCount = 0;
     _enemy3WorkerCount = 0;
     _enemy3SoldierCount = 0;
     _enemy3NurseCount = 0;
@@ -1221,7 +1266,6 @@ class ColonySimulation {
     _enemy3EggCount = 0;
     _enemy3QueenCount = 0;
     _enemy3PrincessCount = 0;
-    _enemy3BuilderCount = 0;
 
     // Single pass through all ants
     for (final ant in ants.toList()) {
@@ -1246,7 +1290,7 @@ class ColonySimulation {
           case AntCaste.princess:
             _princessCount++;
           case AntCaste.builder:
-            _builderCount++;
+            break;
           case AntCaste.drone:
             break;
         }
@@ -1271,7 +1315,7 @@ class ColonySimulation {
               case AntCaste.princess:
                 _enemy1PrincessCount++;
               case AntCaste.builder:
-                _enemy1BuilderCount++;
+                break;
               case AntCaste.drone:
                 break;
             }
@@ -1292,7 +1336,7 @@ class ColonySimulation {
               case AntCaste.princess:
                 _enemy2PrincessCount++;
               case AntCaste.builder:
-                _enemy2BuilderCount++;
+                break;
               case AntCaste.drone:
                 break;
             }
@@ -1313,7 +1357,7 @@ class ColonySimulation {
               case AntCaste.princess:
                 _enemy3PrincessCount++;
               case AntCaste.builder:
-                _enemy3BuilderCount++;
+                break;
               case AntCaste.drone:
                 break;
             }
@@ -1385,90 +1429,8 @@ class ColonySimulation {
         final occupancy = _measureRoomOccupancy(room);
         room.currentOccupancy = occupancy;
         room.needsExpansion = room.isOverCapacity;
-        if (room.needsExpansion) {
-          _queueNewRoom(colonyId, room.type);
-        }
       }
-
-      // Proactive room building based on population and resource thresholds
-      _checkProactiveRoomNeeds(colonyId);
     }
-  }
-
-  /// Proactively queue new rooms before capacity is reached
-  void _checkProactiveRoomNeeds(int colonyId) {
-    // Thresholds for proactive building (build when usage exceeds these percentages)
-    const barracksThreshold = 0.7; // 70% capacity triggers new barracks
-    const foodStorageThreshold = 0.8; // 80% capacity triggers new food storage
-    const nurseryThreshold = 0.75; // 75% capacity triggers new nursery
-
-    // Check barracks capacity vs worker/soldier/builder population
-    final workerPop = _getColonyWorkerPopulation(colonyId);
-    final barracksCapacity = _getTotalRoomCapacity(colonyId, RoomType.barracks);
-    if (barracksCapacity > 0 &&
-        workerPop > barracksCapacity * barracksThreshold) {
-      _queueNewRoom(colonyId, RoomType.barracks);
-    }
-
-    // Check food storage capacity vs stored food
-    final storedFood = _getColonyStoredFood(colonyId);
-    final foodCapacity = _getTotalRoomCapacity(colonyId, RoomType.foodStorage);
-    if (foodCapacity > 0 && storedFood > foodCapacity * foodStorageThreshold) {
-      _queueNewRoom(colonyId, RoomType.foodStorage);
-    }
-
-    // Check nursery capacity vs egg/larva population
-    final nurseryPop = _getColonyNurseryPopulation(colonyId);
-    final nurseryCapacity = _getTotalRoomCapacity(colonyId, RoomType.nursery);
-    if (nurseryCapacity > 0 &&
-        nurseryPop > nurseryCapacity * nurseryThreshold) {
-      _queueNewRoom(colonyId, RoomType.nursery);
-    }
-  }
-
-  /// Get total capacity of all rooms of a type for a colony
-  int _getTotalRoomCapacity(int colonyId, RoomType type) {
-    return world.rooms
-        .where((r) => r.colonyId == colonyId && r.type == type)
-        .fold(0, (sum, r) => sum + r.maxCapacity);
-  }
-
-  /// Get worker + soldier + builder count for a colony (barracks population)
-  int _getColonyWorkerPopulation(int colonyId) {
-    switch (colonyId) {
-      case 0:
-        return _workerCount + _soldierCount + _builderCount;
-      case 1:
-        return _enemy1WorkerCount + _enemy1SoldierCount + _enemy1BuilderCount;
-      case 2:
-        return _enemy2WorkerCount + _enemy2SoldierCount + _enemy2BuilderCount;
-      case 3:
-        return _enemy3WorkerCount + _enemy3SoldierCount + _enemy3BuilderCount;
-      default:
-        return 0;
-    }
-  }
-
-  /// Get egg + larva count for a colony (nursery population)
-  int _getColonyNurseryPopulation(int colonyId) {
-    switch (colonyId) {
-      case 0:
-        return _eggCount + _larvaCount;
-      case 1:
-        return _enemy1EggCount + _enemy1LarvaCount;
-      case 2:
-        return _enemy2EggCount + _enemy2LarvaCount;
-      case 3:
-        return _enemy3EggCount + _enemy3LarvaCount;
-      default:
-        return 0;
-    }
-  }
-
-  /// Get stored food for a colony
-  int _getColonyStoredFood(int colonyId) {
-    if (colonyId < 0 || colonyId >= _colonyFood.length) return 0;
-    return _colonyFood[colonyId];
   }
 
   int _measureRoomOccupancy(Room room) {
@@ -1531,36 +1493,6 @@ class ColonySimulation {
     return total;
   }
 
-  void _queueNewRoom(int colonyId, RoomType type) {
-    if (type == RoomType.home) {
-      return; // never duplicate queen chamber
-    }
-    final hasTask = _buildQueue.any(
-      (task) =>
-          task.colonyId == colonyId &&
-          task.kind == _BuildTaskKind.room &&
-          task.roomType == type,
-    );
-    if (hasTask) return;
-
-    final radius = _roomRadiusFor(type);
-    final location = world.findNewRoomLocation(colonyId, type, radius);
-    if (location == null) {
-      return;
-    }
-
-    _buildQueue.add(
-      _BuildTask(
-        id: _nextBuildTaskId++,
-        kind: _BuildTaskKind.room,
-        colonyId: colonyId,
-        targetLocation: location.clone(),
-        radius: radius,
-        roomType: type,
-      ),
-    );
-  }
-
   double _roomRadiusFor(RoomType type) {
     switch (type) {
       case RoomType.home:
@@ -1575,6 +1507,7 @@ class ColonySimulation {
   }
 
   void _processBuildQueue() {
+    _syncBlueprintTasks();
     if (_buildQueue.isEmpty) return;
     _reclaimBuilderTasks();
     for (final task in _buildQueue) {
@@ -1592,6 +1525,7 @@ class ColonySimulation {
         _BuildTaskKind.room => BuilderTask.buildingRoom,
         _BuildTaskKind.reinforce => BuilderTask.reinforcingWall,
         _BuildTaskKind.defense => BuilderTask.emergencyDefense,
+        _BuildTaskKind.blueprint => BuilderTask.constructingBlueprint,
       };
       builder.assignBuilderTask(
         task: builderTask,
@@ -1600,8 +1534,73 @@ class ColonySimulation {
         radius: task.radius,
         emergency: task.emergency,
         taskId: task.id,
+        blueprintCells: task.blueprintCells,
       );
+      if (task.kind == _BuildTaskKind.blueprint && task.blueprintId != null) {
+        final blueprint = _findBlueprintById(task.blueprintId!);
+        if (blueprint != null) {
+          blueprint.status = RoomBlueprintStatus.digging;
+        }
+      }
     }
+  }
+
+  void _syncBlueprintTasks() {
+    for (final blueprint in blueprintManager.blueprints) {
+      if (blueprint.status == RoomBlueprintStatus.complete ||
+          blueprint.status == RoomBlueprintStatus.cancelled ||
+          blueprint.status == RoomBlueprintStatus.rejected) {
+        continue;
+      }
+      final existing = _buildQueue.any(
+        (task) => task.blueprintId == blueprint.id,
+      );
+      if (existing) continue;
+      final pendingCells = _pendingBlueprintCells(blueprint);
+      if (pendingCells.isEmpty) {
+        _finalizeBlueprint(blueprint.id);
+        continue;
+      }
+      _buildQueue.add(
+        _BuildTask(
+          id: _nextBuildTaskId++,
+          kind: _BuildTaskKind.blueprint,
+          colonyId: blueprint.colonyId,
+          targetLocation: blueprint.center.clone(),
+          radius: math.max(2.5, blueprint.estimateRadius()),
+          roomType: blueprint.type,
+          blueprintId: blueprint.id,
+          blueprintCells: pendingCells,
+        ),
+      );
+      blueprint.status = RoomBlueprintStatus.queued;
+    }
+  }
+
+  List<(int, int)> _pendingBlueprintCells(RoomBlueprint blueprint) {
+    final result = <(int, int)>[];
+    for (final cell in blueprint.connectionPath) {
+      final x = cell.$1;
+      final y = cell.$2;
+      if (!world.isInsideIndex(x, y)) continue;
+      if (blueprint.cells.contains(cell)) {
+        continue;
+      }
+      if (world.cellTypeAt(x, y) != CellType.air) {
+        result.add(cell);
+      }
+    }
+    final roomCells = blueprint.cells.where((cell) {
+      final x = cell.$1;
+      final y = cell.$2;
+      if (!world.isInsideIndex(x, y)) {
+        return false;
+      }
+      return world.cellTypeAt(x, y) != CellType.air;
+    }).toList();
+    roomCells.shuffle(_rng);
+    result.addAll(roomCells);
+    return result;
   }
 
   void _reclaimBuilderTasks() {
@@ -1616,6 +1615,13 @@ class ColonySimulation {
       if (shouldReset) {
         task.inProgress = false;
         task.assignedBuilderId = -1;
+        if (task.kind == _BuildTaskKind.blueprint && task.blueprintId != null) {
+          final blueprint = _findBlueprintById(task.blueprintId!);
+          if (blueprint != null &&
+              blueprint.status != RoomBlueprintStatus.complete) {
+            blueprint.status = RoomBlueprintStatus.queued;
+          }
+        }
       }
     }
   }
@@ -1656,7 +1662,57 @@ class ColonySimulation {
           colonyId: task.colonyId,
         ),
       );
+    } else if (task.kind == _BuildTaskKind.blueprint &&
+        task.blueprintId != null) {
+      _finalizeBlueprint(task.blueprintId!);
     }
+  }
+
+  void _finalizeBlueprint(int blueprintId) {
+    final blueprint = _findBlueprintById(blueprintId);
+    if (blueprint == null) {
+      return;
+    }
+    final area = math.max(1, blueprint.cells.length);
+    final baseRadius = _roomRadiusFor(blueprint.type);
+    final baseArea = math.pi * baseRadius * baseRadius;
+    final scale = (area / baseArea).clamp(0.5, 4.0);
+    final baseCapacity = Room.defaultCapacity[blueprint.type] ?? 10;
+    final capacity = math.max(4, (baseCapacity * scale).round());
+    world.addRoom(
+      Room(
+        type: blueprint.type,
+        center: blueprint.center.clone(),
+        radius: math.max(2.0, blueprint.estimateRadius()),
+        colonyId: blueprint.colonyId,
+        maxCapacity: capacity,
+        customCells: <(int, int)>{...blueprint.cells},
+      ),
+    );
+    blueprint.status = RoomBlueprintStatus.complete;
+    blueprintManager.remove(blueprintId);
+  }
+
+  void cancelBlueprint(int blueprintId) {
+    for (var i = _buildQueue.length - 1; i >= 0; i--) {
+      final task = _buildQueue[i];
+      if (task.blueprintId != blueprintId) continue;
+      if (task.inProgress) {
+        final builder = _findAntById(task.assignedBuilderId);
+        builder?.cancelBuilderTask();
+      }
+      _buildQueue.removeAt(i);
+    }
+    blueprintManager.remove(blueprintId);
+  }
+
+  RoomBlueprint? _findBlueprintById(int id) {
+    for (final blueprint in blueprintManager.blueprints) {
+      if (blueprint.id == id) {
+        return blueprint;
+      }
+    }
+    return null;
   }
 
   void _checkThreatsAndTriggerDefense() {
@@ -2357,7 +2413,7 @@ Vector2? _vectorFromJson(Map<String, dynamic>? data) {
   return null;
 }
 
-enum _BuildTaskKind { room, reinforce, defense }
+enum _BuildTaskKind { room, reinforce, defense, blueprint }
 
 class _BuildTask {
   _BuildTask({
@@ -2367,6 +2423,8 @@ class _BuildTask {
     required this.targetLocation,
     required this.radius,
     this.roomType,
+    this.blueprintId,
+    this.blueprintCells,
     this.emergency = false,
   });
 
@@ -2376,6 +2434,8 @@ class _BuildTask {
   final Vector2 targetLocation;
   final double radius;
   final RoomType? roomType;
+  final int? blueprintId;
+  final List<(int, int)>? blueprintCells;
   bool emergency;
   bool inProgress = false;
   int assignedBuilderId = -1;

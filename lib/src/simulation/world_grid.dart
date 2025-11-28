@@ -56,8 +56,11 @@ class Room {
     int? maxCapacity,
     this.currentOccupancy = 0,
     this.needsExpansion = false,
+    Set<(int, int)>? customCells,
   }) : center = center.clone(),
-       maxCapacity = maxCapacity ?? defaultCapacity[type] ?? 0;
+       maxCapacity = maxCapacity ?? defaultCapacity[type] ?? 0,
+       customCells =
+           customCells != null ? <(int, int)>{...customCells} : null;
 
   final RoomType type;
   final Vector2 center;
@@ -66,6 +69,7 @@ class Room {
   final int maxCapacity;
   int currentOccupancy;
   bool needsExpansion;
+  final Set<(int, int)>? customCells;
   List<(int, int)>? _perimeterCache;
 
   static const Map<RoomType, int> defaultCapacity = {
@@ -79,7 +83,14 @@ class Room {
   bool get isOverCapacity => currentOccupancy > (maxCapacity * 1.2).floor();
 
   /// Check if a position is inside this room
-  bool contains(Vector2 pos) => pos.distanceTo(center) <= radius;
+  bool contains(Vector2 pos) {
+    if (customCells == null || customCells!.isEmpty) {
+      return pos.distanceTo(center) <= radius;
+    }
+    final x = pos.x.floor();
+    final y = pos.y.floor();
+    return customCells!.contains((x, y));
+  }
 
   /// Convert to JSON for saving
   Map<String, dynamic> toJson() => {
@@ -91,6 +102,10 @@ class Room {
     'maxCapacity': maxCapacity,
     'currentOccupancy': currentOccupancy,
     'needsExpansion': needsExpansion,
+    if (customCells != null)
+      'cells': customCells!
+          .map((cell) => {'x': cell.$1, 'y': cell.$2})
+          .toList(growable: false),
   };
 
   /// Create from JSON for loading
@@ -109,7 +124,22 @@ class Room {
       maxCapacity: (json['maxCapacity'] as num?)?.toInt(),
       currentOccupancy: (json['currentOccupancy'] as num?)?.toInt() ?? 0,
       needsExpansion: json['needsExpansion'] as bool? ?? false,
+      customCells: _parseCells(json['cells']),
     );
+  }
+
+  static Set<(int, int)>? _parseCells(dynamic data) {
+    if (data is! List) return null;
+    final result = <(int, int)>{};
+    for (final entry in data) {
+      if (entry is! Map<String, dynamic>) continue;
+      final x = entry['x'];
+      final y = entry['y'];
+      if (x is num && y is num) {
+        result.add((x.toInt(), y.toInt()));
+      }
+    }
+    return result.isEmpty ? null : result;
   }
 
   void invalidateCache() => _perimeterCache = null;
@@ -120,6 +150,24 @@ class Room {
 
   List<(int, int)> _buildPerimeter(WorldGrid world) {
     final result = <(int, int)>[];
+    if (customCells != null && customCells!.isNotEmpty) {
+      for (final cell in customCells!) {
+        for (final dir in const <(int, int)>[
+          (1, 0),
+          (-1, 0),
+          (0, 1),
+          (0, -1),
+        ]) {
+          final nx = cell.$1 + dir.$1;
+          final ny = cell.$2 + dir.$2;
+          if (!world.isInsideIndex(nx, ny)) continue;
+          if (!customCells!.contains((nx, ny))) {
+            result.add((nx, ny));
+          }
+        }
+      }
+      return result;
+    }
     final cx = center.x.floor();
     final cy = center.y.floor();
     final r = radius.ceil() + 2;
@@ -1322,6 +1370,19 @@ class WorldGrid {
   void addRoom(Room room) {
     rooms.add(room);
     room.invalidateCache();
+    final zoneIndex = _zoneIndexForRoom(room.type);
+    if (room.customCells != null && room.customCells!.isNotEmpty) {
+      for (final cell in room.customCells!) {
+        final x = cell.$1;
+        final y = cell.$2;
+        if (!isInsideIndex(x, y)) continue;
+        final idx = index(x, y);
+        cells[idx] = CellType.air.index;
+        zones[idx] = zoneIndex;
+      }
+      _terrainVersion++;
+      return;
+    }
     // Carve out the room as air
     final cx = room.center.x.floor();
     final cy = room.center.y.floor();
@@ -1335,25 +1396,24 @@ class WorldGrid {
         if (dist <= room.radius) {
           final idx = index(x, y);
           cells[idx] = CellType.air.index;
-          // Assign zone based on room type
-          switch (room.type) {
-            case RoomType.home:
-              zones[idx] = NestZone.queenChamber.index;
-              break;
-            case RoomType.nursery:
-              zones[idx] = NestZone.nursery.index;
-              break;
-            case RoomType.foodStorage:
-              zones[idx] = NestZone.foodStorage.index;
-              break;
-            case RoomType.barracks:
-              zones[idx] = NestZone.barracks.index;
-              break;
-          }
+          zones[idx] = zoneIndex;
         }
       }
     }
     _terrainVersion++;
+  }
+
+  int _zoneIndexForRoom(RoomType type) {
+    switch (type) {
+      case RoomType.home:
+        return NestZone.queenChamber.index;
+      case RoomType.nursery:
+        return NestZone.nursery.index;
+      case RoomType.foodStorage:
+        return NestZone.foodStorage.index;
+      case RoomType.barracks:
+        return NestZone.barracks.index;
+    }
   }
 
   bool _canPlaceRoomAt(Vector2 candidate, double radius, int colonyId) {

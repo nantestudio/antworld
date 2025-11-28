@@ -26,6 +26,21 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 
 flutter_macos_podfile_setup
 
+def patch_firebase_core_deeplink!(platform_subdir)
+  symlink_path =
+    File.expand_path(File.join('Flutter', 'ephemeral', '.symlinks', 'plugins', 'firebase_core', platform_subdir), __dir__)
+  Dir.glob(File.join(symlink_path, '**', 'FLTFirebaseCorePlugin.m')).each do |file|
+    contents = File.read(file)
+    next unless contents.include?('pigeonOptions.deepLinkURLScheme = [NSNull null];')
+    File.write(file,
+               contents.gsub('pigeonOptions.deepLinkURLScheme = [NSNull null];',
+                             'pigeonOptions.deepLinkURLScheme = nil;'))
+    puts("Patched FirebaseCore deepLink assignment in #{file}")
+  end
+rescue Errno::ENOENT
+  puts("FirebaseCore plugin not found at #{symlink_path}, skipping deepLink patch.")
+end
+
 target 'Runner' do
   use_frameworks!
 
@@ -39,4 +54,5 @@ post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_macos_build_settings(target)
   end
+  patch_firebase_core_deeplink!('macos')
 end

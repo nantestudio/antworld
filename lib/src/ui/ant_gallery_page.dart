@@ -157,7 +157,7 @@ const List<_AntTypeInfo> _antTypes = [
     caste: AntCaste.builder,
     title: 'Builder',
     description:
-        'Specialized workers that reinforce walls and carve new rooms.',
+        'Fragile specialists that carve tunnels and reinforce walls far faster than workers, but avoid combat.',
   ),
   _AntTypeInfo(
     caste: AntCaste.soldier,

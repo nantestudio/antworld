@@ -2,8 +2,8 @@ import 'dart:math' as math;
 
 class SimulationConfig {
   const SimulationConfig({
-    this.cols = 100,
-    this.rows = 75,
+    this.cols = 160,
+    this.rows = 90,
     this.cellSize = 8,
     this.colonyCount = 2,
     this.startingAnts = 80,

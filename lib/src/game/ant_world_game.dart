@@ -11,6 +11,7 @@ import 'package:flutter/widgets.dart';
 import '../simulation/ant.dart';
 import '../simulation/colony_simulation.dart';
 import '../simulation/world_grid.dart';
+import '../simulation/room_blueprint.dart';
 import '../visuals/ant_sprite.dart';
 import '../core/perf_recorder.dart';
 
@@ -44,6 +45,7 @@ class AntWorldGame extends FlameGame
   Vector2 _canvasSize = Vector2.zero();
   bool _draggingDig = false;
   bool _draggingFood = false;
+  bool _draggingBlueprint = false;
   static const double _antSelectRadius = 2.0; // cells
   final Stopwatch _perfStopwatch = Stopwatch();
   double _perfAccumTime = 0;
@@ -310,6 +312,10 @@ class AntWorldGame extends FlameGame
 
   @override
   void onTapDown(TapDownEvent event) {
+    if (_handleBlueprintPaint(event.canvasPosition)) {
+      _draggingBlueprint = true;
+      return;
+    }
     // Check if tapped on an ant first
     final cellPos = _widgetToCell(event.canvasPosition);
     if (cellPos != null) {
@@ -343,6 +349,10 @@ class AntWorldGame extends FlameGame
 
   @override
   void onSecondaryTapDown(SecondaryTapDownEvent event) {
+    if (_handleBlueprintPaint(event.canvasPosition)) {
+      _draggingBlueprint = true;
+      return;
+    }
     if (!editMode.value) return;
     _setDragMode(true);
     _applyBrush(event.canvasPosition, true);
@@ -361,12 +371,22 @@ class AntWorldGame extends FlameGame
   @override
   void onDragStart(DragStartEvent event) {
     super.onDragStart(event);
+    if (simulation.blueprintManager.isPainting || _draggingBlueprint) {
+      if (_handleBlueprintPaint(event.canvasPosition)) {
+        _draggingBlueprint = true;
+      }
+      return;
+    }
     if (!editMode.value) return;
     _applyBrush(event.canvasPosition, _draggingFood);
   }
 
   @override
   void onDragUpdate(DragUpdateEvent event) {
+    if (simulation.blueprintManager.isPainting || _draggingBlueprint) {
+      _handleBlueprintPaint(event.canvasEndPosition);
+      return;
+    }
     if (!editMode.value) return;
     if (_draggingFood || _draggingDig) {
       _applyBrush(event.canvasEndPosition, _draggingFood);
@@ -494,41 +514,33 @@ class AntWorldGame extends FlameGame
         room.center.y * cellSize,
       );
       final radiusPixels = room.radius * cellSize;
+      final (fillPaint, borderPaint) =
+          _roomPaints(room.type, room.colonyId);
 
-      // Select paints based on room type and colony
-      Paint fillPaint;
-      Paint borderPaint;
-      switch (room.type) {
-        case RoomType.home:
-          fillPaint = room.colonyId == 0 ? _homeRoom0Paint : _homeRoom1Paint;
-          borderPaint = room.colonyId == 0
-              ? _homeRoomBorder0Paint
-              : _homeRoomBorder1Paint;
-        case RoomType.nursery:
-          fillPaint = room.colonyId == 0
-              ? _nurseryRoom0Paint
-              : _nurseryRoom1Paint;
-          borderPaint = room.colonyId == 0
-              ? _nurseryRoomBorder0Paint
-              : _nurseryRoomBorder1Paint;
-        case RoomType.foodStorage:
-          fillPaint = room.colonyId == 0 ? _foodRoom0Paint : _foodRoom1Paint;
-          borderPaint = room.colonyId == 0
-              ? _foodRoomBorder0Paint
-              : _foodRoomBorder1Paint;
-        case RoomType.barracks:
-          fillPaint = room.colonyId == 0
-              ? _barracksRoom0Paint
-              : _barracksRoom1Paint;
-          borderPaint = room.colonyId == 0
-              ? _barracksRoomBorder0Paint
-              : _barracksRoomBorder1Paint;
+      if (room.customCells != null && room.customCells!.isNotEmpty) {
+        for (final cell in room.customCells!) {
+          final rect = Rect.fromLTWH(
+            cell.$1 * cellSize,
+            cell.$2 * cellSize,
+            cellSize,
+            cellSize,
+          );
+          canvas.drawRect(rect, fillPaint);
+        }
+        final perimeter = world.getRoomPerimeter(room);
+        for (final (x, y) in perimeter) {
+          final rect = Rect.fromLTWH(
+            x * cellSize,
+            y * cellSize,
+            cellSize,
+            cellSize,
+          );
+          canvas.drawRect(rect, borderPaint);
+        }
+      } else {
+        canvas.drawCircle(centerOffset, radiusPixels, fillPaint);
+        canvas.drawCircle(centerOffset, radiusPixels, borderPaint);
       }
-
-      // Draw filled circle
-      canvas.drawCircle(centerOffset, radiusPixels, fillPaint);
-      // Draw border
-      canvas.drawCircle(centerOffset, radiusPixels, borderPaint);
 
       // Draw stored food items in food storage room
       if (room.type == RoomType.foodStorage) {
@@ -537,6 +549,150 @@ class AntWorldGame extends FlameGame
 
       // Draw room label
       _drawRoomLabel(canvas, centerOffset, room);
+    }
+    _drawBlueprints(canvas, cellSize);
+  }
+
+  (Paint, Paint) _roomPaints(RoomType type, int colonyId) {
+    switch (type) {
+      case RoomType.home:
+        return (
+          colonyId == 0 ? _homeRoom0Paint : _homeRoom1Paint,
+          colonyId == 0 ? _homeRoomBorder0Paint : _homeRoomBorder1Paint
+        );
+      case RoomType.nursery:
+        return (
+          colonyId == 0 ? _nurseryRoom0Paint : _nurseryRoom1Paint,
+          colonyId == 0
+              ? _nurseryRoomBorder0Paint
+              : _nurseryRoomBorder1Paint
+        );
+      case RoomType.foodStorage:
+        return (
+          colonyId == 0 ? _foodRoom0Paint : _foodRoom1Paint,
+          colonyId == 0
+              ? _foodRoomBorder0Paint
+              : _foodRoomBorder1Paint
+        );
+      case RoomType.barracks:
+        return (
+          colonyId == 0 ? _barracksRoom0Paint : _barracksRoom1Paint,
+          colonyId == 0
+              ? _barracksRoomBorder0Paint
+              : _barracksRoomBorder1Paint
+        );
+    }
+  }
+
+  (Color, Color) _roomColors(RoomType type, int colonyId) {
+    final pair = _roomPaints(type, colonyId);
+    return (pair.$1.color, pair.$2.color);
+  }
+
+  void _drawBlueprints(Canvas canvas, double cellSize) {
+    final manager = simulation.blueprintManager;
+    final connectionPaint = Paint()
+      ..color = const Color(0x55FFFFFF)
+      ..style = PaintingStyle.fill;
+    for (final blueprint in manager.blueprints) {
+      final (fillColor, borderColor) =
+          _roomColors(blueprint.type, blueprint.colonyId);
+      final fillPaint = Paint()
+        ..color = fillColor.withValues(alpha: 0.35)
+        ..style = PaintingStyle.fill;
+      final borderPaint = Paint()
+        ..color = borderColor.withValues(alpha: 0.7)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
+      for (final cell in blueprint.cells) {
+        final rect = Rect.fromLTWH(
+          cell.$1 * cellSize,
+          cell.$2 * cellSize,
+          cellSize,
+          cellSize,
+        );
+        canvas.drawRect(rect, fillPaint);
+        canvas.drawRect(rect, borderPaint);
+      }
+      for (final cell in blueprint.connectionPath) {
+        final rect = Rect.fromLTWH(
+          cell.$1 * cellSize,
+          cell.$2 * cellSize,
+          cellSize,
+          cellSize,
+        );
+        canvas.drawRect(rect, connectionPaint);
+      }
+
+      final info = _blueprintLabel(blueprint);
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: info,
+          style: const TextStyle(
+            color: Color(0xFFFFFFFF),
+            fontSize: 10,
+            shadows: [Shadow(blurRadius: 2, color: Color(0xCC000000))],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final offset = Offset(
+            blueprint.center.x * cellSize,
+            blueprint.center.y * cellSize,
+          ) -
+          Offset(textPainter.width / 2, textPainter.height + 4);
+      textPainter.paint(canvas, offset);
+    }
+
+    if (manager.isPainting && manager.paintingCells.isNotEmpty) {
+      final state = manager.painterState.value;
+      final type = state.roomType ?? RoomType.barracks;
+      final (fillColor, borderColor) = _roomColors(type, 0);
+      final activeFill = Paint()
+        ..color = fillColor.withValues(alpha: 0.25)
+        ..style = PaintingStyle.fill;
+      final activeBorder = Paint()
+        ..color = borderColor.withValues(alpha: 0.7)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0;
+      for (final cell in manager.paintingCells) {
+        final rect = Rect.fromLTWH(
+          cell.$1 * cellSize,
+          cell.$2 * cellSize,
+          cellSize,
+          cellSize,
+        );
+        canvas.drawRect(rect, activeFill);
+        canvas.drawRect(rect, activeBorder);
+      }
+    }
+  }
+
+  String _blueprintLabel(RoomBlueprint blueprint) {
+    final roomName = _roomTypeLabel(blueprint.type);
+    final status = switch (blueprint.status) {
+      RoomBlueprintStatus.pending => 'awaiting queue',
+      RoomBlueprintStatus.queued => 'queued',
+      RoomBlueprintStatus.digging => 'digging',
+      RoomBlueprintStatus.complete => 'complete',
+      RoomBlueprintStatus.cancelled => 'cancelled',
+      RoomBlueprintStatus.rejected => 'rejected',
+    };
+    final progress =
+        (blueprint.buildProgress(simulation.world) * 100).clamp(0, 100);
+    return '$roomName • $status ${progress.toStringAsFixed(0)}%';
+  }
+
+  String _roomTypeLabel(RoomType type) {
+    switch (type) {
+      case RoomType.home:
+        return 'Hatchery';
+      case RoomType.nursery:
+        return 'Nursery';
+      case RoomType.foodStorage:
+        return 'Food Storage';
+      case RoomType.barracks:
+        return 'Barracks';
     }
   }
 
@@ -1041,6 +1197,17 @@ class AntWorldGame extends FlameGame
     }
   }
 
+  bool _handleBlueprintPaint(Vector2 canvasPosition) {
+    final manager = simulation.blueprintManager;
+    if (!manager.isPainting) return false;
+    final cell = _widgetToCell(canvasPosition);
+    if (cell == null) {
+      return true;
+    }
+    manager.addPaintCell(cell.x.floor(), cell.y.floor(), simulation.world);
+    return true;
+  }
+
   void _setDragMode(bool placeFood) {
     _draggingFood = placeFood;
     _draggingDig = !placeFood;
@@ -1049,6 +1216,7 @@ class AntWorldGame extends FlameGame
   void _stopDrag() {
     _draggingFood = false;
     _draggingDig = false;
+    _draggingBlueprint = false;
   }
 
   void _collectDeathEvents() {
