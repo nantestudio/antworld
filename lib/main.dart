@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'firebase_options.dart';
 import 'src/core/game_mode.dart';
@@ -87,6 +88,8 @@ class _AntWorldAppState extends State<AntWorldApp> with WidgetsBindingObserver {
     DailyGoalService.instance.removeListener(_goalsListener);
     _focusNode.dispose();
     _gameStateManager.dispose();
+    // Ensure screen can sleep when app closes
+    WakelockPlus.disable();
     super.dispose();
   }
 
@@ -1015,6 +1018,8 @@ class _AntWorldAppState extends State<AntWorldApp> with WidgetsBindingObserver {
         _screen = _AppScreen.playing;
         _loading = false;
       });
+      // Keep screen awake while playing
+      WakelockPlus.enable();
     } catch (error) {
       if (!mounted) {
         return;
@@ -1061,6 +1066,8 @@ class _AntWorldAppState extends State<AntWorldApp> with WidgetsBindingObserver {
       _screen = _AppScreen.playing;
       _loading = false;
     });
+    // Keep screen awake while playing
+    WakelockPlus.enable();
   }
 
   Future<void> _claimIdleReward() async {
@@ -1082,6 +1089,8 @@ class _AntWorldAppState extends State<AntWorldApp> with WidgetsBindingObserver {
 
   Future<void> _quitToMenu() async {
     await _gameStateManager.endMode(save: false);
+    // Allow screen to sleep again
+    WakelockPlus.disable();
     // Clear references to allow garbage collection
     setState(() {
       _simulation = null;
