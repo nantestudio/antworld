@@ -204,6 +204,8 @@ class UnifiedStorage {
         return '${StorageKeys.idleState}_campaign';
       case GameMode.dailyChallenge:
         return '${StorageKeys.idleState}_daily';
+      case GameMode.aiLab:
+        return '${StorageKeys.idleState}_ailab';
     }
   }
 }

@@ -432,6 +432,69 @@ class DailyChallengeModeConfig extends ModeConfig {
   }
 }
 
+/// AI Lab mode for testing Hive Mind and Evolution
+class AiLabModeConfig extends ModeConfig {
+  const AiLabModeConfig({this.config});
+
+  final SimulationConfig? config;
+
+  /// Simple small world config optimized for AI testing
+  static const _aiLabConfig = SimulationConfig(
+    cols: 120,
+    rows: 180,
+    cellSize: 4.0,
+    colonyCount: 1,
+    startingAnts: 30,
+    antSpeed: 35.0,
+    explorerRatio: 0.08,
+    foodDepositStrength: 0.5,
+    homeDepositStrength: 0.3,
+  );
+
+  @override
+  GameMode get mode => GameMode.aiLab;
+
+  @override
+  bool get allowSave => false;
+
+  @override
+  bool get hasTimeLimit => false;
+
+  @override
+  Duration? get timeLimit => null;
+
+  @override
+  bool get trackMilestones => false;
+
+  @override
+  SimulationConfig get simulationConfig => config ?? _aiLabConfig;
+
+  @override
+  WinCondition? get winCondition => null;
+
+  @override
+  LoseCondition? get loseCondition => null;
+
+  @override
+  Map<String, dynamic> toJson() {
+    return {
+      'mode': mode.name,
+      if (config != null) 'config': simulationConfigToJson(config!),
+    };
+  }
+
+  factory AiLabModeConfig.fromJson(Map<String, dynamic> json) {
+    return AiLabModeConfig(
+      config: json['config'] != null
+          ? simulationConfigFromJson(
+              json['config'] as Map<String, dynamic>?,
+              fallback: _aiLabConfig,
+            )
+          : null,
+    );
+  }
+}
+
 ModeConfig modeConfigFromJson(Map<String, dynamic> json) {
   final modeName = json['mode'] as String? ?? GameMode.sandbox.name;
   final mode = GameMode.values.firstWhere(
@@ -447,5 +510,7 @@ ModeConfig modeConfigFromJson(Map<String, dynamic> json) {
       return CampaignLevelConfig.fromJson(json);
     case GameMode.dailyChallenge:
       return DailyChallengeModeConfig.fromJson(json);
+    case GameMode.aiLab:
+      return AiLabModeConfig.fromJson(json);
   }
 }

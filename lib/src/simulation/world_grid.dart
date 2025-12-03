@@ -192,6 +192,7 @@ class WorldGrid {
     : cells = Uint8List(config.cols * config.rows),
       zones = Uint8List(config.cols * config.rows),
       dirtTypes = Uint8List(config.cols * config.rows),
+      explored = Uint8List(config.cols * config.rows), // Fog of war: 0=fog, 255=revealed
       foodPheromones0 = Float32List(config.cols * config.rows),
       foodPheromones1 = Float32List(config.cols * config.rows),
       foodPheromoneOwner0 = Uint8List(config.cols * config.rows),
@@ -228,6 +229,7 @@ class WorldGrid {
   final Uint8List cells;
   final Uint8List zones; // NestZone for each cell
   final Uint8List dirtTypes; // DirtType for each cell
+  final Uint8List explored; // Fog of war: 0=unexplored, 255=fully revealed
   // Per-colony pheromone layers - each colony only senses its own trails
   final Float32List foodPheromones0; // Colony 0 food trails
   final Float32List foodPheromones1; // Colony 1 food trails
@@ -286,6 +288,7 @@ class WorldGrid {
       zones[i] = NestZone.none.index;
       dirtTypes[i] = DirtType.packedEarth.index; // Default to medium hardness
       dirtHealth[i] = dirtTypeHealth[DirtType.packedEarth]!;
+      explored[i] = 0; // Reset fog of war
       foodAmount[i] = 0;
       foodPheromones0[i] = 0;
       foodPheromones1[i] = 0;
@@ -322,6 +325,63 @@ class WorldGrid {
     _carveNestAt(nest1Position, 1);
   }
 
+  // ===== FOG OF WAR METHODS =====
+
+  /// Vision radius for ants (cells)
+  static const int antVisionRadius = 6;
+
+  /// Check if a cell has been explored (revealed)
+  bool isExplored(int x, int y) {
+    if (!isInsideIndex(x, y)) return false;
+    return explored[index(x, y)] > 0;
+  }
+
+  /// Get exploration value at cell (0 = fog, 255 = fully revealed)
+  int exploredAt(int x, int y) {
+    if (!isInsideIndex(x, y)) return 0;
+    return explored[index(x, y)];
+  }
+
+  /// Reveal cells in a circular area around a position (called by moving ants)
+  void revealArea(int centerX, int centerY, {int radius = antVisionRadius}) {
+    final radiusSq = radius * radius;
+    for (var dy = -radius; dy <= radius; dy++) {
+      for (var dx = -radius; dx <= radius; dx++) {
+        if (dx * dx + dy * dy > radiusSq) continue;
+        final x = centerX + dx;
+        final y = centerY + dy;
+        if (!isInsideIndex(x, y)) continue;
+        explored[index(x, y)] = 255;
+      }
+    }
+  }
+
+  /// Reveal cells around a Vector2 position
+  void revealCircle(Vector2 position, {int radius = antVisionRadius}) {
+    revealArea(position.x.floor(), position.y.floor(), radius: radius);
+  }
+
+  /// Reveal all cells (for debug or when disabling fog)
+  void revealAll() {
+    for (var i = 0; i < explored.length; i++) {
+      explored[i] = 255;
+    }
+  }
+
+  /// Count of explored cells (for stats)
+  int get exploredCellCount {
+    var count = 0;
+    for (var i = 0; i < explored.length; i++) {
+      if (explored[i] > 0) count++;
+    }
+    return count;
+  }
+
+  /// Percentage of map explored (0.0 to 1.0)
+  double get explorationProgress => exploredCellCount / explored.length;
+
+  // ===== END FOG OF WAR =====
+
   void _carveNestAt(Vector2 position, int colonyId) {
     final cx = position.x.floor();
     final cy = position.y.floor();
@@ -349,6 +409,7 @@ class WorldGrid {
           final idx = index(nx, ny);
           homeLayer[idx] = 1.0;
           _activePheromoneCells.add(idx);
+          explored[idx] = 255; // Reveal nest area (fog of war)
 
           // Assign zone based on distance from center
           if (dist <= queenRadius) {

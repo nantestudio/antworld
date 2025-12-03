@@ -8,7 +8,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -121,6 +120,19 @@ class HiveMindService {
         );
         if (decisionLog.length > _maxLogEntries) {
           decisionLog.removeLast();
+        }
+
+        // Store suggested memory from AI (if any)
+        if (decision.suggestedMemory != null &&
+            decision.suggestedMemory!.isNotEmpty) {
+          final memory = ColonyMemory(
+            sessionId: sessionId,
+            colonyId: 0, // Global insight
+            category: 'ai_insight',
+            content: decision.suggestedMemory!,
+            createdAt: DateTime.now(),
+          );
+          storeMemory(memory);
         }
 
         _handleSuccess();

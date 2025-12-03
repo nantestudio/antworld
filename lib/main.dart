@@ -21,6 +21,7 @@ import 'src/progression/unlockables.dart';
 import 'src/services/ad_service.dart';
 import 'src/services/analytics_service.dart';
 import 'src/services/cosmetics_service.dart';
+import 'src/services/evolution_tracker.dart';
 import 'src/services/hive_mind_service.dart';
 import 'src/services/idle_progress_service.dart';
 import 'src/simulation/colony_simulation.dart';
@@ -44,6 +45,9 @@ void main() async {
     supabaseUrl: 'https://mjlorprewlukdrsuwbrk.supabase.co',
     supabaseAnonKey: 'sb_publishable_A2LC2nC8anXPhGT5I2lgzQ_2S2v07wu',
   );
+
+  // Initialize Evolution Tracker (after HiveMind since it uses Supabase)
+  await EvolutionTracker.instance.initialize();
 
   runApp(const AntWorldApp());
 }
@@ -398,6 +402,17 @@ class _AntWorldAppState extends State<AntWorldApp> with WidgetsBindingObserver {
               child: FilledButton.tonal(
                 onPressed: _loading ? null : _startSandbox,
                 child: const Text('Launch Sandbox'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 48,
+              child: FilledButton.tonal(
+                onPressed: _loading ? null : _startAiLab,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.deepPurple.withValues(alpha: 0.3),
+                ),
+                child: const Text('AI Lab'),
               ),
             ),
             const SizedBox(height: 10),
@@ -933,6 +948,10 @@ class _AntWorldAppState extends State<AntWorldApp> with WidgetsBindingObserver {
 
   Future<void> _startSandbox() async {
     await _beginGame(const SandboxModeConfig());
+  }
+
+  Future<void> _startAiLab() async {
+    await _beginGame(const AiLabModeConfig());
   }
 
   ModeConfig _campaignConfig() {

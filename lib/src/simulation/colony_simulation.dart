@@ -10,6 +10,8 @@ import '../progression/progression_service.dart';
 import '../services/analytics_service.dart';
 import '../services/hive_mind_service.dart';
 import '../services/hive_mind_models.dart';
+import '../services/evolution_tracker.dart';
+import '../services/mother_nature_service.dart';
 import '../utils/colony_names.dart';
 import 'ant.dart';
 import 'level_layout.dart';
@@ -96,6 +98,9 @@ class ColonySimulation {
   final Map<int, Map<String, double>> _aiCasteOverrides = {};
   int _nextBuildTaskId = 1;
   final List<DeathEvent> _deathEvents = [];
+
+  // Mother Nature environmental event system
+  MotherNatureService? _motherNature;
 
   // Reusable structures for separation (avoid per-frame allocation)
   final Map<int, List<Ant>> _spatialHash = {};
@@ -361,6 +366,11 @@ class ColonySimulation {
       // Check for progression achievements
       ProgressionService.instance.checkAchievements(this);
 
+      // Track evolution metrics
+      EvolutionTracker.instance.updateSurvivalDays(newDays);
+      EvolutionTracker.instance.updatePeakAnts(ants.length);
+      EvolutionTracker.instance.updatePeakFood(_storedFood);
+
       // Track day milestones (10, 25, 50, 100, etc)
       const milestones = [10, 25, 50, 100, 200, 500];
       for (final milestone in milestones) {
@@ -377,6 +387,9 @@ class ColonySimulation {
 
     // Update defense alerts (decay timers)
     _updateDefenseAlerts(clampedDt);
+
+    // Mother Nature environmental events
+    _motherNature?.update(clampedDt * antSpeedMultiplier.value, daysPassed.value);
 
     final eggsToHatch = <Ant>[];
     final larvaeToMature = <Ant>[];
@@ -441,6 +454,15 @@ class ColonySimulation {
         _syncColonyFoodNotifier(ant.colonyId);
         // Track progression XP for food collection
         ProgressionService.instance.onFoodCollected(_storedFood);
+        // Store memory for significant food milestones (every 50 food)
+        if (_colonyFood[ant.colonyId] % 50 == 0 && _colonyFood[ant.colonyId] > 0) {
+          final colonyName = getColonyName(ant.colonyId);
+          _storeMemoryEvent(
+            colonyId: ant.colonyId,
+            category: 'food_milestone',
+            content: '$colonyName reached ${_colonyFood[ant.colonyId]} food stockpiled on day ${daysPassed.value}',
+          );
+        }
         // Food enables egg production - queue eggs instead of adults
         if (_colonyFood[ant.colonyId] % config.foodPerNewAnt == 0) {
           _colonyQueuedAnts[ant.colonyId] += 1;
@@ -630,6 +652,33 @@ class ColonySimulation {
     );
   }
 
+  /// Apply evolved parameters from AI evolution system
+  void applyEvolvedParams(Map<String, double> params) {
+    // Map evolved param names to config properties
+    for (final entry in params.entries) {
+      switch (entry.key) {
+        case 'explorerRatio':
+          config = config.copyWith(explorerRatio: entry.value.clamp(0.01, 0.2));
+        case 'pheromoneDecay':
+          config = config.copyWith(decayPerFrame: entry.value.clamp(0.95, 0.995));
+        case 'foodPheromoneStrength':
+          config = config.copyWith(foodDepositStrength: entry.value.clamp(0.3, 1.0));
+        case 'homePheromoneStrength':
+          config = config.copyWith(homeDepositStrength: entry.value.clamp(0.1, 0.5));
+        // Caste ratios are stored in AI overrides, not config
+        case 'workerRatio':
+        case 'soldierRatio':
+        case 'nurseRatio':
+        case 'builderRatio':
+          // Apply as default AI caste override for all colonies
+          for (var i = 0; i < config.colonyCount; i++) {
+            _aiCasteOverrides[i] ??= {};
+            _aiCasteOverrides[i]![entry.key.replaceAll('Ratio', '')] = entry.value;
+          }
+      }
+    }
+  }
+
   void dig(Vector2 cellPosition) {
     world.digCircle(cellPosition, config.digBrushRadius);
   }
@@ -681,6 +730,16 @@ class ColonySimulation {
     ColonyNameManager.instance.initializeNames(
       config.colonyCount,
       generated.seed,
+    );
+
+    // Initialize Mother Nature environmental event system
+    _motherNature = MotherNatureService(
+      world: world,
+      eventBus: eventBus,
+      getAnts: () => ants,
+      getAntCount: () => ants.length,
+      spawnPredatorAnt: _spawnPredatorAnt,
+      seed: generated.seed,
     );
   }
 
@@ -926,6 +985,21 @@ class ColonySimulation {
     );
     _updateAntCount();
     _emitAntCreated(AntCaste.egg, queen.colonyId);
+  }
+
+  /// Spawn a predator ant at a specific position (for Mother Nature raids)
+  void _spawnPredatorAnt(Vector2 position, int colonyId, AntCaste caste) {
+    ants.add(
+      Ant(
+        startPosition: position,
+        angle: _rng.nextDouble() * math.pi * 2,
+        energy: config.energyCapacity,
+        rng: _rng,
+        caste: caste,
+        colonyId: colonyId,
+      ),
+    );
+    _updateAntCount();
   }
 
   /// Get the count of princesses for a specific colony
@@ -1781,8 +1855,21 @@ class ColonySimulation {
 
       // Set defense alert - soldiers will respond
       final closestThreat = threats.first;
+      final wasAlerted = _defenseAlertPositions[colonyId] != null;
       _defenseAlertPositions[colonyId] = closestThreat.position.clone();
       _defenseAlertTimers[colonyId] = _defenseAlertDuration;
+
+      // Store memory when new defense alert triggered (not refreshed)
+      if (!wasAlerted) {
+        final colonyName = getColonyName(colonyId);
+        final attackerColonyId = closestThreat.colonyId;
+        final attackerName = getColonyName(attackerColonyId);
+        _storeMemoryEvent(
+          colonyId: colonyId,
+          category: 'defense_alert',
+          content: '$colonyName detected ${threats.length} enemy ants from $attackerName near nest at (${closestThreat.position.x.round()}, ${closestThreat.position.y.round()})',
+        );
+      }
 
       // Also trigger defense building for builders
       _triggerDefenseBuilding(colonyId, threats, nestPos);
@@ -2202,6 +2289,9 @@ class ColonySimulation {
 
   /// Handle queen death - check for princess succession before takeover
   void _handleQueenDeath(int defeatedColonyId, int conquerorColonyId) {
+    final defeatedName = getColonyName(defeatedColonyId);
+    final conquerorName = getColonyName(conquerorColonyId);
+
     // Check if the defeated colony has a princess to take over
     final princess = ants
         .where(
@@ -2219,8 +2309,20 @@ class ColonySimulation {
       print(
         'PRINCESS SUCCESSION: Colony $defeatedColonyId princess became queen!',
       );
+
+      // Store memory about the succession event
+      _storeMemoryEvent(
+        colonyId: defeatedColonyId,
+        category: 'queen_succession',
+        content: '$defeatedName queen killed by $conquerorName but princess succeeded as new queen',
+      );
     } else {
       // No princess available - colony is taken over
+      _storeMemoryEvent(
+        colonyId: defeatedColonyId,
+        category: 'queen_death',
+        content: '$defeatedName queen killed by $conquerorName with no princess - colony lost',
+      );
       _handleColonyTakeover(defeatedColonyId, conquerorColonyId);
     }
   }
@@ -2283,6 +2385,24 @@ class ColonySimulation {
     _deathEvents.add(
       DeathEvent(position: ant.position.clone(), colonyId: ant.colonyId),
     );
+  }
+
+  /// Store a significant event as a memory for AI context
+  void _storeMemoryEvent({
+    required int colonyId,
+    required String category,
+    required String content,
+  }) {
+    if (!HiveMindService.instance.isReady) return;
+
+    final memory = ColonyMemory(
+      sessionId: HiveMindService.instance.sessionId,
+      colonyId: colonyId,
+      category: category,
+      content: content,
+      createdAt: DateTime.now(),
+    );
+    HiveMindService.instance.storeMemory(memory);
   }
 
   void _spawnEmergencyQueen(int colonyId) {
@@ -2349,6 +2469,22 @@ class ColonySimulation {
       convertedAnts: convertedCount,
       daysPassed: daysPassed.value,
     );
+
+    // Store memory about the conquest
+    final conquerorName = getColonyName(conquerorColonyId);
+    final defeatedName = getColonyName(defeatedColonyId);
+    _storeMemoryEvent(
+      colonyId: conquerorColonyId,
+      category: 'colony_takeover',
+      content: '$conquerorName conquered $defeatedName, absorbed $convertedCount ants and food reserves on day ${daysPassed.value}',
+    );
+
+    // Track evolution metrics for conquest
+    if (conquerorColonyId == 0) {
+      EvolutionTracker.instance.recordColonyConquered();
+    } else if (defeatedColonyId == 0) {
+      EvolutionTracker.instance.recordColonyLost();
+    }
 
     // Award progression XP for conquest (only for player colony 0)
     if (conquerorColonyId == 0) {

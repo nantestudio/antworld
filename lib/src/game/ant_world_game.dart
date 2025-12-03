@@ -132,6 +132,9 @@ class AntWorldGame extends FlameGame
   final Paint _reinforcedWallPaint = Paint()
     ..color = const Color(0x33FFAB40)
     ..style = PaintingStyle.fill;
+  // Fog of war paint - dark overlay for unexplored areas
+  final Paint _fogPaint = Paint()..color = const Color(0xF0000000); // Near-opaque black
+  bool _fogOfWarEnabled = true; // Toggle for fog visibility
 
   // LOD (Level of Detail) paints for simplified ant rendering when zoomed out
   // Reusable paint object to avoid per-frame allocation
@@ -499,6 +502,11 @@ class AntWorldGame extends FlameGame
     }
 
     _renderAnts(canvas, cellSize);
+
+    // Draw fog of war overlay (on top of everything except UI)
+    if (_fogOfWarEnabled) {
+      _renderFog(canvas, world, cellSize);
+    }
   }
 
   void _drawNestLabel(Canvas canvas, Offset nestOffset, int colonyId) {
@@ -848,6 +856,45 @@ class AntWorldGame extends FlameGame
       }
     }
   }
+
+  /// Render fog of war overlay - dark cells for unexplored areas
+  void _renderFog(Canvas canvas, WorldGrid world, double cellSize) {
+    final cols = world.cols;
+    final rows = world.rows;
+
+    // Calculate visible bounds in cell coordinates for viewport culling
+    final visibleLeft = ((-_worldOffset.x / _worldScale) / cellSize).floor();
+    final visibleTop = ((-_worldOffset.y / _worldScale) / cellSize).floor();
+    final visibleRight =
+        (((-_worldOffset.x + _canvasSize.x) / _worldScale) / cellSize).ceil();
+    final visibleBottom =
+        (((-_worldOffset.y + _canvasSize.y) / _worldScale) / cellSize).ceil();
+
+    // Clamp to world bounds
+    final startX = visibleLeft.clamp(0, cols - 1);
+    final endX = visibleRight.clamp(0, cols);
+    final startY = visibleTop.clamp(0, rows - 1);
+    final endY = visibleBottom.clamp(0, rows);
+
+    // Draw fog rectangles only for unexplored cells in visible area
+    for (var x = startX; x < endX; x++) {
+      final dx = x * cellSize;
+      for (var y = startY; y < endY; y++) {
+        if (world.isExplored(x, y)) continue;
+        final dy = y * cellSize;
+        final rect = Rect.fromLTWH(dx, dy, cellSize, cellSize);
+        canvas.drawRect(rect, _fogPaint);
+      }
+    }
+  }
+
+  /// Toggle fog of war visibility
+  void toggleFogOfWar() {
+    _fogOfWarEnabled = !_fogOfWarEnabled;
+  }
+
+  /// Get current fog of war state
+  bool get fogOfWarEnabled => _fogOfWarEnabled;
 
   void _renderPheromonesLayer(Canvas canvas, WorldGrid world, double cellSize) {
     const cacheInterval = 3;

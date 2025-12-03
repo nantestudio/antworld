@@ -1,4 +1,4 @@
-enum GameMode { sandbox, zenMode, campaign, dailyChallenge }
+enum GameMode { sandbox, zenMode, campaign, dailyChallenge, aiLab }
 
 extension GameModeDescription on GameMode {
   String get displayName {
@@ -11,6 +11,8 @@ extension GameModeDescription on GameMode {
         return 'Campaign';
       case GameMode.dailyChallenge:
         return 'Daily Challenge';
+      case GameMode.aiLab:
+        return 'AI Lab';
     }
   }
 
@@ -24,6 +26,8 @@ extension GameModeDescription on GameMode {
         return 'Level-driven objectives with structured goals.';
       case GameMode.dailyChallenge:
         return 'Rotating scenarios with time-limited objectives.';
+      case GameMode.aiLab:
+        return 'Watch AI Hive Mind control your colony with evolved params.';
     }
   }
 }

@@ -95,3 +95,46 @@ class HiveMindProcessingEvent extends GameEvent {
 
   final bool isProcessing;
 }
+
+// ============================================================================
+// Mother Nature Events
+// ============================================================================
+
+/// Base class for Mother Nature environmental events
+abstract class NatureEventBase extends GameEvent {
+  const NatureEventBase({
+    required this.message,
+    required this.isPositive,
+  });
+
+  final String message;
+  final bool isPositive;
+}
+
+/// Emitted when a nature event occurs (food bloom, collapse, etc.)
+class NatureEventOccurred extends NatureEventBase {
+  const NatureEventOccurred({
+    required this.eventType,
+    required this.positionX,
+    required this.positionY,
+    required super.message,
+    required super.isPositive,
+    this.severity,
+  });
+
+  final String eventType;
+  final double positionX;
+  final double positionY;
+  final String? severity;
+}
+
+/// Emitted when the season changes
+class SeasonChangedEvent extends GameEvent {
+  const SeasonChangedEvent({
+    required this.season,
+    required this.seasonIndex,
+  });
+
+  final String season;
+  final int seasonIndex;
+}

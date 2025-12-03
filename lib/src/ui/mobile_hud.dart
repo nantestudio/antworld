@@ -16,8 +16,11 @@ import '../simulation/ant.dart';
 import '../simulation/room_blueprint.dart';
 import '../simulation/world_grid.dart';
 import '../simulation/colony_simulation.dart';
+import '../core/game_event.dart';
 import 'widgets/native_ad_widget.dart';
 import 'widgets/hive_mind_indicator.dart' show HiveMindIndicatorButton;
+import 'widgets/nature_event_toast.dart';
+import 'widgets/season_indicator.dart';
 
 /// Mobile-optimized HUD with bottom sheet controls and floating tools
 class MobileHud extends StatefulWidget {
@@ -95,6 +98,12 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
     });
   }
 
+  String _getSeasonName(int daysPassed) {
+    final seasonIndex = (daysPassed ~/ 7) % 4;
+    const seasons = ['Spring', 'Summer', 'Fall', 'Winter'];
+    return seasons[seasonIndex];
+  }
+
   @override
   Widget build(BuildContext context) {
     final showAds = Platform.isIOS || Platform.isAndroid;
@@ -113,6 +122,10 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
           if (showAds) _buildNativeAd(context),
           // Selected ant panel
           _buildSelectedAntPanel(context),
+          // Nature event toasts
+          NatureEventToastContainer(
+            eventStream: widget.simulation.eventBus.on<NatureEventOccurred>(),
+          ),
           // Note: AI Hive Mind indicator is now in top bar (HiveMindIndicatorButton)
         ],
       ),
@@ -155,6 +168,12 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
                     icon: Icons.bug_report,
                     value: '${sim.antCount.value}',
                     color: Colors.cyanAccent,
+                  ),
+                  const SizedBox(width: 8),
+                  // Season indicator
+                  SeasonIndicator(
+                    eventStream: sim.eventBus.on<SeasonChangedEvent>(),
+                    initialSeason: _getSeasonName(sim.daysPassed.value),
                   ),
                   const Spacer(),
                   // AI Hive Mind indicator

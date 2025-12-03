@@ -100,8 +100,8 @@ class WorldGenerator {
       countOverride: biome.rockFormations,
     );
 
-    // 2. Generate food positions first (so tunnels can connect to them)
-    final foodPositions = _scatterFood(
+    // 2. Generate food clusters (distant from nests - ants must dig to find)
+    _scatterFood(
       grid,
       rng,
       actualCols,
@@ -111,13 +111,16 @@ class WorldGenerator {
       overridePositions: layout?.foodOverride,
     );
 
-    // 3. Carve tunnels from each nest to nearest food source
+    // 3. Create starter area around each nest (small, ants must dig to expand)
     for (final nest in nestPositions) {
+      _carveStarterArea(grid, rng, nest);
       _placeStarterFoodNearNest(grid, rng, nest);
-      _carveTunnelToFood(grid, nest, foodPositions);
     }
 
-    // 4. Small caverns for exploration
+    // 4. Add terrain features for exploration
+    _generateTerrainFeatures(grid, rng, actualCols, actualRows, biome);
+
+    // 5. Small caverns for exploration
     _carveCaverns(
       grid,
       rng,
@@ -241,6 +244,236 @@ class WorldGenerator {
     grid.placeFood(pos, 2, amount: WorldGrid.defaultFoodPerCell ~/ 2);
   }
 
+  /// Carves a small starter area around the nest for initial exploration
+  /// This replaces the pre-carved tunnels to force ants to dig
+  void _carveStarterArea(WorldGrid grid, math.Random rng, Vector2 nest) {
+    const starterRadius = 8; // Small radius around nest
+
+    // Carve circular starter area with soft dirt on edges
+    for (var dy = -starterRadius; dy <= starterRadius; dy++) {
+      for (var dx = -starterRadius; dx <= starterRadius; dx++) {
+        final distSq = dx * dx + dy * dy;
+        if (distSq > starterRadius * starterRadius) continue;
+
+        final x = (nest.x + dx).floor();
+        final y = (nest.y + dy).floor();
+        if (!grid.isInsideIndex(x, y)) continue;
+
+        final dist = math.sqrt(distSq.toDouble());
+
+        // Inner area (radius < 5): clear air
+        if (dist < 5) {
+          grid.setCell(x, y, CellType.air);
+        }
+        // Outer ring: soft dirt for easy initial digging
+        else {
+          grid.setCell(x, y, CellType.dirt, dirtType: DirtType.softSand);
+        }
+      }
+    }
+  }
+
+  /// Generate terrain features to make maps more interesting
+  void _generateTerrainFeatures(
+    WorldGrid grid,
+    math.Random rng,
+    int cols,
+    int rows,
+    BiomeSettings biome,
+  ) {
+    // Aquifer zones - pockets of soft sand (easy-dig shortcuts)
+    _generateAquiferZones(grid, rng, cols, rows, count: 4);
+
+    // Hidden chambers - sealed spaces with potential treasures
+    _generateHiddenChambers(grid, rng, cols, rows, count: 2);
+
+    // Resource veins - lines of food embedded in walls
+    _generateResourceVeins(grid, rng, cols, rows, count: 5);
+
+    // Hard barriers - bedrock walls that require going around
+    _generateHardBarriers(grid, rng, cols, rows, count: 2);
+  }
+
+  /// Create pockets of soft sand (aquifer zones) - easy to dig through
+  void _generateAquiferZones(
+    WorldGrid grid,
+    math.Random rng,
+    int cols,
+    int rows, {
+    required int count,
+  }) {
+    for (var i = 0; i < count; i++) {
+      final pos = _randomPoint(rng, cols, rows);
+      final radius = rng.nextInt(8) + 6; // 6-13 radius
+
+      for (var dy = -radius; dy <= radius; dy++) {
+        for (var dx = -radius; dx <= radius; dx++) {
+          if (dx * dx + dy * dy > radius * radius) continue;
+
+          final x = (pos.x + dx).floor();
+          final y = (pos.y + dy).floor();
+          if (!grid.isInsideIndex(x, y)) continue;
+
+          // Only convert dirt cells
+          if (grid.cellTypeAt(x, y) == CellType.dirt) {
+            grid.setCell(x, y, CellType.dirt, dirtType: DirtType.softSand);
+          }
+        }
+      }
+    }
+  }
+
+  /// Create hidden sealed chambers with treasure potential
+  void _generateHiddenChambers(
+    WorldGrid grid,
+    math.Random rng,
+    int cols,
+    int rows, {
+    required int count,
+  }) {
+    final nests = grid.nestPositions;
+
+    for (var i = 0; i < count; i++) {
+      // Find position far from nests
+      Vector2 pos;
+      var attempts = 0;
+      do {
+        pos = _randomPoint(rng, cols, rows);
+        attempts++;
+
+        var tooClose = false;
+        for (final nest in nests) {
+          if (pos.distanceTo(nest) < rows * 0.3) {
+            tooClose = true;
+            break;
+          }
+        }
+        if (!tooClose) break;
+      } while (attempts < 50);
+
+      if (attempts >= 50) continue;
+
+      final radius = rng.nextInt(3) + 4; // 4-6 radius
+
+      // First surround with hard rock wall
+      for (var dy = -radius - 2; dy <= radius + 2; dy++) {
+        for (var dx = -radius - 2; dx <= radius + 2; dx++) {
+          final distSq = dx * dx + dy * dy;
+          final outerRadius = (radius + 2) * (radius + 2);
+          final innerRadius = radius * radius;
+
+          final x = (pos.x + dx).floor();
+          final y = (pos.y + dy).floor();
+          if (!grid.isInsideIndex(x, y)) continue;
+
+          // Create hardite wall around chamber
+          if (distSq <= outerRadius && distSq > innerRadius) {
+            grid.setCell(x, y, CellType.dirt, dirtType: DirtType.hardite);
+          }
+          // Interior is air
+          else if (distSq <= innerRadius) {
+            grid.setCell(x, y, CellType.air);
+          }
+        }
+      }
+
+      // Place treasure food inside (30% of cells)
+      for (var dy = -radius ~/ 2; dy <= radius ~/ 2; dy++) {
+        for (var dx = -radius ~/ 2; dx <= radius ~/ 2; dx++) {
+          if (rng.nextDouble() < 0.3) {
+            final x = (pos.x + dx).floor();
+            final y = (pos.y + dy).floor();
+            if (grid.isInsideIndex(x, y)) {
+              grid.setCell(x, y, CellType.food);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// Create lines of food cells embedded in walls
+  void _generateResourceVeins(
+    WorldGrid grid,
+    math.Random rng,
+    int cols,
+    int rows, {
+    required int count,
+  }) {
+    for (var i = 0; i < count; i++) {
+      final start = _randomPoint(rng, cols, rows);
+      var angle = rng.nextDouble() * math.pi * 2;
+      final length = rng.nextInt(20) + 10; // 10-30 cells
+
+      var x = start.x;
+      var y = start.y;
+
+      for (var j = 0; j < length; j++) {
+        final gx = x.round();
+        final gy = y.round();
+
+        if (grid.isInsideIndex(gx, gy)) {
+          final cell = grid.cellTypeAt(gx, gy);
+          // Only place food in dirt cells (don't replace air/rock)
+          if (cell == CellType.dirt) {
+            grid.setCell(gx, gy, CellType.food);
+          }
+        }
+
+        // Gentle curve
+        angle += (rng.nextDouble() - 0.5) * 0.3;
+        x += math.cos(angle);
+        y += math.sin(angle);
+      }
+    }
+  }
+
+  /// Create bedrock barriers that require strategic routing
+  void _generateHardBarriers(
+    WorldGrid grid,
+    math.Random rng,
+    int cols,
+    int rows, {
+    required int count,
+  }) {
+    for (var i = 0; i < count; i++) {
+      final start = _randomPoint(rng, cols, rows);
+      var angle = rng.nextDouble() * math.pi * 2;
+      final length = rng.nextInt(30) + 15; // 15-45 cells
+      const thickness = 3;
+
+      var x = start.x;
+      var y = start.y;
+
+      for (var j = 0; j < length; j++) {
+        final gx = x.round();
+        final gy = y.round();
+
+        // Create thick bedrock wall
+        for (var t = -thickness ~/ 2; t <= thickness ~/ 2; t++) {
+          final perpAngle = angle + math.pi / 2;
+          final tx = (gx + math.cos(perpAngle) * t).round();
+          final ty = (gy + math.sin(perpAngle) * t).round();
+
+          if (grid.isInsideIndex(tx, ty)) {
+            final cell = grid.cellTypeAt(tx, ty);
+            // Only replace dirt, not air or food
+            if (cell == CellType.dirt) {
+              grid.setCell(tx, ty, CellType.dirt, dirtType: DirtType.bedrock);
+            }
+          }
+        }
+
+        // Gentle curve
+        angle += (rng.nextDouble() - 0.5) * 0.2;
+        x += math.cos(angle);
+        y += math.sin(angle);
+        x = x.clamp(5, cols - 5).toDouble();
+        y = y.clamp(5, rows - 5).toDouble();
+      }
+    }
+  }
+
   void _carveCaverns(
     WorldGrid grid,
     math.Random rng,
@@ -322,107 +555,6 @@ class WorldGenerator {
     }
 
     return foodPositions;
-  }
-
-  /// Carves a 2-cell-wide tunnel with sharp corners from nest to the nearest food source
-  void _carveTunnelToFood(
-    WorldGrid grid,
-    Vector2 nest,
-    List<Vector2> foodPositions,
-  ) {
-    if (foodPositions.isEmpty) return;
-
-    // Connect to up to 2 nearest food sources for redundancy
-    final sortedFood = foodPositions.toList()
-      ..sort((a, b) => nest.distanceTo(a).compareTo(nest.distanceTo(b)));
-    final targets = sortedFood.take(2).toList();
-    final rng = math.Random(nest.x.toInt() ^ nest.y.toInt());
-
-    for (final target in targets) {
-      final distance = nest.distanceTo(target);
-      if (distance < 1) continue;
-      final segments = math.max(4, (distance / 20).round());
-      final waypoints = <Vector2>[nest.clone()];
-
-      for (var i = 1; i < segments; i++) {
-        final t = i / segments;
-        var baseX = nest.x + (target.x - nest.x) * t;
-        var baseY = nest.y + (target.y - nest.y) * t;
-
-        final sine = math.sin(t * math.pi);
-        final cosine = math.cos(t * math.pi * 0.5);
-        final offsetStrength = distance * 0.25 * sine;
-        final perpendicular = Vector2(-(target.y - nest.y), target.x - nest.x);
-        if (perpendicular.length > 0) {
-          perpendicular.normalize();
-          final wobble = (rng.nextDouble() - 0.5) * 0.6;
-          baseX += perpendicular.x * (offsetStrength * wobble);
-          baseY += perpendicular.y * (offsetStrength * wobble);
-        }
-
-        baseY += math.sin(t * math.pi * 2) * 2.5 * cosine;
-        waypoints.add(Vector2(baseX, baseY));
-      }
-
-      waypoints.add(target.clone());
-
-      for (var i = 0; i < waypoints.length - 1; i++) {
-        _carveSegment(grid, waypoints[i], waypoints[i + 1]);
-      }
-      _openAirsForPheromones(grid, waypoints);
-    }
-  }
-
-  /// Carves a 2-cell-wide straight segment between two points
-  void _carveSegment(WorldGrid grid, Vector2 from, Vector2 to) {
-    final dx = to.x - from.x;
-    final dy = to.y - from.y;
-    final dist = math.sqrt(dx * dx + dy * dy);
-    if (dist < 1) return;
-
-    final stepX = dx / dist;
-    final stepY = dy / dist;
-    final perpX = -stepY;
-    final perpY = stepX;
-    final steps = dist.ceil();
-
-    var x = from.x;
-    var y = from.y;
-
-    for (var i = 0; i <= steps; i++) {
-      // Carve 2 cells wide
-      for (var w = 0; w < 2; w++) {
-        final gx = (x + perpX * w).round();
-        final gy = (y + perpY * w).round();
-
-        if (grid.isInsideIndex(gx, gy)) {
-          final cellType = grid.cellTypeAt(gx, gy);
-          if (cellType == CellType.dirt) {
-            grid.setCell(gx, gy, CellType.air);
-          }
-        }
-      }
-
-      x += stepX;
-      y += stepY;
-    }
-  }
-
-  void _openAirsForPheromones(WorldGrid grid, List<Vector2> waypoints) {
-    for (final point in waypoints) {
-      final gx = point.x.round();
-      final gy = point.y.round();
-      for (var dx = -1; dx <= 1; dx++) {
-        for (var dy = -1; dy <= 1; dy++) {
-          final nx = gx + dx;
-          final ny = gy + dy;
-          if (!grid.isInsideIndex(nx, ny)) continue;
-          if (grid.cellTypeAt(nx, ny) == CellType.dirt) {
-            grid.setCell(nx, ny, CellType.air);
-          }
-        }
-      }
-    }
   }
 
   /// Creates varied organic rock formations: roots, boulder clusters, and veins

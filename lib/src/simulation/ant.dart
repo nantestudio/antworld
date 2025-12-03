@@ -265,6 +265,10 @@ class Ant {
   final Vector2 _lastPosition = Vector2.zero();
   double _stuckTime = 0;
   static const double _stuckThreshold = 30.0; // seconds before considered stuck
+
+  // Fog of war - track last cell revealed to avoid redundant updates
+  int _lastRevealCellX = -1;
+  int _lastRevealCellY = -1;
   static const double _moveThreshold =
       0.5; // minimum distance to count as moved
 
@@ -338,6 +342,19 @@ class Ant {
 
     // Track age for lifespan/natural death
     _age += dt;
+
+    // Fog of war - reveal area around ant when moving to new cell
+    // Skip for eggs/larvae (immobile)
+    if (caste != AntCaste.egg && caste != AntCaste.larva) {
+      final cellX = position.x.floor();
+      final cellY = position.y.floor();
+      // Only reveal if moved to a different cell (performance optimization)
+      if (cellX != _lastRevealCellX || cellY != _lastRevealCellY) {
+        world.revealArea(cellX, cellY);
+        _lastRevealCellX = cellX;
+        _lastRevealCellY = cellY;
+      }
+    }
 
     // Handle collision pause - ant stops briefly after hitting something
     if (_collisionPauseTimer > 0) {
