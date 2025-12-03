@@ -1,4 +1,6 @@
 PODS:
+  - app_links (6.4.1):
+    - FlutterMacOS
   - device_info_plus (0.0.1):
     - FlutterMacOS
   - Firebase/CoreOnly (12.4.0):
@@ -96,21 +98,32 @@ PODS:
   - nanopb/encode (3.30910.0)
   - package_info_plus (0.0.1):
     - FlutterMacOS
+  - path_provider_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - PromisesObjC (2.4.0)
   - shared_preferences_foundation (0.0.1):
     - Flutter
+    - FlutterMacOS
+  - url_launcher_macos (0.0.1):
+    - FlutterMacOS
+  - wakelock_plus (0.0.1):
     - FlutterMacOS
   - webview_flutter_wkwebview (0.0.1):
     - Flutter
     - FlutterMacOS
 
 DEPENDENCIES:
+  - app_links (from `Flutter/ephemeral/.symlinks/plugins/app_links/macos`)
   - device_info_plus (from `Flutter/ephemeral/.symlinks/plugins/device_info_plus/macos`)
   - firebase_analytics (from `Flutter/ephemeral/.symlinks/plugins/firebase_analytics/macos`)
   - firebase_core (from `Flutter/ephemeral/.symlinks/plugins/firebase_core/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - package_info_plus (from `Flutter/ephemeral/.symlinks/plugins/package_info_plus/macos`)
+  - path_provider_foundation (from `Flutter/ephemeral/.symlinks/plugins/path_provider_foundation/darwin`)
   - shared_preferences_foundation (from `Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin`)
+  - url_launcher_macos (from `Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos`)
+  - wakelock_plus (from `Flutter/ephemeral/.symlinks/plugins/wakelock_plus/macos`)
   - webview_flutter_wkwebview (from `Flutter/ephemeral/.symlinks/plugins/webview_flutter_wkwebview/darwin`)
 
 SPEC REPOS:
@@ -126,6 +139,8 @@ SPEC REPOS:
     - PromisesObjC
 
 EXTERNAL SOURCES:
+  app_links:
+    :path: Flutter/ephemeral/.symlinks/plugins/app_links/macos
   device_info_plus:
     :path: Flutter/ephemeral/.symlinks/plugins/device_info_plus/macos
   firebase_analytics:
@@ -136,12 +151,19 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral
   package_info_plus:
     :path: Flutter/ephemeral/.symlinks/plugins/package_info_plus/macos
+  path_provider_foundation:
+    :path: Flutter/ephemeral/.symlinks/plugins/path_provider_foundation/darwin
   shared_preferences_foundation:
     :path: Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin
+  url_launcher_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos
+  wakelock_plus:
+    :path: Flutter/ephemeral/.symlinks/plugins/wakelock_plus/macos
   webview_flutter_wkwebview:
     :path: Flutter/ephemeral/.symlinks/plugins/webview_flutter_wkwebview/darwin
 
 SPEC CHECKSUMS:
+  app_links: 05a6ec2341985eb05e9f97dc63f5837c39895c3f
   device_info_plus: 4fb280989f669696856f8b129e4a5e3cd6c48f76
   Firebase: f07b15ae5a6ec0f93713e30b923d9970d144af3e
   firebase_analytics: 09241c4796c1c42a02349ef8bf30025f5b640f0e
@@ -155,8 +177,11 @@ SPEC CHECKSUMS:
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   package_info_plus: f0052d280d17aa382b932f399edf32507174e870
+  path_provider_foundation: bb55f6dbba17d0dccd6737fe6f7f34fbd0376880
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+  url_launcher_macos: f87a979182d112f911de6820aefddaf56ee9fbfd
+  wakelock_plus: 917609be14d812ddd9e9528876538b2263aaa03b
   webview_flutter_wkwebview: 8ebf4fded22593026f7dbff1fbff31ea98573c8d
 
 PODFILE CHECKSUM: 3e6c56d72b37b3ffcab406cbbbf61ce1272a71cf

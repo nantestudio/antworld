@@ -17,6 +17,7 @@ import '../simulation/room_blueprint.dart';
 import '../simulation/world_grid.dart';
 import '../simulation/colony_simulation.dart';
 import 'widgets/native_ad_widget.dart';
+import 'widgets/hive_mind_indicator.dart' show HiveMindIndicatorButton;
 
 /// Mobile-optimized HUD with bottom sheet controls and floating tools
 class MobileHud extends StatefulWidget {
@@ -97,11 +98,6 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final showAds = Platform.isIOS || Platform.isAndroid;
-    debugPrint(
-      'MobileHud active: platform=${defaultTargetPlatform.name} '
-      'kIsWeb=$kIsWeb size=${MediaQuery.of(context).size} '
-      'wide=${widget.isWideLayout} showAds=$showAds',
-    );
     return Positioned.fill(
       child: Stack(
         children: [
@@ -117,6 +113,7 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
           if (showAds) _buildNativeAd(context),
           // Selected ant panel
           _buildSelectedAntPanel(context),
+          // Note: AI Hive Mind indicator is now in top bar (HiveMindIndicatorButton)
         ],
       ),
     );
@@ -160,6 +157,8 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
                     color: Colors.cyanAccent,
                   ),
                   const Spacer(),
+                  // AI Hive Mind indicator
+                  const HiveMindIndicatorButton(),
                   // Menu button
                   IconButton(
                     icon: const Icon(Icons.menu, color: Colors.white),
@@ -732,106 +731,140 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.grey.shade900,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.5,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Simulation Speed',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              ValueListenableBuilder<double>(
-                valueListenable: widget.simulation.antSpeedMultiplier,
-                builder: (context, multiplier, _) {
-                  const double base = 0.2;
-                  final display = (multiplier / base).clamp(1.0, 10.0);
-                  return Column(
-                    children: [
-                      Text(
-                        '${display.toStringAsFixed(1)}x',
-                        style: const TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Slider(
-                        value: display.clamp(1.0, maxSpeed),
-                        min: 1.0,
-                        max: maxSpeed,
-                        divisions: ((maxSpeed - 1) * 2).toInt(),
-                        onChanged: (value) {
-                          widget.simulation.setAntSpeedMultiplier(value * base);
-                          AnalyticsService.instance.logSpeedChanged(
-                            speedMultiplier: value,
-                          );
-                        },
-                      ),
-                      if (maxSpeed < 10.0)
+                const SizedBox(height: 20),
+                const Text(
+                  'Simulation Speed',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                ValueListenableBuilder<double>(
+                  valueListenable: widget.simulation.antSpeedMultiplier,
+                  builder: (context, multiplier, _) {
+                    const double base = 0.2;
+                    final display = (multiplier / base).clamp(1.0, 10.0);
+                    return Column(
+                      children: [
                         Text(
-                          'Unlock faster speeds by leveling up!',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.6),
-                            fontSize: 12,
+                          '${display.toStringAsFixed(1)}x',
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-              // Quick speed buttons
-              Wrap(
-                spacing: 8,
-                children: [
-                  _SpeedButton(
-                    label: '1x',
-                    speed: 1.0,
-                    maxSpeed: maxSpeed,
-                    sim: widget.simulation,
-                  ),
-                  _SpeedButton(
-                    label: '2x',
-                    speed: 2.0,
-                    maxSpeed: maxSpeed,
-                    sim: widget.simulation,
-                  ),
-                  _SpeedButton(
-                    label: '3x',
-                    speed: 3.0,
-                    maxSpeed: maxSpeed,
-                    sim: widget.simulation,
-                  ),
-                  _SpeedButton(
-                    label: '5x',
-                    speed: 5.0,
-                    maxSpeed: maxSpeed,
-                    sim: widget.simulation,
-                  ),
-                  _SpeedButton(
-                    label: '10x',
-                    speed: 10.0,
-                    maxSpeed: maxSpeed,
-                    sim: widget.simulation,
-                  ),
-                ],
-              ),
-            ],
+                        const SizedBox(height: 8),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            trackShape: const RoundedRectSliderTrackShape(),
+                          ),
+                          child: Slider(
+                            value: display.clamp(1.0, maxSpeed),
+                            min: 1.0,
+                            max: maxSpeed,
+                            divisions: maxSpeed > 1.0
+                                ? ((maxSpeed - 1) * 2).toInt()
+                                : null,
+                            onChanged: maxSpeed > 1.0
+                                ? (value) {
+                                    widget.simulation
+                                        .setAntSpeedMultiplier(value * base);
+                                    AnalyticsService.instance.logSpeedChanged(
+                                      speedMultiplier: value,
+                                    );
+                                  }
+                                : null,
+                          ),
+                        ),
+                        if (maxSpeed < 10.0)
+                          Text(
+                            'Unlock faster speeds by leveling up!',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.6),
+                              fontSize: 12,
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+                // Quick speed buttons - use LayoutBuilder for responsive layout
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final buttonWidth =
+                        (constraints.maxWidth - 32) / 5; // 5 buttons, 4 gaps
+                    final useWrap = buttonWidth < 50; // Too narrow, use wrap
+                    final buttons = [
+                      _SpeedButton(
+                        label: '1x',
+                        speed: 1.0,
+                        maxSpeed: maxSpeed,
+                        sim: widget.simulation,
+                      ),
+                      _SpeedButton(
+                        label: '2x',
+                        speed: 2.0,
+                        maxSpeed: maxSpeed,
+                        sim: widget.simulation,
+                      ),
+                      _SpeedButton(
+                        label: '3x',
+                        speed: 3.0,
+                        maxSpeed: maxSpeed,
+                        sim: widget.simulation,
+                      ),
+                      _SpeedButton(
+                        label: '5x',
+                        speed: 5.0,
+                        maxSpeed: maxSpeed,
+                        sim: widget.simulation,
+                      ),
+                      _SpeedButton(
+                        label: '10x',
+                        speed: 10.0,
+                        maxSpeed: maxSpeed,
+                        sim: widget.simulation,
+                      ),
+                    ];
+
+                    if (useWrap) {
+                      return Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.center,
+                        children: buttons,
+                      );
+                    }
+
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: buttons,
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1340,7 +1373,7 @@ class _MobileStatsContent extends StatelessWidget {
             // Colony stats
             if (colonyCount >= 1)
               _ColonyCard(
-                name: 'Colony 0',
+                name: sim.getColonyName(0),
                 color: _colonyColors[0],
                 food: sim.colony0Food.value,
                 workers: sim.workerCount,
@@ -1353,7 +1386,7 @@ class _MobileStatsContent extends StatelessWidget {
             if (colonyCount >= 2) ...[
               const SizedBox(height: 12),
               _ColonyCard(
-                name: 'Colony 1',
+                name: sim.getColonyName(1),
                 color: _colonyColors[1],
                 food: sim.colony1Food.value,
                 workers: sim.enemy1WorkerCount,
@@ -1367,7 +1400,7 @@ class _MobileStatsContent extends StatelessWidget {
             if (colonyCount >= 3) ...[
               const SizedBox(height: 12),
               _ColonyCard(
-                name: 'Colony 2',
+                name: sim.getColonyName(2),
                 color: _colonyColors[2],
                 food: sim.colony2Food.value,
                 workers: sim.enemy2WorkerCount,
@@ -1381,7 +1414,7 @@ class _MobileStatsContent extends StatelessWidget {
             if (colonyCount >= 4) ...[
               const SizedBox(height: 12),
               _ColonyCard(
-                name: 'Colony 3',
+                name: sim.getColonyName(3),
                 color: _colonyColors[3],
                 food: sim.colony3Food.value,
                 workers: sim.enemy3WorkerCount,

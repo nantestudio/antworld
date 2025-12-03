@@ -8,6 +8,9 @@ import '../core/event_bus.dart';
 import '../core/game_event.dart';
 import '../progression/progression_service.dart';
 import '../services/analytics_service.dart';
+import '../services/hive_mind_service.dart';
+import '../services/hive_mind_models.dart';
+import '../utils/colony_names.dart';
 import 'ant.dart';
 import 'level_layout.dart';
 import 'simulation_config.dart';
@@ -87,6 +90,10 @@ class ColonySimulation {
   static const double _roomCheckInterval = 30.0;
   double _resourceCheckTimer = 0.0;
   static const double _resourceCheckInterval = 15.0;
+  double _hiveMindCheckTimer = 0.0;
+  static const double _hiveMindCheckInterval = 30.0; // AI decisions every 30s
+  // Temporary caste ratio overrides from AI
+  final Map<int, Map<String, double>> _aiCasteOverrides = {};
   int _nextBuildTaskId = 1;
   final List<DeathEvent> _deathEvents = [];
 
@@ -326,6 +333,18 @@ class ColonySimulation {
     if (_resourceCheckTimer >= _resourceCheckInterval) {
       _checkColonyResources();
       _resourceCheckTimer = 0.0;
+    }
+
+    // AI Hive Mind decision requests
+    _hiveMindCheckTimer += clampedDt;
+    if (_hiveMindCheckTimer >= _hiveMindCheckInterval) {
+      _requestHiveMindDecision();
+      _hiveMindCheckTimer = 0.0;
+    }
+
+    // Apply pending AI decisions (check every second)
+    if (_physicsFrame % 60 == 0) {
+      _applyPendingHiveMindDecision();
     }
 
     // Track elapsed time and update days (1 minute = 1 day, affected by speed multiplier)
@@ -657,6 +676,17 @@ class ColonySimulation {
     _scheduleNextFoodCheck();
     _spawnInitialColony();
     _updateAntCount();
+
+    // Initialize random tribe names for colonies
+    ColonyNameManager.instance.initializeNames(
+      config.colonyCount,
+      generated.seed,
+    );
+  }
+
+  /// Get the display name for a colony
+  String getColonyName(int colonyId) {
+    return ColonyNameManager.instance.getName(colonyId);
   }
 
   void generateRandomWorld({
@@ -803,6 +833,11 @@ class ColonySimulation {
     _lastSeed = (snapshot['seed'] as num?)?.toInt();
     _elapsedTime = (snapshot['elapsedTime'] as num?)?.toDouble() ?? 0.0;
     daysPassed.value = (snapshot['daysPassed'] as num?)?.toInt() ?? 0;
+
+    // Initialize colony names from seed
+    if (_lastSeed != null) {
+      ColonyNameManager.instance.initializeNames(config.colonyCount, _lastSeed!);
+    }
 
     // Ensure both colonies have a queen (for migrating old saves)
     _ensureQueensExist();
@@ -1127,12 +1162,14 @@ class ColonySimulation {
         .where((a) => a.caste == AntCaste.builder)
         .length;
 
-    // Target ratios (55% workers, 15% each for specialists)
-    const targetWorkerRatio = 0.55;
-    const targetSoldierRatio = 0.15;
-    const targetNurseRatio = 0.15;
+    // Check for AI override ratios first
+    final aiRatios = _aiCasteOverrides[colonyId];
+    final targetWorkerRatio = aiRatios?['worker'] ?? 0.55;
+    final targetSoldierRatio = aiRatios?['soldier'] ?? 0.15;
+    final targetNurseRatio = aiRatios?['nurse'] ?? 0.15;
     final builderBacklog = _builderBacklog(colonyId);
-    final targetBuilderRatio = _targetBuilderRatioFor(colonyId, builderBacklog);
+    final targetBuilderRatio = aiRatios?['builder'] ??
+        _targetBuilderRatioFor(colonyId, builderBacklog);
 
     // Calculate how much each caste is underrepresented
     final workerDeficit = targetWorkerRatio - (workers / total);
@@ -2381,6 +2418,209 @@ class ColonySimulation {
       'nest1': {'x': world.nest1Position.x, 'y': world.nest1Position.y},
       'rooms': world.rooms.map((r) => r.toJson()).toList(),
     };
+  }
+
+  // ===========================================================================
+  // AI Hive Mind Integration
+  // ===========================================================================
+
+  /// Build a snapshot of current simulation state for AI decision making
+  HiveMindStateSnapshot _buildHiveMindSnapshot() {
+    final colonies = <ColonyMetrics>[];
+
+    for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
+      final nest =
+          colonyId == 0 ? world.nestPosition : world.nest1Position;
+      int workers = 0, soldiers = 0, nurses = 0, builders = 0;
+      int larvae = 0, eggs = 0;
+      bool hasQueen = false;
+
+      for (final ant in ants) {
+        if (ant.colonyId != colonyId || ant.isDead) continue;
+        switch (ant.caste) {
+          case AntCaste.worker:
+            workers++;
+          case AntCaste.soldier:
+            soldiers++;
+          case AntCaste.nurse:
+            nurses++;
+          case AntCaste.builder:
+            builders++;
+          case AntCaste.larva:
+            larvae++;
+          case AntCaste.egg:
+            eggs++;
+          case AntCaste.queen:
+            hasQueen = true;
+          default:
+            break;
+        }
+      }
+
+      colonies.add(ColonyMetrics(
+        colonyId: colonyId,
+        name: getColonyName(colonyId),
+        food: _colonyFood[colonyId],
+        workers: workers,
+        soldiers: soldiers,
+        nurses: nurses,
+        builders: builders,
+        larvae: larvae,
+        eggs: eggs,
+        hasQueen: hasQueen,
+        underAttack: _defenseAlertPositions[colonyId] != null,
+        nestX: nest.x,
+        nestY: nest.y,
+      ));
+    }
+
+    // Gather active threats
+    final threats = <ThreatInfo>[];
+    for (var i = 0; i < _defenseAlertPositions.length; i++) {
+      final pos = _defenseAlertPositions[i];
+      if (pos != null) {
+        // Count enemy ants near this position
+        var attackerCount = 0;
+        var attackerColonyId = -1;
+        for (final ant in ants) {
+          if (ant.colonyId != i && !ant.isDead) {
+            final dx = ant.position.x - pos.x;
+            final dy = ant.position.y - pos.y;
+            if (dx * dx + dy * dy < 100) {
+              // Within 10 cells
+              attackerCount++;
+              attackerColonyId = ant.colonyId;
+            }
+          }
+        }
+        if (attackerCount > 0) {
+          threats.add(ThreatInfo(
+            targetColonyId: i,
+            attackerColonyId: attackerColonyId,
+            x: pos.x,
+            y: pos.y,
+            attackerCount: attackerCount,
+          ));
+        }
+      }
+    }
+
+    return HiveMindStateSnapshot(
+      colonies: colonies,
+      totalFoodOnMap: world.foodCells.length,
+      totalAnts: ants.length,
+      elapsedTime: _elapsedTime,
+      daysPassed: daysPassed.value,
+      activeThreats: threats,
+      recentEvents: [], // TODO: collect recent events from event bus
+      tunableParams: {
+        'explorerRatio': config.explorerRatio,
+        'antSpeed': config.antSpeed,
+        'sensorDistance': config.sensorDistance.toDouble(),
+      },
+    );
+  }
+
+  /// Request a decision from the AI Hive Mind (async, non-blocking)
+  void _requestHiveMindDecision() {
+    if (!HiveMindService.instance.isReady) return;
+
+    final snapshot = _buildHiveMindSnapshot();
+    HiveMindService.instance.requestDecisionAsync(snapshot);
+  }
+
+  /// Apply any pending AI decision
+  void _applyPendingHiveMindDecision() {
+    final decision = HiveMindService.instance.consumePendingDecision();
+    if (decision == null) return;
+
+    for (final directive in decision.directives) {
+      _applyDirective(directive);
+    }
+
+    // Emit event for UI notification
+    eventBus.emit(HiveMindDecisionAppliedEvent(
+      reasoning: decision.reasoning,
+      directiveCount: decision.directives.length,
+    ));
+  }
+
+  /// Apply a single directive from the AI
+  void _applyDirective(ColonyDirective directive) {
+    switch (directive.type) {
+      case DirectiveType.adjustCasteRatio:
+        // Store caste ratio overrides for this colony
+        _aiCasteOverrides[directive.colonyId] =
+            Map<String, double>.from(directive.params.map(
+          (k, v) => MapEntry(k, (v as num).toDouble()),
+        ));
+
+      case DirectiveType.setExplorerRatio:
+        final ratio = directive.params['ratio'] as num?;
+        if (ratio != null) {
+          config = config.copyWith(
+            explorerRatio: ratio.toDouble().clamp(0.0, 0.5),
+          );
+        }
+
+      case DirectiveType.prioritizeDefense:
+        // Trigger defense mode for this colony
+        final colonyId = directive.colonyId;
+        if (colonyId < _defenseAlertTimers.length) {
+          _defenseAlertTimers[colonyId] = _defenseAlertDuration;
+        }
+
+      case DirectiveType.focusOnFood:
+        // Clear any caste overrides to return to normal behavior
+        _aiCasteOverrides.remove(directive.colonyId);
+
+      case DirectiveType.queueRoomConstruction:
+        final typeStr = directive.params['type'] as String?;
+        if (typeStr != null) {
+          RoomType? roomType;
+          switch (typeStr) {
+            case 'nursery':
+              roomType = RoomType.nursery;
+            case 'foodStorage':
+              roomType = RoomType.foodStorage;
+            case 'barracks':
+              roomType = RoomType.barracks;
+          }
+          if (roomType != null) {
+            // Find a location for the new room near the nest
+            final nest = directive.colonyId == 0
+                ? world.nestPosition
+                : world.nest1Position;
+            final targetLocation = nest +
+                Vector2(
+                  _rng.nextDouble() * 20 - 10,
+                  10 + _rng.nextDouble() * 10,
+                );
+            _buildQueue.add(
+              _BuildTask(
+                id: _nextBuildTaskId++,
+                kind: _BuildTaskKind.room,
+                colonyId: directive.colonyId,
+                targetLocation: targetLocation,
+                radius: 8.0,
+                roomType: roomType,
+              ),
+            );
+          }
+        }
+
+      case DirectiveType.triggerEmergency:
+        // Emergency mode - all soldiers to defense
+        final colonyId = directive.colonyId;
+        if (colonyId < _defenseAlertTimers.length) {
+          _defenseAlertTimers[colonyId] = _defenseAlertDuration * 2;
+        }
+    }
+  }
+
+  /// Get AI-suggested caste ratio for a colony, or null for default behavior
+  Map<String, double>? getAICasteRatio(int colonyId) {
+    return _aiCasteOverrides[colonyId];
   }
 }
 

@@ -1975,7 +1975,7 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
             if (colonyCount >= 1) ...[
               _buildColonySection(
                 theme: theme,
-                colonyName: 'Colony 0',
+                colonyName: sim.getColonyName(0),
                 colonyColor: _colonyColors[0],
                 queenCount: sim.queenCount,
                 workerCount: sim.workerCount,
@@ -1990,7 +1990,7 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
               const SizedBox(height: 16),
               _buildColonySection(
                 theme: theme,
-                colonyName: 'Colony 1',
+                colonyName: sim.getColonyName(1),
                 colonyColor: _colonyColors[1],
                 queenCount: sim.enemy1QueenCount,
                 workerCount: sim.enemy1WorkerCount,
@@ -2005,7 +2005,7 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
               const SizedBox(height: 16),
               _buildColonySection(
                 theme: theme,
-                colonyName: 'Colony 2',
+                colonyName: sim.getColonyName(2),
                 colonyColor: _colonyColors[2],
                 queenCount: sim.enemy2QueenCount,
                 workerCount: sim.enemy2WorkerCount,
@@ -2020,7 +2020,7 @@ class _StatsPanelContentState extends State<_StatsPanelContent> {
               const SizedBox(height: 16),
               _buildColonySection(
                 theme: theme,
-                colonyName: 'Colony 3',
+                colonyName: sim.getColonyName(3),
                 colonyColor: _colonyColors[3],
                 queenCount: sim.enemy3QueenCount,
                 workerCount: sim.enemy3WorkerCount,

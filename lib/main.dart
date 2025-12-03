@@ -21,6 +21,7 @@ import 'src/progression/unlockables.dart';
 import 'src/services/ad_service.dart';
 import 'src/services/analytics_service.dart';
 import 'src/services/cosmetics_service.dart';
+import 'src/services/hive_mind_service.dart';
 import 'src/services/idle_progress_service.dart';
 import 'src/simulation/colony_simulation.dart';
 import 'src/simulation/simulation_config.dart';
@@ -37,6 +38,13 @@ void main() async {
   await CosmeticsService.instance.load();
   await DailyGoalService.instance.load();
   await IdleProgressService.instance.load();
+
+  // Initialize AI Hive Mind
+  await HiveMindService.instance.initialize(
+    supabaseUrl: 'https://mjlorprewlukdrsuwbrk.supabase.co',
+    supabaseAnonKey: 'sb_publishable_A2LC2nC8anXPhGT5I2lgzQ_2S2v07wu',
+  );
+
   runApp(const AntWorldApp());
 }
 

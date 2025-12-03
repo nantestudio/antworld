@@ -206,22 +206,27 @@ class AntWorldGame extends FlameGame
     color: Color(0x88FFFFFF),
     fontSize: 8,
   );
-  late final TextPainter _colony0LabelPainter = TextPainter(
-    text: const TextSpan(text: 'Colony 0', style: _nestLabelStyle),
-    textDirection: TextDirection.ltr,
-  )..layout();
-  late final TextPainter _colony1LabelPainter = TextPainter(
-    text: const TextSpan(text: 'Colony 1', style: _nestLabelStyle),
-    textDirection: TextDirection.ltr,
-  )..layout();
-  late final TextPainter _colony2LabelPainter = TextPainter(
-    text: const TextSpan(text: 'Colony 2', style: _nestLabelStyle),
-    textDirection: TextDirection.ltr,
-  )..layout();
-  late final TextPainter _colony3LabelPainter = TextPainter(
-    text: const TextSpan(text: 'Colony 3', style: _nestLabelStyle),
-    textDirection: TextDirection.ltr,
-  )..layout();
+  // Colony label painters - created dynamically based on colony names
+  final Map<int, TextPainter> _colonyLabelPainters = {};
+  final Map<int, String> _cachedColonyNames = {};
+
+  TextPainter _getColonyLabelPainter(int colonyId) {
+    final currentName = simulation.getColonyName(colonyId);
+
+    // Check if we need to recreate the painter (name changed)
+    if (_cachedColonyNames[colonyId] != currentName) {
+      _cachedColonyNames[colonyId] = currentName;
+      _colonyLabelPainters[colonyId] = TextPainter(
+        text: TextSpan(text: currentName, style: _nestLabelStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+    }
+
+    return _colonyLabelPainters[colonyId] ??= TextPainter(
+      text: TextSpan(text: currentName, style: _nestLabelStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+  }
   late final TextPainter _homeLabelPainter = TextPainter(
     text: const TextSpan(text: 'Hatchery', style: _roomLabelStyle),
     textDirection: TextDirection.ltr,
@@ -497,12 +502,7 @@ class AntWorldGame extends FlameGame
   }
 
   void _drawNestLabel(Canvas canvas, Offset nestOffset, int colonyId) {
-    final painter = switch (colonyId) {
-      0 => _colony0LabelPainter,
-      1 => _colony1LabelPainter,
-      2 => _colony2LabelPainter,
-      _ => _colony3LabelPainter,
-    };
+    final painter = _getColonyLabelPainter(colonyId);
     final offset = nestOffset - Offset(painter.width / 2, painter.height + 6);
     painter.paint(canvas, offset);
   }
