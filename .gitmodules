@@ -1,3 +1,0 @@
-[submodule "supabase-backend"]
-	path = supabase-backend
-	url = git@github.com:nantestudio/nantestudio.git
