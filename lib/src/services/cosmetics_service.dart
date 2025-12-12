@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 
 import '../state/unified_storage.dart';
+
 class CosmeticPalette {
   const CosmeticPalette({
     required this.id,
@@ -10,7 +11,6 @@ class CosmeticPalette {
     required this.body,
     required this.carrying,
     this.description = '',
-    this.requiredLevel,
   });
 
   final String id;
@@ -18,8 +18,6 @@ class CosmeticPalette {
   final Color body;
   final Color carrying;
   final String description;
-  final int? requiredLevel;
-
 }
 
 class CosmeticsService extends ChangeNotifier {
@@ -30,35 +28,32 @@ class CosmeticsService extends ChangeNotifier {
 
   final UnifiedStorage _storage;
   final Map<String, CosmeticPalette> _palettes = {
-    'default': CosmeticPalette(
+    'default': const CosmeticPalette(
       id: 'default',
       name: 'Colony Red',
-      body: const Color(0xFFF44336),
-      carrying: const Color(0xFFEF9A9A),
+      body: Color(0xFFF44336),
+      carrying: Color(0xFFEF9A9A),
     ),
-    'forest': CosmeticPalette(
+    'forest': const CosmeticPalette(
       id: 'forest',
       name: 'Forest Glow',
-      body: const Color(0xFF66BB6A),
-      carrying: const Color(0xFFA5D6A7),
-      requiredLevel: 2,
-      description: 'A lush green palette earned early on.',
+      body: Color(0xFF66BB6A),
+      carrying: Color(0xFFA5D6A7),
+      description: 'A lush green palette.',
     ),
-    'ember': CosmeticPalette(
+    'ember': const CosmeticPalette(
       id: 'ember',
-      name: 'Ember Ember',
-      body: const Color(0xFFFF7043),
-      carrying: const Color(0xFFFFAB91),
-      requiredLevel: 4,
+      name: 'Ember',
+      body: Color(0xFFFF7043),
+      carrying: Color(0xFFFFAB91),
       description: 'Fiery workers show off their speed.',
     ),
-    'glacier': CosmeticPalette(
+    'glacier': const CosmeticPalette(
       id: 'glacier',
       name: 'Glacier',
-      body: const Color(0xFF81D4FA),
-      carrying: const Color(0xFFB3E5FC),
-      requiredLevel: 5,
-      description: 'Cool tones for chilled out zen runs.',
+      body: Color(0xFF81D4FA),
+      carrying: Color(0xFFB3E5FC),
+      description: 'Cool tones for chilled out runs.',
     ),
   };
 

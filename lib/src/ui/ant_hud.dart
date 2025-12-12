@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import '../core/game_state_manager.dart';
 import '../core/god_actions_controller.dart';
 import '../core/game_mode.dart';
-import '../core/mode_config.dart';
 import '../game/ant_world_game.dart';
 import '../services/analytics_service.dart';
 import '../simulation/ant.dart';
@@ -88,12 +87,8 @@ class _AntHudState extends State<AntHud> {
   Widget _buildGoalOverlay(BuildContext context) {
     final config = widget.gameStateManager.currentConfig;
     if (config == null) return const SizedBox.shrink();
-    final objective = (config is CampaignLevelConfig)
-        ? config.objective.description
-        : 'Survive and thrive';
-    final levelLabel = (config is CampaignLevelConfig)
-        ? config.levelId
-        : config.mode.displayName;
+    final objective = 'Survive and thrive';
+    final levelLabel = config.mode.displayName;
     return Positioned(
       top: 12,
       left: 72, // clear left tabs
@@ -248,17 +243,7 @@ class _AntHudState extends State<AntHud> {
             ),
           ),
           const SizedBox(width: 8),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(cooldownText, style: const TextStyle(fontSize: 11)),
-              TextButton(
-                onPressed: () => controller.watchAdForCharge(type),
-                child: const Text('+1 via ad', style: TextStyle(fontSize: 11)),
-              ),
-            ],
-          ),
+          Text(cooldownText, style: const TextStyle(fontSize: 11)),
         ],
       ),
     );

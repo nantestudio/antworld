@@ -64,39 +64,6 @@ class SimulationLifecycleEvent extends GameEvent {
 enum SimulationLifecyclePhase { starting, ended }
 
 // ============================================================================
-// Hive Mind AI Events
-// ============================================================================
-
-/// Emitted when the AI Hive Mind makes a strategic decision
-class HiveMindDecisionAppliedEvent extends GameEvent {
-  const HiveMindDecisionAppliedEvent({
-    required this.reasoning,
-    required this.directiveCount,
-  });
-
-  final String reasoning;
-  final int directiveCount;
-}
-
-/// Emitted when the AI stores a memory for future context
-class HiveMindMemoryStoredEvent extends GameEvent {
-  const HiveMindMemoryStoredEvent({
-    required this.category,
-    required this.content,
-  });
-
-  final String category;
-  final String content;
-}
-
-/// Emitted when the AI starts/stops processing
-class HiveMindProcessingEvent extends GameEvent {
-  const HiveMindProcessingEvent({required this.isProcessing});
-
-  final bool isProcessing;
-}
-
-// ============================================================================
 // Mother Nature Events
 // ============================================================================
 

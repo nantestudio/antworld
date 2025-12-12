@@ -8,19 +8,14 @@ import 'game_mode.dart';
 import 'mode_config.dart';
 import 'player_progress.dart';
 import 'god_actions_controller.dart';
-import '../progression/daily_goal_service.dart';
-import '../services/idle_progress_service.dart';
-import '../services/evolution_tracker.dart';
 
 class GameStateManager extends ChangeNotifier {
   GameStateManager({UnifiedStorage? storage, GameEventBus? eventBus})
     : _storage = storage ?? UnifiedStorage(),
-      _eventBus = eventBus ?? GameEventBus(),
-      _dailyGoals = DailyGoalService.instance;
+      _eventBus = eventBus ?? GameEventBus();
 
   final UnifiedStorage _storage;
   final GameEventBus _eventBus;
-  final DailyGoalService _dailyGoals;
   final GodActionsController godActions = GodActionsController();
 
   GameMode? _currentMode;
@@ -41,11 +36,9 @@ class GameStateManager extends ChangeNotifier {
   bool get canWin => _currentConfig?.winCondition != null;
   bool get canLose => _currentConfig?.loseCondition != null;
   bool get hasActiveSimulation => _simulation != null;
-  DailyGoalService get dailyGoals => _dailyGoals;
 
   @override
   void dispose() {
-    _dailyGoals.disposeListeners();
     _eventBus.dispose();
     super.dispose();
   }
@@ -55,8 +48,6 @@ class GameStateManager extends ChangeNotifier {
       return;
     }
     _playerProgress = await _storage.loadPlayerProgress();
-    await _dailyGoals.load();
-    await _dailyGoals.attach(_eventBus);
     _progressLoaded = true;
     notifyListeners();
   }
@@ -90,20 +81,6 @@ class GameStateManager extends ChangeNotifier {
     _currentConfig = config;
     _currentMode = config.mode;
 
-    _applyBankedIdleRewards(simulation);
-
-    // Apply evolved parameters if available
-    _applyEvolvedParams(simulation);
-
-    // Start evolution tracking for this session
-    EvolutionTracker.instance.startSession();
-
-    // Record snapshot for idle rewards
-    await IdleProgressService.instance.recordSession(
-      mode: config.mode,
-      simulation: simulation,
-    );
-
     _eventBus.emit(GameModeChangedEvent(mode: config.mode));
     _eventBus.emit(SimulationLifecycleEvent.starting(mode: config.mode));
 
@@ -120,13 +97,6 @@ class GameStateManager extends ChangeNotifier {
     if (save && (_currentConfig?.allowSave ?? false)) {
       await saveCurrentGame();
     }
-    await IdleProgressService.instance.recordSession(
-      mode: mode,
-      simulation: _simulation,
-    );
-
-    // End evolution tracking and trigger evolution
-    await EvolutionTracker.instance.endSession();
 
     _simulation = null;
     _currentConfig = null;
@@ -207,35 +177,11 @@ class GameStateManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _applyBankedIdleRewards(ColonySimulation simulation) {
-    final bankedFood = IdleProgressService.instance.takeBankedFood();
-    if (bankedFood > 0) {
-      simulation.dropBonusFood(bankedFood);
-    }
-  }
-
   void _setLoading(bool value) {
     if (_isLoading == value) {
       return;
     }
     _isLoading = value;
     notifyListeners();
-  }
-
-  /// Apply evolved parameters to simulation
-  void _applyEvolvedParams(ColonySimulation simulation) {
-    final evolved = EvolutionTracker.instance.evolvedParams;
-    if (evolved.generation == 0) {
-      // No evolution yet, use defaults
-      return;
-    }
-
-    debugPrint('Applying evolved params (generation ${evolved.generation}):');
-    for (final entry in evolved.params.entries) {
-      debugPrint('  ${entry.key}: ${entry.value}');
-    }
-
-    // Apply to simulation config via copyWith
-    simulation.applyEvolvedParams(evolved.params);
   }
 }

@@ -6,19 +6,14 @@ import 'package:vibration/vibration.dart';
 
 import '../core/game_state_manager.dart';
 import '../core/god_actions_controller.dart';
-import '../core/mode_config.dart';
 import '../core/game_mode.dart';
 import '../game/ant_world_game.dart';
-import '../progression/progression_service.dart';
-import '../progression/unlockables.dart';
 import '../services/analytics_service.dart';
 import '../simulation/ant.dart';
 import '../simulation/room_blueprint.dart';
 import '../simulation/world_grid.dart';
 import '../simulation/colony_simulation.dart';
 import '../core/game_event.dart';
-import 'widgets/native_ad_widget.dart';
-import 'widgets/hive_mind_indicator.dart' show HiveMindIndicatorButton;
 import 'widgets/nature_event_toast.dart';
 import 'widgets/season_indicator.dart';
 
@@ -118,8 +113,6 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
           _buildToolPalette(context),
           // Bottom control bar
           _buildBottomBar(context, showAds: showAds),
-          // Native ad at the very bottom
-          if (showAds) _buildNativeAd(context),
           // Selected ant panel
           _buildSelectedAntPanel(context),
           // Nature event toasts
@@ -176,8 +169,6 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
                     initialSeason: _getSeasonName(sim.daysPassed.value),
                   ),
                   const Spacer(),
-                  // AI Hive Mind indicator
-                  const HiveMindIndicatorButton(),
                   // Menu button
                   IconButton(
                     icon: const Icon(Icons.menu, color: Colors.white),
@@ -329,12 +320,8 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
   Widget _buildGoalChip(BuildContext context) {
     final config = widget.gameStateManager.currentConfig;
     if (config == null) return const SizedBox.shrink();
-    final objective = (config is CampaignLevelConfig)
-        ? config.objective.description
-        : 'Survive and thrive';
-    final levelLabel = (config is CampaignLevelConfig)
-        ? config.levelId
-        : config.mode.displayName;
+    final objective = 'Survive and thrive';
+    final levelLabel = config.mode.displayName;
     return Positioned(
       top: MediaQuery.of(context).padding.top + 36,
       left: 12,
@@ -642,15 +629,6 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildNativeAd(BuildContext context) {
-    return const Positioned(
-      bottom: 0,
-      left: 0,
-      right: 0,
-      child: NativeAdWidget(),
-    );
-  }
-
   Widget _buildSelectedAntPanel(BuildContext context) {
     return ValueListenableBuilder<Ant?>(
       valueListenable: widget.game.selectedAnt,
@@ -744,8 +722,7 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
 
   void _showSpeedSheet(BuildContext context) {
     _haptic();
-    final progression = ProgressionService.instance;
-    final maxSpeed = getMaxSpeedForLevel(progression.level);
+    const maxSpeed = 10.0; // All speeds unlocked
 
     showModalBottomSheet(
       context: context,
@@ -1119,10 +1096,6 @@ class _GodToolButton extends StatelessWidget {
         Text(
           '${state.charges}/${state.maxCharges} • $cooldownText',
           style: const TextStyle(fontSize: 10, color: Colors.white70),
-        ),
-        TextButton(
-          onPressed: () => controller.watchAdForCharge(type),
-          child: const Text('+1 via ad', style: TextStyle(fontSize: 10)),
         ),
       ],
     );

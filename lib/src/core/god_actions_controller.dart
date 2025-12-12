@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:flame/components.dart';
 
-import '../services/ad_service.dart';
 import '../simulation/colony_simulation.dart';
 
 enum GodActionType { digBurst, foodDrop, rockWall }
@@ -21,10 +20,8 @@ class GodActionState {
 }
 
 class GodActionsController {
-  GodActionsController({AdService? adService})
-    : _adService = adService ?? AdService.instance;
+  GodActionsController();
 
-  final AdService _adService;
   final Map<GodActionType, int> _charges = {
     GodActionType.digBurst: 2,
     GodActionType.foodDrop: 2,
@@ -82,19 +79,6 @@ class GodActionsController {
     }
     _changes.add(null);
     return true;
-  }
-
-  Future<bool> watchAdForCharge(GodActionType type) async {
-    final ok = await _adService.showRewardedAd();
-    if (!ok) return false;
-    final max = _maxCharges[type] ?? 0;
-    final current = _charges[type] ?? 0;
-    if (current < max) {
-      _charges[type] = current + 1;
-      _changes.add(null);
-      return true;
-    }
-    return false;
   }
 
   void _applyDigBurst(ColonySimulation sim) {

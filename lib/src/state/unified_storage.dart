@@ -7,12 +7,9 @@ import '../core/player_progress.dart';
 
 class StorageKeys {
   static const String sandboxSave = 'sandbox_save';
-  static const String campaignProgress = 'campaign_progress';
   static const String playerProgress = 'player_progress';
-  static const String dailyGoals = 'daily_goals';
   static const String cosmetics = 'cosmetics';
   static const String settings = 'settings';
-  static const String idleState = 'idle_state';
 }
 
 const String _saveVersion = '1.0.0';
@@ -46,15 +43,10 @@ class SaveData {
   }
 
   factory SaveData.fromJson(Map<String, dynamic> json) {
-    final modeName = json['mode'] as String? ?? GameMode.sandbox.name;
-    final mode = GameMode.values.firstWhere(
-      (value) => value.name == modeName,
-      orElse: () => GameMode.sandbox,
-    );
     final savedAt =
         DateTime.tryParse(json['savedAt'] as String? ?? '') ?? DateTime.now();
     return SaveData(
-      mode: mode,
+      mode: GameMode.sandbox,
       savedAt: savedAt,
       version: json['version'] as String? ?? _saveVersion,
       modeData: Map<String, dynamic>.from(
@@ -85,12 +77,12 @@ class UnifiedStorage {
   Future<void> saveModeState(SaveData save) async {
     final prefs = await _prefsFuture;
     final payload = jsonEncode(save.toJson());
-    await prefs.setString(_keyForMode(save.mode), payload);
+    await prefs.setString(StorageKeys.sandboxSave, payload);
   }
 
   Future<SaveData?> loadModeState(GameMode mode) async {
     final prefs = await _prefsFuture;
-    final raw = prefs.getString(_keyForMode(mode));
+    final raw = prefs.getString(StorageKeys.sandboxSave);
     if (raw == null) {
       return null;
     }
@@ -99,12 +91,12 @@ class UnifiedStorage {
 
   Future<void> deleteModeState(GameMode mode) async {
     final prefs = await _prefsFuture;
-    await prefs.remove(_keyForMode(mode));
+    await prefs.remove(StorageKeys.sandboxSave);
   }
 
   Future<bool> hasModeState(GameMode mode) async {
     final prefs = await _prefsFuture;
-    return prefs.containsKey(_keyForMode(mode));
+    return prefs.containsKey(StorageKeys.sandboxSave);
   }
 
   Future<void> savePlayerProgress(PlayerProgress progress) async {
@@ -122,34 +114,6 @@ class UnifiedStorage {
       return PlayerProgress.initial();
     }
     return PlayerProgress.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-  }
-
-  Future<void> saveCampaignProgress(Map<String, dynamic> progress) async {
-    final prefs = await _prefsFuture;
-    await prefs.setString(StorageKeys.campaignProgress, jsonEncode(progress));
-  }
-
-  Future<Map<String, dynamic>> loadCampaignProgress() async {
-    final prefs = await _prefsFuture;
-    final raw = prefs.getString(StorageKeys.campaignProgress);
-    if (raw == null) {
-      return const {};
-    }
-    return jsonDecode(raw) as Map<String, dynamic>;
-  }
-
-  Future<void> saveDailyGoals(Map<String, dynamic> goals) async {
-    final prefs = await _prefsFuture;
-    await prefs.setString(StorageKeys.dailyGoals, jsonEncode(goals));
-  }
-
-  Future<Map<String, dynamic>> loadDailyGoals() async {
-    final prefs = await _prefsFuture;
-    final raw = prefs.getString(StorageKeys.dailyGoals);
-    if (raw == null) {
-      return const {};
-    }
-    return jsonDecode(raw) as Map<String, dynamic>;
   }
 
   Future<void> saveCosmetics(Map<String, dynamic> cosmetics) async {
@@ -178,34 +142,5 @@ class UnifiedStorage {
       return const {};
     }
     return jsonDecode(raw) as Map<String, dynamic>;
-  }
-
-  Future<void> saveIdleState(Map<String, dynamic> state) async {
-    final prefs = await _prefsFuture;
-    await prefs.setString(StorageKeys.idleState, jsonEncode(state));
-  }
-
-  Future<Map<String, dynamic>> loadIdleState() async {
-    final prefs = await _prefsFuture;
-    final raw = prefs.getString(StorageKeys.idleState);
-    if (raw == null) {
-      return const {};
-    }
-    return jsonDecode(raw) as Map<String, dynamic>;
-  }
-
-  String _keyForMode(GameMode mode) {
-    switch (mode) {
-      case GameMode.sandbox:
-        return StorageKeys.sandboxSave;
-      case GameMode.zenMode:
-        return '${StorageKeys.idleState}_zen';
-      case GameMode.campaign:
-        return '${StorageKeys.idleState}_campaign';
-      case GameMode.dailyChallenge:
-        return '${StorageKeys.idleState}_daily';
-      case GameMode.aiLab:
-        return '${StorageKeys.idleState}_ailab';
-    }
   }
 }
