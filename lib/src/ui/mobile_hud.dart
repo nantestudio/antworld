@@ -49,6 +49,8 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
   Future<void> _haptic([
     HapticFeedbackType type = HapticFeedbackType.lightImpact,
   ]) async {
+    // Skip vibration on web - the vibration package doesn't support it
+    if (kIsWeb) return;
     if (Platform.isIOS || Platform.isAndroid) {
       final hasVibrator = await Vibration.hasVibrator();
       if (hasVibrator == true) {
@@ -101,7 +103,7 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final showAds = Platform.isIOS || Platform.isAndroid;
+    final showAds = !kIsWeb && (Platform.isIOS || Platform.isAndroid);
     return Positioned.fill(
       child: Stack(
         children: [
