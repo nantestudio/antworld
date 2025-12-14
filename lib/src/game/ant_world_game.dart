@@ -56,20 +56,31 @@ class AntWorldGame extends FlameGame
 
   final Paint _screenBgPaint = Paint()..color = const Color(0xFF0F0F0F);
   // 5 dirt type paints (from soft sand to hardite)
+  // isAntiAlias = false prevents visible seams between adjacent cells
   final Paint _softSandPaint = Paint()
-    ..color = const Color(0xFFD7CCC8); // Light tan
+    ..color = const Color(0xFFD7CCC8) // Light tan
+    ..isAntiAlias = false;
   final Paint _looseSoilPaint = Paint()
-    ..color = const Color(0xFFA1887F); // Sandy brown
+    ..color = const Color(0xFFA1887F) // Sandy brown
+    ..isAntiAlias = false;
   final Paint _packedEarthPaint = Paint()
-    ..color = const Color(0xFF795548); // Medium brown
+    ..color = const Color(0xFF795548) // Medium brown
+    ..isAntiAlias = false;
   final Paint _clayPaint = Paint()
-    ..color = const Color(0xFF5D4037); // Dark brown
+    ..color = const Color(0xFF5D4037) // Dark brown
+    ..isAntiAlias = false;
   final Paint _harditePaint = Paint()
-    ..color = const Color(0xFF8D6E63); // Reddish-brown
+    ..color = const Color(0xFF8D6E63) // Reddish-brown
+    ..isAntiAlias = false;
   final Paint _bedrockPaint = Paint()
-    ..color = const Color(0xFF616161); // Dark gray (replaces rock)
-  final Paint _foodPaint = Paint()..color = const Color(0xFF76FF03);
-  final Paint _rockPaint = Paint()..color = const Color(0xFF999999);
+    ..color = const Color(0xFF616161) // Dark gray (replaces rock)
+    ..isAntiAlias = false;
+  final Paint _foodPaint = Paint()
+    ..color = const Color(0xFF76FF03)
+    ..isAntiAlias = false;
+  final Paint _rockPaint = Paint()
+    ..color = const Color(0xFF999999)
+    ..isAntiAlias = false;
   // Nest paints for all 4 colonies (match ant colors)
   final Paint _nestPaint = Paint()
     ..color = const Color(0xFFF44336); // Red (matches colony 0)
@@ -131,7 +142,9 @@ class AntWorldGame extends FlameGame
     ..color = const Color(0x33FFAB40)
     ..style = PaintingStyle.fill;
   // Fog of war paint - dark overlay for unexplored areas
-  final Paint _fogPaint = Paint()..color = const Color(0xF0000000); // Near-opaque black
+  final Paint _fogPaint = Paint()
+    ..color = const Color(0xF0000000) // Near-opaque black
+    ..isAntiAlias = false;
   bool _fogOfWarEnabled = true; // Toggle for fog visibility
 
   // LOD (Level of Detail) paints for simplified ant rendering when zoomed out
