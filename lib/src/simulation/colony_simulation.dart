@@ -10,6 +10,7 @@ import '../services/analytics_service.dart';
 import '../services/mother_nature_service.dart';
 import '../utils/colony_names.dart';
 import 'ant.dart';
+import 'colony_planner.dart';
 import 'level_layout.dart';
 import 'simulation_config.dart';
 import 'room_blueprint.dart';
@@ -39,6 +40,7 @@ class ColonySimulation {
 
   SimulationConfig config;
   late WorldGrid world;
+  late ColonyPlanner planner;
   final GameEventBus eventBus;
   final List<Ant> ants = []; // Contains ants from all colonies
   final ValueNotifier<int> antCount;
@@ -84,10 +86,13 @@ class ColonySimulation {
   double _foodCheckTimer = 0.0;
   double _nextFoodCheck = 300.0; // ~5 minutes between food spawns
   final List<_BuildTask> _buildQueue = [];
+  final List<RoomPlan> _plannedRooms = []; // Rooms planned by queen
   double _roomCheckTimer = 0.0;
   static const double _roomCheckInterval = 30.0;
   double _resourceCheckTimer = 0.0;
   static const double _resourceCheckInterval = 15.0;
+  double _queenPlanningTimer = 0.0;
+  static const double _queenPlanningInterval = 60.0; // Queen plans every 60s
   int _nextBuildTaskId = 1;
   final List<DeathEvent> _deathEvents = [];
 
@@ -504,6 +509,13 @@ class ColonySimulation {
       _maintainFoodSupply();
       _scheduleNextFoodCheck();
     }
+
+    // Queen room planning - check if new rooms should be built
+    _queenPlanningTimer += clampedDt;
+    if (_queenPlanningTimer >= _queenPlanningInterval) {
+      _queenPlanningTimer = 0;
+      _queenRoomPlanning();
+    }
   }
 
   void togglePheromones() {
@@ -688,6 +700,7 @@ class ColonySimulation {
   void applyGeneratedWorld(GeneratedWorld generated) {
     config = generated.config;
     world = generated.world;
+    planner = ColonyPlanner(world);
     _lastSeed = generated.seed;
     _scheduleNextFoodCheck();
     _spawnInitialColony();
@@ -818,6 +831,10 @@ class ColonySimulation {
         }
       }
     }
+
+    // Initialize planner after world is restored
+    planner = ColonyPlanner(world);
+
     final blueprintData = snapshot['roomBlueprints'];
     if (blueprintData is List) {
       final restored = blueprintData
@@ -1619,6 +1636,9 @@ class ColonySimulation {
         target: task.targetLocation,
         roomType: task.roomType,
         radius: task.radius,
+        radiusX: task.roomPlan?.radiusX,
+        radiusY: task.roomPlan?.radiusY,
+        rotation: task.roomPlan?.rotation ?? 0.0,
         emergency: task.emergency,
         taskId: task.id,
         blueprintCells: task.blueprintCells,
@@ -1741,14 +1761,36 @@ class ColonySimulation {
     }
     final task = _buildQueue.removeAt(index);
     if (task.kind == _BuildTaskKind.room && task.roomType != null) {
-      world.addRoom(
-        Room(
-          type: task.roomType!,
-          center: task.targetLocation.clone(),
-          radius: task.radius,
+      // Use oval dimensions from roomPlan if available
+      final plan = task.roomPlan;
+      final newRoom = Room(
+        type: task.roomType!,
+        center: task.targetLocation.clone(),
+        radius: task.radius,
+        radiusX: plan?.radiusX,
+        radiusY: plan?.radiusY,
+        rotation: plan?.rotation ?? 0.0,
+        colonyId: task.colonyId,
+      );
+      world.addRoom(newRoom);
+
+      // Automatically queue wall reinforcement for the new room
+      _buildQueue.add(
+        _BuildTask(
+          id: _nextBuildTaskId++,
+          kind: _BuildTaskKind.reinforce,
           colonyId: task.colonyId,
+          targetLocation: task.targetLocation.clone(),
+          radius: task.radius,
+          roomType: task.roomType,
+          roomPlan: plan,
         ),
       );
+
+      // Remove from planned rooms list
+      if (plan != null) {
+        _plannedRooms.remove(plan);
+      }
     } else if (task.kind == _BuildTaskKind.blueprint &&
         task.blueprintId != null) {
       _finalizeBlueprint(task.blueprintId!);
@@ -2486,6 +2528,61 @@ class ColonySimulation {
     }
   }
 
+  /// Queen autonomously plans new rooms based on colony needs
+  void _queenRoomPlanning() {
+    for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
+      // Check if colony has a queen
+      final hasQueen = ants.any(
+        (a) => a.colonyId == colonyId && a.caste == AntCaste.queen && !a.isDead,
+      );
+      if (!hasQueen) continue;
+
+      // Check if there's already a planned room being built for this colony
+      final hasPendingRoom = _buildQueue.any(
+        (task) =>
+            task.colonyId == colonyId &&
+            task.kind == _BuildTaskKind.room &&
+            !task.inProgress,
+      );
+      if (hasPendingRoom) continue;
+
+      // Get colony stats for planning
+      final eggCount = ants
+          .where((a) => a.colonyId == colonyId && a.caste == AntCaste.egg)
+          .length;
+      final workerCount = ants
+          .where((a) => a.colonyId == colonyId && a.caste == AntCaste.worker && !a.isDead)
+          .length;
+      final foodCount = _colonyFood[colonyId];
+
+      // Ask planner for next room
+      final roomPlan = planner.planNextRoom(
+        colonyId,
+        world.rooms.where((r) => r.colonyId == colonyId).toList(),
+        eggCount,
+        foodCount,
+        workerCount,
+      );
+
+      if (roomPlan != null) {
+        // Add to build queue with oval dimensions
+        _buildQueue.add(
+          _BuildTask(
+            id: _nextBuildTaskId++,
+            kind: _BuildTaskKind.room,
+            colonyId: colonyId,
+            targetLocation: roomPlan.center.clone(),
+            radius: math.max(roomPlan.radiusX, roomPlan.radiusY),
+            roomType: roomPlan.type,
+            // Store the full room plan for oval construction
+            roomPlan: roomPlan,
+          ),
+        );
+        _plannedRooms.add(roomPlan);
+      }
+    }
+  }
+
   double _computeDamage(Ant attacker, Ant defender) {
     final variance = 0.8 + _rng.nextDouble() * 0.5;
     final mitigation = defender.defense * (0.3 + _rng.nextDouble() * 0.2);
@@ -2553,6 +2650,7 @@ class _BuildTask {
     this.roomType,
     this.blueprintId,
     this.blueprintCells,
+    this.roomPlan,
     this.emergency = false,
   });
 
@@ -2564,6 +2662,7 @@ class _BuildTask {
   final RoomType? roomType;
   final int? blueprintId;
   final List<(int, int)>? blueprintCells;
+  final RoomPlan? roomPlan; // For oval room construction
   bool emergency;
   bool inProgress = false;
   int assignedBuilderId = -1;

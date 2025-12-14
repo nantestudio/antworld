@@ -1538,6 +1538,9 @@ class Ant {
   Vector2? _builderTarget;
   RoomType? _builderTargetRoomType;
   double _builderTargetRadius = 0;
+  double _builderRadiusX = 0; // Oval horizontal radius
+  double _builderRadiusY = 0; // Oval vertical radius
+  double _builderRotation = 0; // Oval rotation
   final List<(int, int)> _builderPendingCells = <(int, int)>[];
   int _activeBuilderTaskId = -1;
   int? _completedBuilderTaskId;
@@ -1555,6 +1558,9 @@ class Ant {
     required Vector2 target,
     RoomType? roomType,
     double radius = 3.0,
+    double? radiusX,
+    double? radiusY,
+    double rotation = 0.0,
     bool emergency = false,
     int taskId = -1,
     List<(int, int)>? blueprintCells,
@@ -1564,6 +1570,9 @@ class Ant {
     _builderTarget = target.clone();
     _builderTargetRoomType = roomType;
     _builderTargetRadius = radius;
+    _builderRadiusX = radiusX ?? radius;
+    _builderRadiusY = radiusY ?? radius;
+    _builderRotation = rotation;
     _builderPendingCells.clear();
     if (blueprintCells != null && blueprintCells.isNotEmpty) {
       _builderPendingCells.addAll(blueprintCells);
@@ -1812,20 +1821,53 @@ class Ant {
     }
     final cx = target.x.floor();
     final cy = target.y.floor();
-    final radius = _builderTargetRadius.ceil() + 1;
     final cells = <(int, int)>[];
-    for (var dx = -radius; dx <= radius; dx++) {
-      for (var dy = -radius; dy <= radius; dy++) {
-        final x = cx + dx;
-        final y = cy + dy;
-        if (!world.isInsideIndex(x, y)) continue;
-        final dist = math.sqrt(dx * dx + dy * dy);
-        if (dist <= _builderTargetRadius &&
-            world.cellTypeAt(x, y) != CellType.air) {
-          cells.add((x, y));
+
+    // Check if this is an oval room
+    final isOval = _builderRadiusX != _builderRadiusY || _builderRotation != 0;
+
+    if (isOval) {
+      // Oval room generation
+      final maxRadius = math.max(_builderRadiusX, _builderRadiusY).ceil() + 1;
+      final cosR = math.cos(-_builderRotation);
+      final sinR = math.sin(-_builderRotation);
+
+      for (var dx = -maxRadius; dx <= maxRadius; dx++) {
+        for (var dy = -maxRadius; dy <= maxRadius; dy++) {
+          final x = cx + dx;
+          final y = cy + dy;
+          if (!world.isInsideIndex(x, y)) continue;
+
+          // Rotate point back to ellipse-aligned coordinates
+          final rx = dx * cosR - dy * sinR;
+          final ry = dx * sinR + dy * cosR;
+
+          // Check if inside ellipse: (rx/a)² + (ry/b)² <= 1
+          final normalized = (rx * rx) / (_builderRadiusX * _builderRadiusX) +
+              (ry * ry) / (_builderRadiusY * _builderRadiusY);
+
+          if (normalized <= 1.0 && world.cellTypeAt(x, y) != CellType.air) {
+            cells.add((x, y));
+          }
+        }
+      }
+    } else {
+      // Circular room generation (legacy)
+      final radius = _builderTargetRadius.ceil() + 1;
+      for (var dx = -radius; dx <= radius; dx++) {
+        for (var dy = -radius; dy <= radius; dy++) {
+          final x = cx + dx;
+          final y = cy + dy;
+          if (!world.isInsideIndex(x, y)) continue;
+          final dist = math.sqrt(dx * dx + dy * dy);
+          if (dist <= _builderTargetRadius &&
+              world.cellTypeAt(x, y) != CellType.air) {
+            cells.add((x, y));
+          }
         }
       }
     }
+
     cells.shuffle(rng);
     return cells;
   }

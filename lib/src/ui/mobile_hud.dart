@@ -924,11 +924,15 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
 
   Future<void> _saveGame(BuildContext context) async {
     setState(() => _saving = true);
+    // Capture navigator and messenger before async gap
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+
     final success = await widget.gameStateManager.saveCurrentGame();
 
     if (mounted) {
       setState(() => _saving = false);
-      Navigator.pop(context);
+      navigator.pop();
 
       if (success) {
         AnalyticsService.instance.logGameSaved(
@@ -939,7 +943,7 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
         widget.onGameSaved?.call();
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text(success ? 'Game saved!' : 'Failed to save'),
           duration: const Duration(seconds: 2),
@@ -949,18 +953,21 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
   }
 
   Future<void> _confirmQuit(BuildContext context) async {
+    // Capture navigator before async gap
+    final navigator = Navigator.of(context);
+
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Quit Game?'),
         content: const Text('Any unsaved progress will be lost.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogContext, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
             child: const Text('Quit'),
           ),
@@ -969,7 +976,7 @@ class _MobileHudState extends State<MobileHud> with TickerProviderStateMixin {
     );
 
     if (confirmed == true && mounted) {
-      Navigator.pop(context); // Close menu sheet
+      navigator.pop(); // Close menu sheet
       widget.simulation.prepareForNewWorld();
       widget.game.invalidateTerrainLayer();
       widget.onQuitToMenu?.call();

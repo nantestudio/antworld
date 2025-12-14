@@ -46,25 +46,33 @@ enum RoomType {
   barracks, // Worker/soldier rest area
 }
 
-/// A discrete room in the colony
+/// A discrete room in the colony (supports oval shapes)
 class Room {
   Room({
     required this.type,
     required Vector2 center,
     required this.radius,
     required this.colonyId,
+    double? radiusX,
+    double? radiusY,
+    this.rotation = 0.0,
     int? maxCapacity,
     this.currentOccupancy = 0,
     this.needsExpansion = false,
     Set<(int, int)>? customCells,
   }) : center = center.clone(),
+       radiusX = radiusX ?? radius,
+       radiusY = radiusY ?? radius,
        maxCapacity = maxCapacity ?? defaultCapacity[type] ?? 0,
        customCells =
            customCells != null ? <(int, int)>{...customCells} : null;
 
   final RoomType type;
   final Vector2 center;
-  final double radius;
+  final double radius; // Legacy - use radiusX/radiusY for ovals
+  final double radiusX; // Horizontal radius
+  final double radiusY; // Vertical radius
+  final double rotation; // Rotation angle in radians
   final int colonyId;
   final int maxCapacity;
   int currentOccupancy;
@@ -82,14 +90,28 @@ class Room {
   bool get isFull => currentOccupancy >= maxCapacity;
   bool get isOverCapacity => currentOccupancy > (maxCapacity * 1.2).floor();
 
-  /// Check if a position is inside this room
+  /// Check if a position is inside this room (supports oval shapes)
   bool contains(Vector2 pos) {
-    if (customCells == null || customCells!.isEmpty) {
-      return pos.distanceTo(center) <= radius;
+    if (customCells != null && customCells!.isNotEmpty) {
+      final x = pos.x.floor();
+      final y = pos.y.floor();
+      return customCells!.contains((x, y));
     }
-    final x = pos.x.floor();
-    final y = pos.y.floor();
-    return customCells!.contains((x, y));
+
+    // Oval containment check with rotation
+    final dx = pos.x - center.x;
+    final dy = pos.y - center.y;
+
+    // Rotate point back to ellipse-aligned coordinates
+    final cosR = math.cos(-rotation);
+    final sinR = math.sin(-rotation);
+    final rx = dx * cosR - dy * sinR;
+    final ry = dx * sinR + dy * cosR;
+
+    // Check if inside ellipse: (rx/a)² + (ry/b)² <= 1
+    final normalized = (rx * rx) / (radiusX * radiusX) +
+        (ry * ry) / (radiusY * radiusY);
+    return normalized <= 1.0;
   }
 
   /// Convert to JSON for saving
@@ -98,6 +120,9 @@ class Room {
     'centerX': center.x,
     'centerY': center.y,
     'radius': radius,
+    'radiusX': radiusX,
+    'radiusY': radiusY,
+    'rotation': rotation,
     'colonyId': colonyId,
     'maxCapacity': maxCapacity,
     'currentOccupancy': currentOccupancy,
@@ -113,13 +138,17 @@ class Room {
     final typeIndex = (json['type'] as num?)?.toInt() ?? 0;
     final clampedType =
         RoomType.values[typeIndex.clamp(0, RoomType.values.length - 1)];
+    final radius = (json['radius'] as num).toDouble();
     return Room(
       type: clampedType,
       center: Vector2(
         (json['centerX'] as num).toDouble(),
         (json['centerY'] as num).toDouble(),
       ),
-      radius: (json['radius'] as num).toDouble(),
+      radius: radius,
+      radiusX: (json['radiusX'] as num?)?.toDouble(),
+      radiusY: (json['radiusY'] as num?)?.toDouble(),
+      rotation: (json['rotation'] as num?)?.toDouble() ?? 0.0,
       colonyId: (json['colonyId'] as num?)?.toInt() ?? 0,
       maxCapacity: (json['maxCapacity'] as num?)?.toInt(),
       currentOccupancy: (json['currentOccupancy'] as num?)?.toInt() ?? 0,
