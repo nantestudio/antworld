@@ -18,7 +18,7 @@ import '../core/perf_recorder.dart';
 enum BrushMode { dig, food, rock }
 
 class AntWorldGame extends FlameGame
-    with TapCallbacks, SecondaryTapCallbacks, DragCallbacks, KeyboardEvents {
+    with TapCallbacks, SecondaryTapCallbacks, KeyboardEvents {
   AntWorldGame(this.simulation)
     : brushMode = ValueNotifier<BrushMode>(BrushMode.dig),
       selectedAnt = ValueNotifier<Ant?>(null),
@@ -43,9 +43,6 @@ class AntWorldGame extends FlameGame
   final Vector2 _worldOffset = Vector2.zero();
   final Vector2 _panOffset = Vector2.zero(); // User pan offset
   Vector2 _canvasSize = Vector2.zero();
-  bool _draggingDig = false;
-  bool _draggingFood = false;
-  bool _draggingBlueprint = false;
   static const double _antSelectRadius = 2.0; // cells
   final Stopwatch _perfStopwatch = Stopwatch();
   double _perfAccumTime = 0;
@@ -55,6 +52,7 @@ class AntWorldGame extends FlameGame
   // Pinch zoom / pan state (called from Flutter widget)
   double _scaleStartZoom = 1;
   final Vector2 _scaleStartPan = Vector2.zero();
+  bool _isGestureActive = false; // True during pan/zoom gesture to block taps
 
   final Paint _screenBgPaint = Paint()..color = const Color(0xFF0F0F0F);
   // 5 dirt type paints (from soft sand to hardite)
@@ -318,14 +316,41 @@ class AntWorldGame extends FlameGame
     return KeyEventResult.ignored;
   }
 
+  // Store tap position for processing on tap up (not tap down)
+  // This prevents accidental brush strokes when user starts panning
+  Vector2? _pendingTapPosition;
+  PointerDeviceKind? _pendingTapDeviceKind;
+
   @override
   void onTapDown(TapDownEvent event) {
-    if (_handleBlueprintPaint(event.canvasPosition)) {
-      _draggingBlueprint = true;
+    // Don't process taps during active navigation gesture
+    if (_isGestureActive) return;
+
+    // Store tap info - we'll process it on tap up to avoid
+    // accidental interactions when user intends to pan
+    _pendingTapPosition = event.canvasPosition.clone();
+    _pendingTapDeviceKind = event.deviceKind;
+  }
+
+  @override
+  void onTapUp(TapUpEvent event) {
+    // Don't process if gesture was active (user was panning)
+    if (_isGestureActive || _pendingTapPosition == null) {
+      _clearPendingTap();
       return;
     }
+
+    final tapPos = _pendingTapPosition!;
+    final deviceKind = _pendingTapDeviceKind;
+    _clearPendingTap();
+
+    // Handle blueprint painting
+    if (_handleBlueprintPaint(tapPos)) {
+      return;
+    }
+
     // Check if tapped on an ant first
-    final cellPos = _widgetToCell(event.canvasPosition);
+    final cellPos = _widgetToCell(tapPos);
     if (cellPos != null) {
       final tappedAnt = _findAntNear(cellPos);
       if (tappedAnt != null) {
@@ -340,93 +365,85 @@ class AntWorldGame extends FlameGame
     // Only apply brush in edit mode
     if (!editMode.value) return;
 
-    final placeFood = _shouldPlaceFood(event.deviceKind);
-    _setDragMode(placeFood);
-    _applyBrush(event.canvasPosition, placeFood);
-  }
-
-  @override
-  void onTapUp(TapUpEvent event) {
-    _stopDrag();
+    final placeFood = _shouldPlaceFood(deviceKind);
+    _applyBrush(tapPos, placeFood);
   }
 
   @override
   void onTapCancel(TapCancelEvent event) {
-    _stopDrag();
+    _clearPendingTap();
+  }
+
+  void _clearPendingTap() {
+    _pendingTapPosition = null;
+    _pendingTapDeviceKind = null;
   }
 
   @override
   void onSecondaryTapDown(SecondaryTapDownEvent event) {
-    if (_handleBlueprintPaint(event.canvasPosition)) {
-      _draggingBlueprint = true;
-      return;
-    }
-    if (!editMode.value) return;
-    _setDragMode(true);
-    _applyBrush(event.canvasPosition, true);
+    // Don't process taps during active navigation gesture
+    if (_isGestureActive) return;
+    _pendingTapPosition = event.canvasPosition.clone();
+    _pendingTapDeviceKind = PointerDeviceKind.mouse;
   }
 
   @override
   void onSecondaryTapUp(SecondaryTapUpEvent event) {
-    _stopDrag();
+    if (_isGestureActive || _pendingTapPosition == null) {
+      _clearPendingTap();
+      return;
+    }
+
+    final tapPos = _pendingTapPosition!;
+    _clearPendingTap();
+
+    if (_handleBlueprintPaint(tapPos)) {
+      return;
+    }
+    if (!editMode.value) return;
+    _applyBrush(tapPos, true);
   }
 
   @override
   void onSecondaryTapCancel(SecondaryTapCancelEvent event) {
-    _stopDrag();
-  }
-
-  @override
-  void onDragStart(DragStartEvent event) {
-    super.onDragStart(event);
-    if (simulation.blueprintManager.isPainting || _draggingBlueprint) {
-      if (_handleBlueprintPaint(event.canvasPosition)) {
-        _draggingBlueprint = true;
-      }
-      return;
-    }
-    if (!editMode.value) return;
-    _applyBrush(event.canvasPosition, _draggingFood);
-  }
-
-  @override
-  void onDragUpdate(DragUpdateEvent event) {
-    if (simulation.blueprintManager.isPainting || _draggingBlueprint) {
-      _handleBlueprintPaint(event.canvasEndPosition);
-      return;
-    }
-    if (!editMode.value) return;
-    if (_draggingFood || _draggingDig) {
-      _applyBrush(event.canvasEndPosition, _draggingFood);
-    }
-  }
-
-  @override
-  void onDragEnd(DragEndEvent event) {
-    super.onDragEnd(event);
-    _stopDrag();
+    _clearPendingTap();
   }
 
   /// Called when pinch/pan gesture starts (from Flutter GestureDetector)
-  void onPinchStart() {
+  void onPinchStart(int pointerCount) {
     _scaleStartZoom = _zoomFactor;
     _scaleStartPan.setFrom(_panOffset);
+    _isGestureActive = true;
   }
 
   /// Called during pinch/pan gesture (from Flutter GestureDetector)
   /// [scale] is the cumulative scale since gesture start
   /// [focalDelta] is the focal point delta since the LAST frame
-  void onPinchUpdate(double scale, Offset focalDelta) {
-    // Pinch zoom - scale is cumulative since start
-    final newZoom = (_scaleStartZoom * scale).clamp(0.5, 5.0);
-    _zoomFactor = newZoom;
+  /// [pointerCount] is the number of active touch pointers
+  void onPinchUpdate(double scale, Offset focalDelta, int pointerCount) {
+    // Detect if this is an actual pinch (scale changed significantly) vs just panning
+    final isActualPinch = (scale - 1.0).abs() > 0.01;
 
-    // Pan - add the per-frame delta
-    _panOffset.x += focalDelta.dx;
-    _panOffset.y += focalDelta.dy;
+    if (pointerCount >= 2 && isActualPinch) {
+      // Two fingers with pinch: zoom only
+      final newZoom = (_scaleStartZoom * scale).clamp(0.5, 5.0);
+      _zoomFactor = newZoom;
+    } else {
+      // Single finger OR two-finger scroll (no pinch): pan
+      _panOffset.x += focalDelta.dx;
+      _panOffset.y += focalDelta.dy;
+    }
 
     _updateViewport();
   }
+
+  /// Called when gesture ends
+  void onPinchEnd() {
+    _isGestureActive = false;
+  }
+
+  /// Check if a navigation gesture is currently active (blocks interactions)
+  bool get isGestureActive => _isGestureActive;
 
   void setBrushMode(BrushMode mode) {
     brushMode.value = mode;
@@ -1253,17 +1270,6 @@ class AntWorldGame extends FlameGame
     }
     manager.addPaintCell(cell.x.floor(), cell.y.floor(), simulation.world);
     return true;
-  }
-
-  void _setDragMode(bool placeFood) {
-    _draggingFood = placeFood;
-    _draggingDig = !placeFood;
-  }
-
-  void _stopDrag() {
-    _draggingFood = false;
-    _draggingDig = false;
-    _draggingBlueprint = false;
   }
 
   void _collectDeathEvents() {

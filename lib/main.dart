@@ -47,6 +47,9 @@ class _AntWorldAppState extends State<AntWorldApp> {
   String? _menuError;
   bool _hasSandboxSave = false;
 
+  // Pointer tracking for gesture handling (used for state cleanup on gesture end)
+  final Set<int> _activePointers = {};
+
   @override
   void initState() {
     super.initState();
@@ -111,6 +114,7 @@ class _AntWorldAppState extends State<AntWorldApp> {
       autofocus: true,
     );
 
+    // Wrap with GestureDetector for pan/zoom handling
     gameWidget = GestureDetector(
       behavior: HitTestBehavior.translucent,
       supportedDevices: const {
@@ -118,36 +122,57 @@ class _AntWorldAppState extends State<AntWorldApp> {
         PointerDeviceKind.trackpad,
         PointerDeviceKind.stylus,
       },
-      onScaleStart: (_) {
-        game.onPinchStart();
+      onScaleStart: (details) {
+        game.onPinchStart(details.pointerCount);
       },
       onScaleUpdate: (details) {
-        game.onPinchUpdate(details.scale, details.focalPointDelta);
+        game.onPinchUpdate(
+          details.scale,
+          details.focalPointDelta,
+          details.pointerCount,
+        );
+      },
+      onScaleEnd: (details) {
+        game.onPinchEnd();
+        // Clear pointers on gesture end to reset state
+        _activePointers.clear();
       },
       child: gameWidget,
     );
 
-    if (!isTouchPlatform || isTabletLayout) {
-      gameWidget = Listener(
-        onPointerSignal: (event) {
-          if (event is PointerScrollEvent) {
-            final isZoomModifier =
-                HardwareKeyboard.instance.isControlPressed ||
-                HardwareKeyboard.instance.isMetaPressed;
+    // Wrap with Listener to track active pointer count
+    // This enables proper gesture disambiguation
+    gameWidget = Listener(
+      onPointerDown: (event) {
+        _activePointers.add(event.pointer);
+      },
+      onPointerUp: (event) {
+        _activePointers.remove(event.pointer);
+      },
+      onPointerCancel: (event) {
+        _activePointers.remove(event.pointer);
+      },
+      onPointerSignal: (!isTouchPlatform || isTabletLayout)
+          ? (event) {
+              // Scroll wheel / trackpad handling for desktop/tablet
+              if (event is PointerScrollEvent) {
+                final isZoomModifier =
+                    HardwareKeyboard.instance.isControlPressed ||
+                    HardwareKeyboard.instance.isMetaPressed;
 
-            if (isZoomModifier) {
-              final zoomDelta = -event.scrollDelta.dy * 0.003;
-              game.setZoom(game.zoomFactor + zoomDelta);
-            } else {
-              game.addPan(-event.scrollDelta.dx, -event.scrollDelta.dy);
+                if (isZoomModifier) {
+                  final zoomDelta = -event.scrollDelta.dy * 0.003;
+                  game.setZoom(game.zoomFactor + zoomDelta);
+                } else {
+                  game.addPan(-event.scrollDelta.dx, -event.scrollDelta.dy);
+                }
+              } else if (event is PointerScaleEvent) {
+                game.setZoom(game.zoomFactor * event.scale);
+              }
             }
-          } else if (event is PointerScaleEvent) {
-            game.setZoom(game.zoomFactor * event.scale);
-          }
-        },
-        child: gameWidget,
-      );
-    }
+          : null,
+      child: gameWidget,
+    );
 
     return Stack(
       children: [
