@@ -150,6 +150,7 @@ class Ant {
     required math.Random rng,
     this.caste = AntCaste.worker,
     this.colonyId = 0,
+    double? initialAge, // Optional initial age for staggered starting ants
   }) : id = _nextId++,
        position = startPosition.clone(),
        _explorerTendency = _generateExplorerTendency(caste, rng),
@@ -157,7 +158,10 @@ class Ant {
        attack = CasteStats.stats[caste]!.baseAttack,
        defense = CasteStats.stats[caste]!.baseDefense,
        maxHp = CasteStats.stats[caste]!.baseHp,
-       hp = CasteStats.stats[caste]!.baseHp;
+       hp = CasteStats.stats[caste]!.baseHp,
+       // Individual lifespan varies ±20% from base
+       _individualMaxLifespan = _generateIndividualLifespan(caste, rng),
+       _age = initialAge ?? 0.0;
 
   Ant.rehydrated({
     required this.id,
@@ -180,6 +184,7 @@ class Ant {
     int carryingEggId = -1,
     double eggLayTimer = 0.0,
     double age = 0.0,
+    double? individualMaxLifespan, // Individual lifespan for this ant
     BuilderTask builderTask = BuilderTask.idle,
     Vector2? builderTarget,
     double builderTargetRadius = 0.0,
@@ -196,6 +201,7 @@ class Ant {
        _carryingEggId = carryingEggId,
        _eggLayTimer = eggLayTimer,
        _age = age,
+       _individualMaxLifespan = individualMaxLifespan ?? (_baseLifespan[caste] ?? 300.0),
        _builderTask = builderTask,
        _builderTarget = builderTarget?.clone(),
        _builderTargetRadius = builderTargetRadius,
@@ -206,6 +212,17 @@ class Ant {
     final range = CasteStats.stats[caste]!.explorerRange;
     return range.$1 + rng.nextDouble() * (range.$2 - range.$1);
   }
+
+  /// Generate individual lifespan with ±20% variation from base
+  static double _generateIndividualLifespan(AntCaste caste, math.Random rng) {
+    final base = _baseLifespan[caste] ?? 300.0;
+    // Vary by ±20%: multiply by 0.8 to 1.2
+    final variation = 0.8 + rng.nextDouble() * 0.4;
+    return base * variation;
+  }
+
+  /// Get base lifespan for a caste (used for initial age randomization)
+  static double getBaseLifespan(AntCaste caste) => _baseLifespan[caste] ?? 300.0;
 
   final int id;
   final Vector2 position;
@@ -232,23 +249,27 @@ class Ant {
   // Egg/Larva growth (used when caste == egg or larva)
   double _growthProgress = 0.0;
   static const double _eggHatchTime =
-      20.0; // seconds for egg to hatch into larva (longer development)
+      12.0; // seconds for egg to hatch into larva
   static const double _growthTimeToMature =
-      60.0; // seconds for larva to mature into adult (longer growth)
+      35.0; // seconds for larva to mature into adult
 
   // Age and lifespan (in seconds)
   double _age = 0.0;
-  // Max lifespan per caste (in game seconds)
-  static const Map<AntCaste, double> _maxLifespan = {
-    AntCaste.worker: 240.0, // 4 minutes - faster turnover
-    AntCaste.soldier: 180.0, // 3 minutes - combat life is short
-    AntCaste.nurse: 300.0, // 5 minutes
-    AntCaste.drone: 150.0, // 2.5 minutes (short-lived)
-    AntCaste.queen: 1800.0, // 30 minutes - queens live much longer
-    AntCaste.princess: 600.0, // 10 minutes - waiting to become queen
-    AntCaste.larva: 120.0, // 2 minutes (will mature before this)
-    AntCaste.egg: 60.0, // 1 minute (will hatch before this)
-    AntCaste.builder: 300.0, // 5 minutes - same as nurse
+  // Individual max lifespan (varies ±20% from base)
+  late final double _individualMaxLifespan;
+
+  // Base max lifespan per caste (in game seconds)
+  // Balanced for sustainable population: birth rate must match death rate
+  static const Map<AntCaste, double> _baseLifespan = {
+    AntCaste.worker: 480.0, // 8 minutes
+    AntCaste.soldier: 360.0, // 6 minutes
+    AntCaste.nurse: 600.0, // 10 minutes
+    AntCaste.drone: 300.0, // 5 minutes
+    AntCaste.queen: 3600.0, // 60 minutes - queens live much longer
+    AntCaste.princess: 1200.0, // 20 minutes - waiting to become queen
+    AntCaste.larva: 60.0, // 1 minute (will mature before this)
+    AntCaste.egg: 30.0, // 30 seconds (will hatch before this)
+    AntCaste.builder: 600.0, // 10 minutes - same as nurse
   };
 
   // Nurse carrying larva (reference by ID, -1 = not carrying)
@@ -259,7 +280,7 @@ class Ant {
   // Queen egg laying timer
   double _eggLayTimer = 0.0;
   static const double _eggLayInterval =
-      45.0; // seconds between laying eggs (less frequent)
+      20.0; // seconds between laying eggs (balanced for population sustainability)
 
   // Stuck detection
   final Vector2 _lastPosition = Vector2.zero();
@@ -304,8 +325,8 @@ class Ant {
   bool get wantsToLayEgg =>
       caste == AntCaste.queen && _eggLayTimer >= _eggLayInterval;
   double get age => _age;
-  double get maxLifespan => _maxLifespan[caste] ?? 300.0;
-  bool get isDyingOfOldAge => _age >= maxLifespan;
+  double get maxLifespan => _individualMaxLifespan;
+  bool get isDyingOfOldAge => _age >= _individualMaxLifespan;
 
   /// Get progress as 0.0-1.0 for display purposes
   double get developmentProgress {
@@ -1951,6 +1972,7 @@ class Ant {
       'carryingEggId': _carryingEggId,
       'eggLayTimer': _eggLayTimer,
       'age': _age,
+      'individualMaxLifespan': _individualMaxLifespan,
       'builderTask': _builderTask.index,
       'builderTargetX': _builderTarget?.x,
       'builderTargetY': _builderTarget?.y,
@@ -2010,6 +2032,7 @@ class Ant {
       carryingEggId: (json['carryingEggId'] as num?)?.toInt() ?? -1,
       eggLayTimer: (json['eggLayTimer'] as num?)?.toDouble() ?? 0.0,
       age: (json['age'] as num?)?.toDouble() ?? 0.0,
+      individualMaxLifespan: (json['individualMaxLifespan'] as num?)?.toDouble(),
       builderTask: builderTask,
       builderTarget: builderTarget,
       builderTargetRadius:

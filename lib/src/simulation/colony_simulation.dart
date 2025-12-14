@@ -253,10 +253,11 @@ class ColonySimulation {
 
   void _spawnInitialColony() {
     // Spawn ants for all colonies based on config
+    // randomizeAge: true staggers initial ages to prevent synchronized deaths
     for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
       // Always spawn one queen and one princess heir
-      _spawnAnt(caste: AntCaste.queen, colonyId: colonyId);
-      _spawnAnt(caste: AntCaste.princess, colonyId: colonyId);
+      _spawnAnt(caste: AntCaste.queen, colonyId: colonyId, randomizeAge: true);
+      _spawnAnt(caste: AntCaste.princess, colonyId: colonyId, randomizeAge: true);
 
       // Calculate base counts: 80% workers, 10% nurses, 10% soldiers
       final baseNurse = config.startingAnts * 0.10; // ~10% nurses
@@ -274,12 +275,12 @@ class ColonySimulation {
 
       // Spawn nurses
       for (var i = 0; i < nurseCount; i++) {
-        _spawnAnt(caste: AntCaste.nurse, colonyId: colonyId);
+        _spawnAnt(caste: AntCaste.nurse, colonyId: colonyId, randomizeAge: true);
       }
 
       // Spawn soldiers
       for (var i = 0; i < soldierCount; i++) {
-        _spawnAnt(caste: AntCaste.soldier, colonyId: colonyId);
+        _spawnAnt(caste: AntCaste.soldier, colonyId: colonyId, randomizeAge: true);
       }
 
       // Allocate remaining population between builders, workers, and seed larvae
@@ -288,7 +289,7 @@ class ColonySimulation {
       remaining = math.max(0, remaining - builderCount);
 
       for (var i = 0; i < builderCount; i++) {
-        _spawnAnt(caste: AntCaste.builder, colonyId: colonyId);
+        _spawnAnt(caste: AntCaste.builder, colonyId: colonyId, randomizeAge: true);
       }
 
       final larvaSeed = math.max(2, (remaining * 0.1).round());
@@ -296,9 +297,10 @@ class ColonySimulation {
 
       final workerCount = math.max(0, remaining);
       for (var i = 0; i < workerCount; i++) {
-        _spawnAnt(caste: AntCaste.worker, colonyId: colonyId);
+        _spawnAnt(caste: AntCaste.worker, colonyId: colonyId, randomizeAge: true);
       }
 
+      // Larvae start fresh (not randomized age since they're "newborns")
       for (var i = 0; i < larvaSeed; i++) {
         _spawnAnt(caste: AntCaste.larva, colonyId: colonyId);
       }
@@ -916,7 +918,17 @@ class ColonySimulation {
     _lastSeed = null;
   }
 
-  void _spawnAnt({AntCaste caste = AntCaste.worker, int colonyId = 0}) {
+  void _spawnAnt({
+    AntCaste caste = AntCaste.worker,
+    int colonyId = 0,
+    bool randomizeAge = false, // For starting ants to stagger deaths
+  }) {
+    // For starting ants, randomize age to 0-50% of lifespan to prevent synchronized deaths
+    double? initialAge;
+    if (randomizeAge) {
+      final baseLifespan = Ant.getBaseLifespan(caste);
+      initialAge = _rng.nextDouble() * baseLifespan * 0.5;
+    }
     ants.add(
       Ant(
         startPosition: world.getNestPosition(colonyId),
@@ -925,6 +937,7 @@ class ColonySimulation {
         rng: _rng,
         caste: caste,
         colonyId: colonyId,
+        initialAge: initialAge,
       ),
     );
     _updateAntCount();
