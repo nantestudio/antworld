@@ -152,10 +152,10 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/wakelock_plus/ios"
 
 SPEC CHECKSUMS:
-  device_info_plus: bf2e3232933866d73fe290f2942f2156cdd10342
+  device_info_plus: 21fcca2080fbcd348be798aa36c3e5ed849eefbe
   Firebase: f07b15ae5a6ec0f93713e30b923d9970d144af3e
-  firebase_analytics: 2b372cc13c077de5f1ac37e232bacd5bacb41963
-  firebase_core: e6b8bb503b7d1d9856e698d4f193f7b414e6bf1f
+  firebase_analytics: 67fbdd9f3c04e55048024f3da21cfc36f05e56cf
+  firebase_core: f1aafb21c14f497e5498f7ffc4dc63cbb52b2594
   FirebaseAnalytics: 0fc2b20091f0ddd21bf73397cf8f0eb5346dc24f
   FirebaseCore: bb595f3114953664e3c1dc032f008a244147cfd3
   FirebaseCoreInternal: d7f5a043c2cd01a08103ab586587c1468047bca6
@@ -165,11 +165,11 @@ SPEC CHECKSUMS:
   GoogleAppMeasurement: 1e718274b7e015cefd846ac1fcf7820c70dc017d
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
-  package_info_plus: c0502532a26c7662a62a356cebe2692ec5fe4ec4
+  package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
-  shared_preferences_foundation: 5086985c1d43c5ba4d5e69a4e8083a389e2909e6
-  vibration: 7d883d141656a1c1a6d8d238616b2042a51a1241
-  wakelock_plus: 76957ab028e12bfa4e66813c99e46637f367fc7e
+  shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
+  vibration: 8e2f50fc35bb736f9eecb7dd9f7047fbb6a6e888
+  wakelock_plus: e29112ab3ef0b318e58cfa5c32326458be66b556
 
 PODFILE CHECKSUM: 8792af21e4594177712c26697db5186ef77c6d0e
 
