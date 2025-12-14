@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../core/event_bus.dart';
 import '../core/game_event.dart';
 import '../services/analytics_service.dart';
+import '../services/game_logger.dart';
 import '../services/mother_nature_service.dart';
 import '../utils/colony_names.dart';
 import 'ant.dart';
@@ -66,8 +67,8 @@ class ColonySimulation {
   final List<int> _colonyQueuedAnts = [0, 0, 0, 0]; // Supports up to 4 colonies
   // Princess spawning: accumulate food, spawn princess egg when threshold reached
   static const int _foodForPrincess =
-      75; // Food needed to spawn a princess egg (higher threshold)
-  static const int _maxPrincessesPerColony = 2;
+      40; // Food needed to spawn a princess egg (lower for more candidates)
+  static const int _maxPrincessesPerColony = 4; // More succession candidates
   final List<int> _princessFoodAccumulator = [
     0,
     0,
@@ -86,7 +87,7 @@ class ColonySimulation {
   double _foodCheckTimer = 0.0;
   double _nextFoodCheck = 300.0; // ~5 minutes between food spawns
   final List<_BuildTask> _buildQueue = [];
-  final List<RoomPlan> _plannedRooms = []; // Rooms planned by queen
+  final List<ExpandColonyPlan> _plannedRooms = []; // Expansion plans by queen
   double _roomCheckTimer = 0.0;
   static const double _roomCheckInterval = 30.0;
   double _resourceCheckTimer = 0.0;
@@ -252,7 +253,8 @@ class ColonySimulation {
     colony3Food.value = 0;
     daysPassed.value = 1;
 
-    _spawnInitialColony();
+    // Note: Don't spawn ants here - generateRandomWorld() will do it
+    // after creating proper nest positions
     _updateAntCount();
   }
 
@@ -312,12 +314,22 @@ class ColonySimulation {
     }
   }
 
+  bool _loggedFirstUpdate = false;
+
   void update(double dt) {
     if (paused.value) return; // Skip simulation when paused
 
+    // Log once when simulation first runs
+    if (!_loggedFirstUpdate) {
+      _loggedFirstUpdate = true;
+      GameLogger.instance.log(0, 'Simulation started - ${ants.length} ants');
+    }
+
     final double clampedDt = dt.clamp(0.0, 0.05);
-    final decayFactor = math.pow(config.decayPerSecond, clampedDt).toDouble();
-    final double antSpeed = config.antSpeed * antSpeedMultiplier.value;
+    // Scale dt by speed multiplier for simulation time (physics stays consistent)
+    // This way, increasing speed makes time pass faster, not ants move faster
+    final double scaledDt = clampedDt * antSpeedMultiplier.value;
+    final decayFactor = math.pow(config.decayPerSecond, scaledDt).toDouble();
     world.decay(decayFactor, config.decayThreshold);
 
     // Diffuse food scent through air cells (spreads like gas through tunnels)
@@ -339,8 +351,8 @@ class ColonySimulation {
       _resourceCheckTimer = 0.0;
     }
 
-    // Track elapsed time and update days (1 minute = 1 day, affected by speed multiplier)
-    _elapsedTime += clampedDt * antSpeedMultiplier.value;
+    // Track elapsed time and update days (1 minute = 1 day, uses scaledDt)
+    _elapsedTime += scaledDt;
     elapsedTime.value = _elapsedTime;
     final newDays = (_elapsedTime / 60.0).floor() + 1;
     if (newDays != daysPassed.value) {
@@ -362,16 +374,24 @@ class ColonySimulation {
       }
     }
 
-    // Update defense alerts (decay timers)
+    // Update defense alerts (decay timers - real time, not scaled)
     _updateDefenseAlerts(clampedDt);
 
-    // Mother Nature environmental events
-    _motherNature?.update(clampedDt * antSpeedMultiplier.value, daysPassed.value);
+    // Mother Nature environmental events (uses simulation time)
+    _motherNature?.update(scaledDt, daysPassed.value);
 
     final eggsToHatch = <Ant>[];
     final larvaeToMature = <Ant>[];
     final queensLayingEggs = <Ant>[];
     final nursesSignaling = <Ant>[];
+
+    // Subdivide ant updates at higher speeds to keep steering consistent
+    // At 3x speed, run 3 updates with base dt instead of 1 update with 3x dt
+    // This prevents ants from "overshooting" their steering decisions
+    final speed = antSpeedMultiplier.value;
+    final substeps = speed > 1.0 ? speed.ceil() : 1;
+    final substepDt = clampedDt * speed / substeps;
+
     // Use toList() to avoid ConcurrentModificationError if ants list changes
     for (final ant in ants.toList()) {
       // Pass defense target to soldiers so they can intercept intruders
@@ -380,14 +400,18 @@ class ColonySimulation {
         attackTarget = getDefenseTarget(ant.colonyId);
       }
 
-      final result = ant.update(
-        clampedDt,
-        config,
-        world,
-        _rng,
-        antSpeed,
-        attackTarget: attackTarget,
-      );
+      // Run multiple substeps for consistent steering at high speeds
+      bool result = false;
+      for (var step = 0; step < substeps; step++) {
+        result = ant.update(
+          substepDt,
+          config,
+          world,
+          _rng,
+          config.antSpeed,
+          attackTarget: attackTarget,
+        ) || result;
+      }
 
       if (ant.caste == AntCaste.queen && result) {
         // Queen wants to lay an egg - defer spawning until after iteration
@@ -516,6 +540,41 @@ class ColonySimulation {
       _queenPlanningTimer = 0;
       _queenRoomPlanning();
     }
+
+    // Log state snapshot for monitoring
+    _logStateSnapshot();
+  }
+
+  /// Log periodic state snapshot for game monitoring
+  void _logStateSnapshot() {
+    final antCounts = <int, int>{};
+    final foodCounts = <int, int>{};
+    final casteCounts = <int, Map<AntCaste, int>>{};
+    final roomCounts = <int, int>{};
+    final tunnelCounts = <int, int>{};
+
+    for (var i = 0; i < config.colonyCount; i++) {
+      antCounts[i] = ants.where((a) => a.colonyId == i && !a.isDead).length;
+      foodCounts[i] = _colonyFood[i];
+      roomCounts[i] = world.rooms.where((r) => r.colonyId == i).length;
+      tunnelCounts[i] = world.tunnels.where((t) => t.colonyId == i).length;
+
+      final castes = <AntCaste, int>{};
+      for (final caste in AntCaste.values) {
+        castes[caste] = ants.where((a) => a.colonyId == i && a.caste == caste && !a.isDead).length;
+      }
+      casteCounts[i] = castes;
+    }
+
+    GameLogger.instance.maybeLogSnapshot(
+      _elapsedTime,
+      day: daysPassed.value,
+      antCounts: antCounts,
+      foodCounts: foodCounts,
+      casteCounts: casteCounts,
+      roomCounts: roomCounts,
+      tunnelCounts: tunnelCounts,
+    );
   }
 
   void togglePheromones() {
@@ -703,6 +762,37 @@ class ColonySimulation {
     planner = ColonyPlanner(world);
     _lastSeed = generated.seed;
     _scheduleNextFoodCheck();
+
+    // Log world setup for debugging
+    final nestInfo = <String>[];
+    for (var i = 0; i < 4; i++) {
+      final pos = world.nestPositions[i];
+      nestInfo.add('C$i:(${pos.x.toInt()},${pos.y.toInt()})');
+    }
+    GameLogger.instance.log(0, 'World created: colonyCount=${config.colonyCount}, nests=[${nestInfo.join(', ')}]');
+
+    // Check connectivity - can ants at each nest walk somewhere?
+    for (var colonyId = 0; colonyId < config.colonyCount; colonyId++) {
+      final pos = world.getNestPosition(colonyId);
+      final x = pos.x.floor();
+      final y = pos.y.floor();
+      final isWalkable = world.isWalkableCell(x, y);
+      // Count walkable cells in 5-cell radius
+      var walkableCount = 0;
+      for (var dy = -5; dy <= 5; dy++) {
+        for (var dx = -5; dx <= 5; dx++) {
+          if (world.isWalkableCell(x + dx, y + dy)) walkableCount++;
+        }
+      }
+      final rooms = world.rooms.where((r) => r.colonyId == colonyId).length;
+      final tunnels = world.tunnels.where((t) => t.colonyId == colonyId).length;
+      GameLogger.instance.log(0,
+        'Colony $colonyId nest: walkable=$isWalkable, nearbyAir=$walkableCount, rooms=$rooms, tunnels=$tunnels');
+      if (!isWalkable || walkableCount < 20) {
+        GameLogger.instance.log(0, 'WARNING: Colony $colonyId nest may be isolated!');
+      }
+    }
+
     _spawnInitialColony();
     _updateAntCount();
 
@@ -830,6 +920,14 @@ class ColonySimulation {
           world.rooms.add(Room.fromJson(Map<String, dynamic>.from(roomJson)));
         }
       }
+
+      // Load tunnels
+      final tunnelsData = worldData['tunnels'] as List<dynamic>?;
+      if (tunnelsData != null) {
+        for (final tunnelJson in tunnelsData) {
+          world.tunnels.add(Tunnel.fromJson(Map<String, dynamic>.from(tunnelJson)));
+        }
+      }
     }
 
     // Initialize planner after world is restored
@@ -946,9 +1044,10 @@ class ColonySimulation {
       final baseLifespan = Ant.getBaseLifespan(caste);
       initialAge = _rng.nextDouble() * baseLifespan * 0.5;
     }
+    final position = world.getNestPosition(colonyId);
     ants.add(
       Ant(
-        startPosition: world.getNestPosition(colonyId),
+        startPosition: position,
         angle: _rng.nextDouble() * math.pi * 2,
         energy: config.energyCapacity,
         rng: _rng,
@@ -959,6 +1058,7 @@ class ColonySimulation {
     );
     _updateAntCount();
     _emitAntCreated(caste, colonyId);
+    GameLogger.instance.logAntBorn(_elapsedTime, colonyId, caste, position);
   }
 
   void _spawnEggAtQueen(Ant queen) {
@@ -980,6 +1080,7 @@ class ColonySimulation {
     );
     _updateAntCount();
     _emitAntCreated(AntCaste.egg, queen.colonyId);
+    GameLogger.instance.logEggLaid(_elapsedTime, queen.colonyId, spawnPos);
   }
 
   /// Spawn a predator ant at a specific position (for Mother Nature raids)
@@ -1052,6 +1153,7 @@ class ColonySimulation {
     );
     // No need to update count - same number of ants
     _emitAntCreated(AntCaste.larva, egg.colonyId);
+    GameLogger.instance.logEggHatched(_elapsedTime, egg.colonyId);
   }
 
   void _matureLarva(Ant larva) {
@@ -1083,6 +1185,7 @@ class ColonySimulation {
     );
     // No need to update count - same number of ants
     _emitAntCreated(neededCaste, larva.colonyId);
+    GameLogger.instance.logLarvaeMatured(_elapsedTime, larva.colonyId, neededCaste);
   }
 
   /// Process nurses that are signaling egg pickup or drop
@@ -1636,9 +1739,9 @@ class ColonySimulation {
         target: task.targetLocation,
         roomType: task.roomType,
         radius: task.radius,
-        radiusX: task.roomPlan?.radiusX,
-        radiusY: task.roomPlan?.radiusY,
-        rotation: task.roomPlan?.rotation ?? 0.0,
+        radiusX: task.expansionPlan?.roomRadiusX,
+        radiusY: task.expansionPlan?.roomRadiusY,
+        rotation: task.expansionPlan?.roomRotation ?? 0.0,
         emergency: task.emergency,
         taskId: task.id,
         blueprintCells: task.blueprintCells,
@@ -1761,18 +1864,46 @@ class ColonySimulation {
     }
     final task = _buildQueue.removeAt(index);
     if (task.kind == _BuildTaskKind.room && task.roomType != null) {
-      // Use oval dimensions from roomPlan if available
-      final plan = task.roomPlan;
+      // Use oval dimensions from expansionPlan if available
+      final plan = task.expansionPlan;
+
+      // Add the tunnel first (if it exists in the plan)
+      if (plan != null && plan.tunnelCells.isNotEmpty) {
+        final tunnelId = world.generateTunnelId();
+        final tunnel = Tunnel(
+          id: tunnelId,
+          cells: plan.tunnelCells,
+          width: plan.tunnelWidth,
+          colonyId: task.colonyId,
+        );
+        world.addTunnel(tunnel);
+        GameLogger.instance.logTunnelBuilt(
+          _elapsedTime,
+          task.colonyId,
+          plan.tunnelCells.length,
+          plan.tunnelWidth,
+        );
+      }
+
+      // Then add the room
+      final roomId = world.generateRoomId();
       final newRoom = Room(
+        id: roomId,
         type: task.roomType!,
         center: task.targetLocation.clone(),
         radius: task.radius,
-        radiusX: plan?.radiusX,
-        radiusY: plan?.radiusY,
-        rotation: plan?.rotation ?? 0.0,
+        radiusX: plan?.roomRadiusX,
+        radiusY: plan?.roomRadiusY,
+        rotation: plan?.roomRotation ?? 0.0,
         colonyId: task.colonyId,
       );
       world.addRoom(newRoom);
+      GameLogger.instance.logRoomBuilt(
+        _elapsedTime,
+        task.colonyId,
+        task.roomType!,
+        task.targetLocation,
+      );
 
       // Automatically queue wall reinforcement for the new room
       _buildQueue.add(
@@ -1783,7 +1914,7 @@ class ColonySimulation {
           targetLocation: task.targetLocation.clone(),
           radius: task.radius,
           roomType: task.roomType,
-          roomPlan: plan,
+          expansionPlan: plan,
         ),
       );
 
@@ -2223,7 +2354,7 @@ class ColonySimulation {
 
                   // Winner picks up dead enemy as food
                   if (a.isDead && !b.isDead && !b.hasFood) {
-                    _recordDeath(a);
+                    _recordDeath(a, cause: 'combat vs ${b.caste.name}');
                     deadAnts.add(a);
                     // QUEEN DEATH: Check for princess succession before takeover
                     if (a.caste == AntCaste.queen) {
@@ -2231,7 +2362,7 @@ class ColonySimulation {
                     }
                     b.pickUpFood(); // Eat the enemy!
                   } else if (b.isDead && !a.isDead && !a.hasFood) {
-                    _recordDeath(b);
+                    _recordDeath(b, cause: 'combat vs ${a.caste.name}');
                     deadAnts.add(b);
                     // QUEEN DEATH: Check for princess succession before takeover
                     if (b.caste == AntCaste.queen) {
@@ -2240,14 +2371,14 @@ class ColonySimulation {
                     a.pickUpFood(); // Eat the enemy!
                   } else {
                     if (a.isDead) {
-                      _recordDeath(a);
+                      _recordDeath(a, cause: 'combat vs ${b.caste.name}');
                       deadAnts.add(a);
                       if (a.caste == AntCaste.queen && !b.isDead) {
                         _handleQueenDeath(a.colonyId, b.colonyId);
                       }
                     }
                     if (b.isDead) {
-                      _recordDeath(b);
+                      _recordDeath(b, cause: 'combat vs ${a.caste.name}');
                       deadAnts.add(b);
                       if (b.caste == AntCaste.queen && !a.isDead) {
                         _handleQueenDeath(b.colonyId, a.colonyId);
@@ -2282,11 +2413,44 @@ class ColonySimulation {
         .toList();
     if (stuckAnts.isNotEmpty) {
       for (final ant in stuckAnts) {
-        _recordDeath(ant);
+        // Instead of killing, teleport to nest and reset stuck timer
+        final nestPos = world.getNestPosition(ant.colonyId);
+        // Find a walkable position near nest
+        final safePos = _findSafePositionNear(nestPos, ant.colonyId);
+        if (safePos != null) {
+          ant.position.setFrom(safePos);
+          ant.resetStuckTimer();
+          ant.state = AntState.rest; // Rest briefly after teleport
+        } else {
+          // Only kill if no safe position found (shouldn't happen)
+          _recordDeath(ant, cause: 'stuck');
+        }
       }
-      ants.removeWhere(stuckAnts.contains);
+      // Remove any ants that were killed (no safe position)
+      ants.removeWhere((a) => a.isDead);
       _updateAntCount();
     }
+  }
+
+  /// Find a walkable position near the target
+  Vector2? _findSafePositionNear(Vector2 target, int colonyId) {
+    final cx = target.x.floor();
+    final cy = target.y.floor();
+
+    // Search in expanding circles for a walkable cell
+    for (var radius = 0; radius <= 5; radius++) {
+      for (var dy = -radius; dy <= radius; dy++) {
+        for (var dx = -radius; dx <= radius; dx++) {
+          if (dx.abs() != radius && dy.abs() != radius) continue; // Only check perimeter
+          final x = cx + dx;
+          final y = cy + dy;
+          if (world.isWalkable(x.toDouble(), y.toDouble())) {
+            return Vector2(x.toDouble() + 0.5, y.toDouble() + 0.5);
+          }
+        }
+      }
+    }
+    return null;
   }
 
   void _removeOldAnts() {
@@ -2295,7 +2459,7 @@ class ColonySimulation {
     final oldAnts = ants.where((a) => a.isDyingOfOldAge).toList();
     if (oldAnts.isNotEmpty) {
       for (final ant in oldAnts) {
-        _recordDeath(ant);
+        _recordDeath(ant, cause: 'old age');
         if (ant.caste == AntCaste.queen) {
           _handleInternalQueenDeath(ant.colonyId);
         }
@@ -2399,10 +2563,11 @@ class ColonySimulation {
     world.placeFood(position, 1, amount: WorldGrid.defaultFoodPerCell ~/ 3);
   }
 
-  void _recordDeath(Ant ant) {
+  void _recordDeath(Ant ant, {String cause = 'unknown'}) {
     _deathEvents.add(
       DeathEvent(position: ant.position.clone(), colonyId: ant.colonyId),
     );
+    GameLogger.instance.logAntDied(_elapsedTime, ant.colonyId, ant.caste, cause);
   }
 
   /// Store a significant event as a memory for AI context
@@ -2555,10 +2720,26 @@ class ColonySimulation {
           .length;
       final foodCount = _colonyFood[colonyId];
 
+      // Include both built rooms AND planned rooms to avoid overlap
+      final existingRooms = world.rooms.where((r) => r.colonyId == colonyId).toList();
+      // Add planned rooms as temporary Room objects for overlap checking
+      for (final planned in _plannedRooms) {
+        if (planned.colonyId == colonyId) {
+          existingRooms.add(Room(
+            type: planned.roomType,
+            center: planned.roomCenter,
+            radius: math.max(planned.roomRadiusX, planned.roomRadiusY),
+            radiusX: planned.roomRadiusX,
+            radiusY: planned.roomRadiusY,
+            colonyId: colonyId,
+          ));
+        }
+      }
+
       // Ask planner for next room
       final roomPlan = planner.planNextRoom(
         colonyId,
-        world.rooms.where((r) => r.colonyId == colonyId).toList(),
+        existingRooms,
         eggCount,
         foodCount,
         workerCount,
@@ -2571,14 +2752,20 @@ class ColonySimulation {
             id: _nextBuildTaskId++,
             kind: _BuildTaskKind.room,
             colonyId: colonyId,
-            targetLocation: roomPlan.center.clone(),
-            radius: math.max(roomPlan.radiusX, roomPlan.radiusY),
-            roomType: roomPlan.type,
-            // Store the full room plan for oval construction
-            roomPlan: roomPlan,
+            targetLocation: roomPlan.roomCenter.clone(),
+            radius: math.max(roomPlan.roomRadiusX, roomPlan.roomRadiusY),
+            roomType: roomPlan.roomType,
+            // Store the full expansion plan for tunnel + room construction
+            expansionPlan: roomPlan,
           ),
         );
         _plannedRooms.add(roomPlan);
+        GameLogger.instance.logRoomPlanned(
+          _elapsedTime,
+          colonyId,
+          roomPlan.roomType,
+          roomPlan.roomCenter,
+        );
       }
     }
   }
@@ -2605,6 +2792,7 @@ class ColonySimulation {
       'nest': {'x': world.nestPosition.x, 'y': world.nestPosition.y},
       'nest1': {'x': world.nest1Position.x, 'y': world.nest1Position.y},
       'rooms': world.rooms.map((r) => r.toJson()).toList(),
+      'tunnels': world.tunnels.map((t) => t.toJson()).toList(),
     };
   }
 }
@@ -2650,7 +2838,7 @@ class _BuildTask {
     this.roomType,
     this.blueprintId,
     this.blueprintCells,
-    this.roomPlan,
+    this.expansionPlan,
     this.emergency = false,
   });
 
@@ -2662,7 +2850,7 @@ class _BuildTask {
   final RoomType? roomType;
   final int? blueprintId;
   final List<(int, int)>? blueprintCells;
-  final RoomPlan? roomPlan; // For oval room construction
+  final ExpandColonyPlan? expansionPlan; // For tunnel + room construction
   bool emergency;
   bool inProgress = false;
   int assignedBuilderId = -1;

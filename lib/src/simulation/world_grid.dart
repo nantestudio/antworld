@@ -46,9 +46,116 @@ enum RoomType {
   barracks, // Worker/soldier rest area
 }
 
-/// A discrete room in the colony (supports oval shapes)
+/// A tunnel segment connecting rooms in the colony
+class Tunnel {
+  Tunnel({
+    required this.id,
+    required this.cells,
+    required this.width,
+    required this.colonyId,
+    this.fromRoomId,
+    this.toRoomId,
+  });
+
+  final int id;
+  final List<(int, int)> cells; // Ordered path from start to end
+  final int width; // 1=service, 2=standard, 3=highway
+  final int colonyId;
+  final int? fromRoomId; // null if from surface entrance
+  final int? toRoomId; // null if dead end or under construction
+
+  /// Get all cells including width expansion perpendicular to path
+  Set<(int, int)> getAllCells() {
+    if (width <= 1) return cells.toSet();
+
+    final expanded = <(int, int)>{};
+    for (var i = 0; i < cells.length; i++) {
+      final cell = cells[i];
+      expanded.add(cell);
+
+      if (width >= 2) {
+        // Calculate perpendicular direction for width expansion
+        Vector2 perpDir;
+        if (i < cells.length - 1) {
+          final next = cells[i + 1];
+          final dir = Vector2(
+            (next.$1 - cell.$1).toDouble(),
+            (next.$2 - cell.$2).toDouble(),
+          );
+          if (dir.length > 0) {
+            perpDir = Vector2(-dir.y, dir.x)..normalize();
+          } else {
+            perpDir = Vector2(1, 0);
+          }
+        } else if (i > 0) {
+          final prev = cells[i - 1];
+          final dir = Vector2(
+            (cell.$1 - prev.$1).toDouble(),
+            (cell.$2 - prev.$2).toDouble(),
+          );
+          if (dir.length > 0) {
+            perpDir = Vector2(-dir.y, dir.x)..normalize();
+          } else {
+            perpDir = Vector2(1, 0);
+          }
+        } else {
+          perpDir = Vector2(1, 0);
+        }
+
+        // Add cells on both sides based on width
+        for (var w = 1; w < width; w++) {
+          final offset = ((w + 1) / 2).ceil();
+          if (w % 2 == 1) {
+            expanded.add((
+              cell.$1 + (perpDir.x * offset).round(),
+              cell.$2 + (perpDir.y * offset).round(),
+            ));
+          } else {
+            expanded.add((
+              cell.$1 - (perpDir.x * offset).round(),
+              cell.$2 - (perpDir.y * offset).round(),
+            ));
+          }
+        }
+      }
+    }
+    return expanded;
+  }
+
+  /// Convert to JSON for saving
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'cells': cells.map((c) => {'x': c.$1, 'y': c.$2}).toList(),
+    'width': width,
+    'colonyId': colonyId,
+    'fromRoomId': fromRoomId,
+    'toRoomId': toRoomId,
+  };
+
+  /// Create from JSON for loading
+  factory Tunnel.fromJson(Map<String, dynamic> json) {
+    final cellsData = json['cells'] as List? ?? [];
+    final cells = <(int, int)>[];
+    for (final entry in cellsData) {
+      if (entry is Map<String, dynamic>) {
+        cells.add(((entry['x'] as num).toInt(), (entry['y'] as num).toInt()));
+      }
+    }
+    return Tunnel(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      cells: cells,
+      width: (json['width'] as num?)?.toInt() ?? 1,
+      colonyId: (json['colonyId'] as num?)?.toInt() ?? 0,
+      fromRoomId: (json['fromRoomId'] as num?)?.toInt(),
+      toRoomId: (json['toRoomId'] as num?)?.toInt(),
+    );
+  }
+}
+
+/// A discrete room in the colony (oval shape required)
 class Room {
   Room({
+    this.id,
     required this.type,
     required Vector2 center,
     required this.radius,
@@ -56,6 +163,7 @@ class Room {
     double? radiusX,
     double? radiusY,
     this.rotation = 0.0,
+    this.entryTunnelId,
     int? maxCapacity,
     this.currentOccupancy = 0,
     this.needsExpansion = false,
@@ -67,6 +175,7 @@ class Room {
        customCells =
            customCells != null ? <(int, int)>{...customCells} : null;
 
+  final int? id; // Unique identifier (null for legacy rooms)
   final RoomType type;
   final Vector2 center;
   final double radius; // Legacy - use radiusX/radiusY for ovals
@@ -74,11 +183,13 @@ class Room {
   final double radiusY; // Vertical radius
   final double rotation; // Rotation angle in radians
   final int colonyId;
+  final int? entryTunnelId; // The tunnel that leads to this room
   final int maxCapacity;
   int currentOccupancy;
   bool needsExpansion;
   final Set<(int, int)>? customCells;
   List<(int, int)>? _perimeterCache;
+  Set<(int, int)>? _interiorCache;
 
   static const Map<RoomType, int> defaultCapacity = {
     RoomType.home: 5,
@@ -114,8 +225,64 @@ class Room {
     return normalized <= 1.0;
   }
 
+  /// Get all cells that make up the interior of this oval room
+  Set<(int, int)> getInteriorCells() {
+    if (_interiorCache != null) return _interiorCache!;
+
+    if (customCells != null && customCells!.isNotEmpty) {
+      _interiorCache = customCells;
+      return _interiorCache!;
+    }
+
+    final cells = <(int, int)>{};
+    final cosR = math.cos(rotation);
+    final sinR = math.sin(rotation);
+    final maxRadius = math.max(radiusX, radiusY).ceil() + 1;
+    final cx = center.x.floor();
+    final cy = center.y.floor();
+
+    for (var dy = -maxRadius; dy <= maxRadius; dy++) {
+      for (var dx = -maxRadius; dx <= maxRadius; dx++) {
+        // Rotate point back to ellipse-aligned coordinates
+        final rx = dx * cosR + dy * sinR;
+        final ry = -dx * sinR + dy * cosR;
+
+        // Check if inside ellipse: (rx/a)² + (ry/b)² <= 1
+        final normalized = (rx * rx) / (radiusX * radiusX) +
+            (ry * ry) / (radiusY * radiusY);
+
+        if (normalized <= 1.0) {
+          cells.add((cx + dx, cy + dy));
+        }
+      }
+    }
+    _interiorCache = cells;
+    return cells;
+  }
+
+  /// Get cells that form the 1-cell thick wall around this room
+  Set<(int, int)> getWallCells() {
+    final interior = getInteriorCells();
+    final walls = <(int, int)>{};
+
+    for (final cell in interior) {
+      // Check all 8 neighbors
+      for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+          if (dx == 0 && dy == 0) continue;
+          final neighbor = (cell.$1 + dx, cell.$2 + dy);
+          if (!interior.contains(neighbor)) {
+            walls.add(neighbor);
+          }
+        }
+      }
+    }
+    return walls;
+  }
+
   /// Convert to JSON for saving
   Map<String, dynamic> toJson() => {
+    if (id != null) 'id': id,
     'type': type.index,
     'centerX': center.x,
     'centerY': center.y,
@@ -124,6 +291,7 @@ class Room {
     'radiusY': radiusY,
     'rotation': rotation,
     'colonyId': colonyId,
+    if (entryTunnelId != null) 'entryTunnelId': entryTunnelId,
     'maxCapacity': maxCapacity,
     'currentOccupancy': currentOccupancy,
     'needsExpansion': needsExpansion,
@@ -140,6 +308,7 @@ class Room {
         RoomType.values[typeIndex.clamp(0, RoomType.values.length - 1)];
     final radius = (json['radius'] as num).toDouble();
     return Room(
+      id: (json['id'] as num?)?.toInt(),
       type: clampedType,
       center: Vector2(
         (json['centerX'] as num).toDouble(),
@@ -150,6 +319,7 @@ class Room {
       radiusY: (json['radiusY'] as num?)?.toDouble(),
       rotation: (json['rotation'] as num?)?.toDouble() ?? 0.0,
       colonyId: (json['colonyId'] as num?)?.toInt() ?? 0,
+      entryTunnelId: (json['entryTunnelId'] as num?)?.toInt(),
       maxCapacity: (json['maxCapacity'] as num?)?.toInt(),
       currentOccupancy: (json['currentOccupancy'] as num?)?.toInt() ?? 0,
       needsExpansion: json['needsExpansion'] as bool? ?? false,
@@ -171,7 +341,10 @@ class Room {
     return result.isEmpty ? null : result;
   }
 
-  void invalidateCache() => _perimeterCache = null;
+  void invalidateCache() {
+    _perimeterCache = null;
+    _interiorCache = null;
+  }
 
   List<(int, int)> perimeter(WorldGrid world) {
     return _perimeterCache ??= _buildPerimeter(world);
@@ -231,6 +404,10 @@ class WorldGrid {
       homePheromoneOwner0 = Uint8List(config.cols * config.rows),
       homePheromoneOwner1 = Uint8List(config.cols * config.rows),
       blockedPheromones = Float32List(config.cols * config.rows),
+      trailPheromones0 = Float32List(config.cols * config.rows),
+      trailPheromones1 = Float32List(config.cols * config.rows),
+      alarmPheromones0 = Float32List(config.cols * config.rows),
+      alarmPheromones1 = Float32List(config.cols * config.rows),
       foodScent = Float32List(config.cols * config.rows),
       _foodScentBuffer = Float32List(config.cols * config.rows),
       dirtHealth = Float32List(config.cols * config.rows),
@@ -269,9 +446,13 @@ class WorldGrid {
   final Uint8List homePheromoneOwner0;
   final Uint8List homePheromoneOwner1;
   final Float32List
-  blockedPheromones; // Warning pheromone for dead ends/obstacles (shared)
+      blockedPheromones; // Warning pheromone for dead ends/obstacles (shared)
+  final Float32List trailPheromones0; // Colony 0 trail marks - "I walked here"
+  final Float32List trailPheromones1; // Colony 1 trail marks
+  final Float32List alarmPheromones0; // Colony 0 danger signals
+  final Float32List alarmPheromones1; // Colony 1 danger signals
   final Float32List
-  foodScent; // Diffusing scent from food sources (flows through air like gas)
+      foodScent; // Diffusing scent from food sources (flows through air like gas)
   final Float32List _foodScentBuffer; // Double buffer for diffusion
   final List<Vector2> nestPositions; // All colony nest positions (up to 4)
   final Float32List dirtHealth;
@@ -300,6 +481,9 @@ class WorldGrid {
   bool _homeDistance3Dirty = true;
   int _terrainVersion = 0;
   final List<Room> rooms = []; // Discrete colony chambers
+  final List<Tunnel> tunnels = []; // Tunnel network
+  int _nextRoomId = 1;
+  int _nextTunnelId = 1;
 
   int get cols => config.cols;
   int get rows => config.rows;
@@ -328,12 +512,19 @@ class WorldGrid {
       homePheromoneOwner0[i] = 0;
       homePheromoneOwner1[i] = 0;
       blockedPheromones[i] = 0;
+      trailPheromones0[i] = 0;
+      trailPheromones1[i] = 0;
+      alarmPheromones0[i] = 0;
+      alarmPheromones1[i] = 0;
       foodScent[i] = 0;
       _foodScentBuffer[i] = 0;
     }
     _foodCells.clear();
     _activePheromoneCells.clear();
     rooms.clear();
+    tunnels.clear();
+    _nextRoomId = 1;
+    _nextTunnelId = 1;
     _reinforcedCells.clear();
     _activeFoodScentCells.clear();
     _homeDistance0Dirty = true;
@@ -620,6 +811,38 @@ class WorldGrid {
         b *= blockedFactor;
         blockedPheromones[idx] = b > threshold ? b : 0;
         hasAny = hasAny || blockedPheromones[idx] > 0;
+      }
+
+      // Trail pheromone - decays SLOWLY (paths persist longer)
+      const trailFactor = 0.997; // Slower than food/home (0.985)
+      var t0 = trailPheromones0[idx];
+      if (t0 > 0) {
+        t0 *= trailFactor;
+        trailPheromones0[idx] = t0 > threshold ? t0 : 0;
+        hasAny = hasAny || trailPheromones0[idx] > 0;
+      }
+
+      var t1 = trailPheromones1[idx];
+      if (t1 > 0) {
+        t1 *= trailFactor;
+        trailPheromones1[idx] = t1 > threshold ? t1 : 0;
+        hasAny = hasAny || trailPheromones1[idx] > 0;
+      }
+
+      // Alarm pheromone - decays FAST (danger is temporary)
+      const alarmFactor = 0.95;
+      var a0 = alarmPheromones0[idx];
+      if (a0 > 0) {
+        a0 *= alarmFactor;
+        alarmPheromones0[idx] = a0 > threshold ? a0 : 0;
+        hasAny = hasAny || alarmPheromones0[idx] > 0;
+      }
+
+      var a1 = alarmPheromones1[idx];
+      if (a1 > 0) {
+        a1 *= alarmFactor;
+        alarmPheromones1[idx] = a1 > threshold ? a1 : 0;
+        hasAny = hasAny || alarmPheromones1[idx] > 0;
       }
 
       if (!hasAny) {
@@ -1050,6 +1273,42 @@ class WorldGrid {
     return blockedPheromones[index(x, y)];
   }
 
+  /// Deposit trail pheromone - ALL ants deposit this as they walk
+  void depositTrailPheromone(int x, int y, double amount, [int colonyId = 0]) {
+    if (!isInsideIndex(x, y)) return;
+    final idx = index(x, y);
+    if (colonyId == 0) {
+      trailPheromones0[idx] = math.min(1.0, trailPheromones0[idx] + amount);
+    } else {
+      trailPheromones1[idx] = math.min(1.0, trailPheromones1[idx] + amount);
+    }
+    _activePheromoneCells.add(idx);
+  }
+
+  double trailPheromoneAt(int x, int y, [int colonyId = 0]) {
+    if (!isInsideIndex(x, y)) return 0;
+    final idx = index(x, y);
+    return colonyId == 0 ? trailPheromones0[idx] : trailPheromones1[idx];
+  }
+
+  /// Deposit alarm pheromone - ants deposit when in danger/combat
+  void depositAlarmPheromone(int x, int y, double amount, [int colonyId = 0]) {
+    if (!isInsideIndex(x, y)) return;
+    final idx = index(x, y);
+    if (colonyId == 0) {
+      alarmPheromones0[idx] = math.min(1.0, alarmPheromones0[idx] + amount);
+    } else {
+      alarmPheromones1[idx] = math.min(1.0, alarmPheromones1[idx] + amount);
+    }
+    _activePheromoneCells.add(idx);
+  }
+
+  double alarmPheromoneAt(int x, int y, [int colonyId = 0]) {
+    if (!isInsideIndex(x, y)) return 0;
+    final idx = index(x, y);
+    return colonyId == 0 ? alarmPheromones0[idx] : alarmPheromones1[idx];
+  }
+
   void _rebuildFoodCache() {
     _foodCells.clear();
     for (var i = 0; i < cells.length; i++) {
@@ -1070,7 +1329,11 @@ class WorldGrid {
           foodPheromones1[i] > 0 ||
           homePheromones0[i] > 0 ||
           homePheromones1[i] > 0 ||
-          blockedPheromones[i] > 0) {
+          blockedPheromones[i] > 0 ||
+          trailPheromones0[i] > 0 ||
+          trailPheromones1[i] > 0 ||
+          alarmPheromones0[i] > 0 ||
+          alarmPheromones1[i] > 0) {
         _activePheromoneCells.add(i);
       }
     }
@@ -1504,6 +1767,62 @@ class WorldGrid {
       case RoomType.barracks:
         return NestZone.barracks.index;
     }
+  }
+
+  /// Generate a unique room ID
+  int generateRoomId() => _nextRoomId++;
+
+  /// Generate a unique tunnel ID
+  int generateTunnelId() => _nextTunnelId++;
+
+  /// Add a tunnel and carve it into the world
+  void addTunnel(Tunnel tunnel) {
+    tunnels.add(tunnel);
+    // Carve all tunnel cells as air
+    for (final cell in tunnel.getAllCells()) {
+      final x = cell.$1;
+      final y = cell.$2;
+      if (!isInsideIndex(x, y)) continue;
+      final idx = index(x, y);
+      cells[idx] = CellType.air.index;
+      zones[idx] = NestZone.general.index; // Tunnels are general nest area
+    }
+    _terrainVersion++;
+    markHomeDistancesDirty();
+  }
+
+  /// Get the tunnel at a specific position, if any
+  Tunnel? getTunnelAt(int x, int y) {
+    for (final tunnel in tunnels) {
+      if (tunnel.getAllCells().contains((x, y))) {
+        return tunnel;
+      }
+    }
+    return null;
+  }
+
+  /// Get all tunnels for a specific colony
+  List<Tunnel> getTunnelsForColony(int colonyId) {
+    return tunnels.where((t) => t.colonyId == colonyId).toList();
+  }
+
+  /// Check if a position is within any colony space (room or tunnel)
+  bool isInColonySpace(int x, int y, int colonyId) {
+    // Check rooms
+    for (final room in rooms) {
+      if (room.colonyId != colonyId) continue;
+      if (room.contains(Vector2(x.toDouble(), y.toDouble()))) {
+        return true;
+      }
+    }
+    // Check tunnels
+    for (final tunnel in tunnels) {
+      if (tunnel.colonyId != colonyId) continue;
+      if (tunnel.getAllCells().contains((x, y))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   bool _canPlaceRoomAt(Vector2 candidate, double radius, int colonyId) {

@@ -16,6 +16,7 @@ import 'src/core/mode_config.dart';
 import 'src/game/ant_world_game.dart';
 import 'src/services/analytics_service.dart';
 import 'src/services/cosmetics_service.dart';
+import 'src/services/game_logger.dart';
 import 'src/simulation/colony_simulation.dart';
 import 'src/ui/ant_gallery_page.dart';
 import 'src/ui/mobile_hud.dart';
@@ -24,6 +25,13 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await CosmeticsService.instance.load();
+
+  // Initialize game logger for debugging (only on platforms with file I/O)
+  if (!kIsWeb) {
+    await GameLogger.instance.init(
+      sessionNotes: 'Tunnel-first architecture',
+    );
+  }
 
   runApp(const AntWorldApp());
 }

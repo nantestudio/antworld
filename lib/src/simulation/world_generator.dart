@@ -857,23 +857,100 @@ class WorldGenerator {
     return nestPositions;
   }
 
-  /// Create the initial home chamber for a colony.
+  /// Create the initial colony with trunk tunnel and home chamber.
+  ///
+  /// Creates a tunnel-first layout where:
+  /// 1. A main trunk tunnel goes "deep" (toward map center)
+  /// 2. An oval home chamber sits at the end of the trunk
   void _createColonyRooms(
     WorldGrid grid,
     Vector2 nestCenter,
     int colonyId,
     math.Random rng,
   ) {
-    const homeRadius = 4.0;
+    // Calculate direction toward map center (= "deep" for the colony)
+    final mapCenter = Vector2(grid.cols / 2, grid.rows / 2);
+    final toCenter = mapCenter - nestCenter;
+    if (toCenter.length > 0.1) {
+      toCenter.normalize();
+    } else {
+      // Nest is at center - go down
+      toCenter.setValues(0, 1);
+    }
 
-    // Create home room at nest center
-    final homeRoom = Room(
-      type: RoomType.home,
-      center: nestCenter.clone(),
-      radius: homeRadius,
+    // Create entrance at nest position (small air pocket)
+    final entranceX = nestCenter.x.floor();
+    final entranceY = nestCenter.y.floor();
+    for (var dy = -1; dy <= 1; dy++) {
+      for (var dx = -1; dx <= 1; dx++) {
+        final x = entranceX + dx;
+        final y = entranceY + dy;
+        if (grid.isInsideIndex(x, y)) {
+          grid.setCell(x, y, CellType.air);
+        }
+      }
+    }
+
+    // Create main trunk tunnel toward center
+    final trunkLength = 15 + rng.nextInt(10); // 15-25 cells
+    final trunkCells = <(int, int)>[];
+
+    var currentX = nestCenter.x;
+    var currentY = nestCenter.y;
+
+    for (var i = 0; i < trunkLength; i++) {
+      // Add some randomness to the path for organic feel
+      final wobbleX = (rng.nextDouble() - 0.5) * 0.3;
+      final wobbleY = (rng.nextDouble() - 0.5) * 0.3;
+
+      currentX += toCenter.x + wobbleX;
+      currentY += toCenter.y + wobbleY;
+
+      final cellX = currentX.floor();
+      final cellY = currentY.floor();
+
+      if (!grid.isInsideIndex(cellX, cellY)) break;
+
+      trunkCells.add((cellX, cellY));
+    }
+
+    // Create trunk tunnel object and add to grid
+    final trunkId = grid.generateTunnelId();
+    final trunk = Tunnel(
+      id: trunkId,
+      cells: trunkCells,
+      width: 2, // Standard width trunk
       colonyId: colonyId,
+      fromRoomId: null, // From surface entrance
+      toRoomId: null, // Will be updated when home room is created
+    );
+    grid.addTunnel(trunk);
+
+    // Calculate home chamber position at end of trunk
+    final lastCell = trunkCells.isNotEmpty ? trunkCells.last : (entranceX, entranceY);
+    final homeCenter = Vector2(lastCell.$1.toDouble(), lastCell.$2.toDouble());
+
+    // Calculate tunnel angle for perpendicular room orientation
+    final tunnelAngle = math.atan2(toCenter.y, toCenter.x);
+    final roomRotation = tunnelAngle + math.pi / 2; // Perpendicular to tunnel
+
+    // Create oval home room
+    final homeId = grid.generateRoomId();
+    final homeRoom = Room(
+      id: homeId,
+      type: RoomType.home,
+      center: homeCenter,
+      radius: 5.0, // Legacy radius for backwards compatibility
+      radiusX: 6.0, // Wider
+      radiusY: 4.0, // Narrower
+      rotation: roomRotation,
+      colonyId: colonyId,
+      entryTunnelId: trunkId,
     );
     grid.addRoom(homeRoom);
+
+    // Update nest position to be at the home chamber
+    grid.nestPositions[colonyId].setFrom(homeCenter);
   }
 
   /// Ensures a solid dirt border around the entire map edges

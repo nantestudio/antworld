@@ -13,6 +13,9 @@ class SimulationConfig {
     this.sensorAngle = 0.52, // ~30° tighter cone for focused trails
     this.foodDepositStrength = 0.4, // reduced to prevent pheromone saturation
     this.homeDepositStrength = 0.35, // balanced with food deposit
+    this.trailDepositStrength = 0.12, // ALL ants deposit this as they walk
+    this.trailSenseWeight = 2.5, // How much trail pheromone influences steering
+    this.minTrailToDig = 0.25, // Don't dig if trail pheromone > this (prevents widening)
     this.foodPickupRotation = math.pi,
     this.foodPerNewAnt = 10, // slower colony growth
     this.nestRadius = 3,
@@ -42,6 +45,9 @@ class SimulationConfig {
   final double sensorAngle;
   final double foodDepositStrength;
   final double homeDepositStrength;
+  final double trailDepositStrength;
+  final double trailSenseWeight;
+  final double minTrailToDig;
   final double foodPickupRotation;
   final int foodPerNewAnt;
   final int nestRadius;
@@ -94,6 +100,9 @@ class SimulationConfig {
     double? sensorAngle,
     double? foodDepositStrength,
     double? homeDepositStrength,
+    double? trailDepositStrength,
+    double? trailSenseWeight,
+    double? minTrailToDig,
     double? foodPickupRotation,
     int? foodPerNewAnt,
     int? nestRadius,
@@ -123,6 +132,9 @@ class SimulationConfig {
       sensorAngle: sensorAngle ?? this.sensorAngle,
       foodDepositStrength: foodDepositStrength ?? this.foodDepositStrength,
       homeDepositStrength: homeDepositStrength ?? this.homeDepositStrength,
+      trailDepositStrength: trailDepositStrength ?? this.trailDepositStrength,
+      trailSenseWeight: trailSenseWeight ?? this.trailSenseWeight,
+      minTrailToDig: minTrailToDig ?? this.minTrailToDig,
       foodPickupRotation: foodPickupRotation ?? this.foodPickupRotation,
       foodPerNewAnt: foodPerNewAnt ?? this.foodPerNewAnt,
       nestRadius: nestRadius ?? this.nestRadius,
@@ -159,6 +171,9 @@ Map<String, dynamic> simulationConfigToJson(SimulationConfig config) {
     'sensorAngle': config.sensorAngle,
     'foodDepositStrength': config.foodDepositStrength,
     'homeDepositStrength': config.homeDepositStrength,
+    'trailDepositStrength': config.trailDepositStrength,
+    'trailSenseWeight': config.trailSenseWeight,
+    'minTrailToDig': config.minTrailToDig,
     'foodPickupRotation': config.foodPickupRotation,
     'foodPerNewAnt': config.foodPerNewAnt,
     'nestRadius': config.nestRadius,
@@ -199,13 +214,20 @@ SimulationConfig simulationConfigFromJson(
     sensorAngle: (data['sensorAngle'] as num?)?.toDouble() ?? base.sensorAngle,
     foodDepositStrength:
         (data['foodDepositStrength'] as num?)?.toDouble() ??
-        base.foodDepositStrength,
+            base.foodDepositStrength,
     homeDepositStrength:
         (data['homeDepositStrength'] as num?)?.toDouble() ??
-        base.homeDepositStrength,
+            base.homeDepositStrength,
+    trailDepositStrength:
+        (data['trailDepositStrength'] as num?)?.toDouble() ??
+            base.trailDepositStrength,
+    trailSenseWeight:
+        (data['trailSenseWeight'] as num?)?.toDouble() ?? base.trailSenseWeight,
+    minTrailToDig:
+        (data['minTrailToDig'] as num?)?.toDouble() ?? base.minTrailToDig,
     foodPickupRotation:
         (data['foodPickupRotation'] as num?)?.toDouble() ??
-        base.foodPickupRotation,
+            base.foodPickupRotation,
     foodPerNewAnt:
         (data['foodPerNewAnt'] as num?)?.toInt() ?? base.foodPerNewAnt,
     nestRadius: (data['nestRadius'] as num?)?.toInt() ?? base.nestRadius,

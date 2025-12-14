@@ -258,18 +258,17 @@ class Ant {
   // Individual max lifespan (varies ±20% from base)
   late final double _individualMaxLifespan;
 
-  // Base max lifespan per caste (in game seconds)
-  // Balanced for sustainable population: birth rate must match death rate
+  // Base max lifespan per caste (in game seconds) - TRIPLED for longer gameplay
   static const Map<AntCaste, double> _baseLifespan = {
-    AntCaste.worker: 480.0, // 8 minutes
-    AntCaste.soldier: 360.0, // 6 minutes
-    AntCaste.nurse: 600.0, // 10 minutes
-    AntCaste.drone: 300.0, // 5 minutes
-    AntCaste.queen: 3600.0, // 60 minutes - queens live much longer
-    AntCaste.princess: 1200.0, // 20 minutes - waiting to become queen
-    AntCaste.larva: 60.0, // 1 minute (will mature before this)
-    AntCaste.egg: 30.0, // 30 seconds (will hatch before this)
-    AntCaste.builder: 600.0, // 10 minutes - same as nurse
+    AntCaste.worker: 1440.0, // 24 minutes (was 8)
+    AntCaste.soldier: 1080.0, // 18 minutes (was 6)
+    AntCaste.nurse: 1800.0, // 30 minutes (was 10)
+    AntCaste.drone: 900.0, // 15 minutes (was 5)
+    AntCaste.queen: 10800.0, // 3 hours (was 1) - queens live much longer
+    AntCaste.princess: 3600.0, // 60 minutes (was 20) - waiting to become queen
+    AntCaste.larva: 60.0, // 1 minute (will mature before this - unchanged)
+    AntCaste.egg: 30.0, // 30 seconds (will hatch before this - unchanged)
+    AntCaste.builder: 1800.0, // 30 minutes (was 10) - same as nurse
   };
 
   // Nurse carrying larva (reference by ID, -1 = not carrying)
@@ -280,7 +279,7 @@ class Ant {
   // Queen egg laying timer
   double _eggLayTimer = 0.0;
   static const double _eggLayInterval =
-      20.0; // seconds between laying eggs (balanced for population sustainability)
+      7.0; // seconds between laying eggs (3x faster for rapid growth)
 
   // Stuck detection
   final Vector2 _lastPosition = Vector2.zero();
@@ -305,6 +304,10 @@ class Ant {
   bool get isDead => hp <= 0;
   bool get isStuck => _stuckTime >= _stuckThreshold;
   double get stuckTime => _stuckTime;
+  void resetStuckTimer() {
+    _stuckTime = 0;
+    _lastPosition.setFrom(position);
+  }
   double get explorerTendency => _explorerTendency;
   bool get isExplorer => _explorerTendency > 0.15; // High tendency = explorer
   bool get needsRest => _needsRest;
@@ -382,6 +385,18 @@ class Ant {
       _collisionPauseTimer -= dt;
       if (_collisionPauseTimer > 0) {
         return false; // Still paused, don't move
+      }
+    }
+
+    // Emergency: eject ant if stuck inside non-walkable terrain
+    final currentX = position.x.floor();
+    final currentY = position.y.floor();
+    if (world.isInsideIndex(currentX, currentY) &&
+        !world.isWalkableCell(currentX, currentY)) {
+      // Find nearest walkable cell and teleport there
+      if (_ejectFromTerrain(world, rng)) {
+        _stuckTime = 0;
+        return false; // Skip this frame after ejection
       }
     }
 
@@ -508,28 +523,30 @@ class Ant {
           return false;
         }
       } else if (hitBlock == CellType.dirt) {
+        // Check if this is a reinforced wall (built by builders) - navigate around
+        if (world.isReinforcedCell(hitX, hitY)) {
+          _navigateAroundObstacle(world, rng);
+          _collisionPauseTimer = _collisionPauseDuration * 0.2;
+          return false;
+        }
+
+        // Trail pheromone guides ants via STEERING (the _sense method).
+        // If an ant still hits dirt after steering, it means there's no good path.
+        // Let them dig - this is how new tunnels are created!
         _dig(world, hitX, hitY, config);
         angle += math.pi / 2 + (rng.nextDouble() - 0.5) * 0.6;
-        _consecutiveRockHits = 0; // Reset rock hit counter on dirt collision
-        // Short pause after digging
+        _consecutiveRockHits = 0;
         _collisionPauseTimer = _collisionPauseDuration * 0.3;
         return false;
       } else if (hitBlock == CellType.rock) {
         // Deposit blocked pheromone to warn other ants about this obstacle
         world.depositBlockedPheromone(hitX, hitY, 0.3);
 
-        // Only 10% of ants try to navigate around obstacles intelligently
-        if (rng.nextDouble() < 0.10) {
-          _consecutiveRockHits++;
-          _handleRockCollision(rng);
-          _collisionCooldown =
-              10; // Don't allow small steering adjustments for 10 frames
-        } else {
-          // 90% just bounce back
-          angle += math.pi + (rng.nextDouble() - 0.5) * 0.3;
-        }
+        // Use smart navigation to find way around obstacles
+        _navigateAroundObstacle(world, rng);
+        _collisionCooldown = 5; // Commit to new direction for a few frames
         // Pause after hitting rock
-        _collisionPauseTimer = _collisionPauseDuration;
+        _collisionPauseTimer = _collisionPauseDuration * 0.5;
         return false;
       }
     }
@@ -539,7 +556,8 @@ class Ant {
     final walkable =
         world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy);
     if (!walkable) {
-      _rotateAway(rng);
+      // Smart obstacle avoidance: try left and right, pick clearer path
+      _navigateAroundObstacle(world, rng);
       return false;
     }
 
@@ -569,6 +587,13 @@ class Ant {
     final depositX = position.x.floor();
     final depositY = position.y.floor();
     if (world.isInsideIndex(depositX, depositY)) {
+      // TRAIL PHEROMONE: ALL ants deposit this as they walk
+      // This creates emergent "ant highways" on well-used paths
+      final trailStrength =
+          config.trailDepositStrength * (0.8 + rng.nextDouble() * 0.4);
+      world.depositTrailPheromone(depositX, depositY, trailStrength, colonyId);
+
+      // STATE-SPECIFIC pheromones for direction
       if (hasFood) {
         // Vary deposit strength ±20% for natural trail variation
         final strength =
@@ -800,31 +825,34 @@ class Ant {
         ? _stateBeforeRest!
         : state;
 
+    // BASE: Trail pheromone - ALL ants follow well-trodden paths
+    // This is the key to emergent ant highways
+    var value = world.trailPheromoneAt(gx, gy, colonyId) * config.trailSenseWeight;
+
+    // STATE-SPECIFIC: Add directional pheromones
     if (behavior == AntState.forage) {
       // Sense own colony's food pheromones (trails to food sources)
-      var value = world.foodPheromoneAt(gx, gy, colonyId);
+      value += world.foodPheromoneAt(gx, gy, colonyId);
 
       // Add food scent (diffusing smell from food sources)
-      // This strongly guides ants through existing tunnels toward food
       final foodScentValue = world.foodScentAt(gx, gy);
       value += foodScentValue * 5.0; // Food scent is very attractive
 
       if (world.cellTypeAt(gx, gy) == CellType.food) {
         value += 10;
       }
-      // Add perceptual noise: ±15% variation
-      value *= (0.85 + rng.nextDouble() * 0.3);
-      // Subtract blocked pheromone penalty
-      value -= blockedAmount * 2;
-      return value;
+    } else {
+      // Returning home - sense home pheromones
+      value += world.homePheromoneAt(gx, gy, colonyId);
     }
 
-    // Sense own colony's home pheromones (trails back to nest)
-    var value = world.homePheromoneAt(gx, gy, colonyId);
+    // NEGATIVE: Subtract blocked and alarm pheromone
+    value -= blockedAmount * 2;
+    value -= world.alarmPheromoneAt(gx, gy, colonyId) * 1.5;
+
     // Add perceptual noise: ±15% variation
     value *= (0.85 + rng.nextDouble() * 0.3);
-    // Subtract blocked pheromone penalty
-    value -= blockedAmount * 2;
+
     return value;
   }
 
@@ -1011,6 +1039,37 @@ class Ant {
     return normalized;
   }
 
+  /// Eject ant from non-walkable terrain by finding nearest walkable cell
+  bool _ejectFromTerrain(WorldGrid world, math.Random rng) {
+    final cx = position.x.floor();
+    final cy = position.y.floor();
+
+    // Search in expanding squares for a walkable cell
+    for (var radius = 1; radius <= 8; radius++) {
+      final candidates = <(int, int)>[];
+      for (var dy = -radius; dy <= radius; dy++) {
+        for (var dx = -radius; dx <= radius; dx++) {
+          // Only check the perimeter of the square
+          if (dx.abs() != radius && dy.abs() != radius) continue;
+          final x = cx + dx;
+          final y = cy + dy;
+          if (world.isInsideIndex(x, y) && world.isWalkableCell(x, y)) {
+            candidates.add((x, y));
+          }
+        }
+      }
+      if (candidates.isNotEmpty) {
+        // Pick a random walkable cell from the candidates
+        final target = candidates[rng.nextInt(candidates.length)];
+        position.setValues(target.$1 + 0.5, target.$2 + 0.5);
+        // Set a random angle to avoid getting immediately stuck again
+        angle = rng.nextDouble() * math.pi * 2;
+        return true;
+      }
+    }
+    return false; // No walkable cell found nearby
+  }
+
   void _rotateAway(
     math.Random rng, {
     double minTurn = 0.4,
@@ -1019,6 +1078,56 @@ class Ant {
     final direction = rng.nextBool() ? 1.0 : -1.0;
     final delta = minTurn + rng.nextDouble() * (maxTurn - minTurn);
     angle = _normalizeAngle(angle + direction * delta);
+  }
+
+  /// Smart obstacle avoidance: check left and right, pick the clearer path
+  void _navigateAroundObstacle(WorldGrid world, math.Random rng) {
+    const checkDistance = 3.0;
+    const turnAngle = math.pi / 3; // 60 degrees
+
+    // Count walkable cells in left and right directions
+    int countWalkable(double testAngle) {
+      var count = 0;
+      for (var dist = 1.0; dist <= checkDistance; dist += 1.0) {
+        final tx = position.x + math.cos(testAngle) * dist;
+        final ty = position.y + math.sin(testAngle) * dist;
+        final gx = tx.floor();
+        final gy = ty.floor();
+        if (world.isInsideIndex(gx, gy) && world.isWalkableCell(gx, gy)) {
+          count++;
+        }
+      }
+      return count;
+    }
+
+    final leftAngle = _normalizeAngle(angle + turnAngle);
+    final rightAngle = _normalizeAngle(angle - turnAngle);
+    final leftCount = countWalkable(leftAngle);
+    final rightCount = countWalkable(rightAngle);
+
+    if (leftCount > rightCount) {
+      angle = leftAngle;
+    } else if (rightCount > leftCount) {
+      angle = rightAngle;
+    } else if (leftCount > 0) {
+      // Both equal but have some space - pick randomly
+      angle = rng.nextBool() ? leftAngle : rightAngle;
+    } else {
+      // Both blocked - try larger turns
+      final bigLeftAngle = _normalizeAngle(angle + math.pi / 2);
+      final bigRightAngle = _normalizeAngle(angle - math.pi / 2);
+      final bigLeftCount = countWalkable(bigLeftAngle);
+      final bigRightCount = countWalkable(bigRightAngle);
+
+      if (bigLeftCount > bigRightCount) {
+        angle = bigLeftAngle;
+      } else if (bigRightCount > bigLeftCount) {
+        angle = bigRightAngle;
+      } else {
+        // Completely blocked - turn around
+        angle = _normalizeAngle(angle + math.pi + (rng.nextDouble() - 0.5) * 0.5);
+      }
+    }
   }
 
   void _handleRockCollision(math.Random rng) {
@@ -1036,6 +1145,17 @@ class Ant {
   }
 
   void _dig(WorldGrid world, int gx, int gy, SimulationConfig config) {
+    // Builders dig instantly - one blow destroys ANY dirt OR reinforced walls
+    // They are the ONLY ones who can break reinforced walls
+    if (caste == AntCaste.builder) {
+      // setCell(air) automatically removes reinforcement
+      world.setCell(gx, gy, CellType.air);
+      return;
+    }
+
+    // Non-builders cannot dig reinforced cells (walls built by builders)
+    if (world.isReinforcedCell(gx, gy)) return;
+
     final applyEnergyCost = config.restEnabled && !_needsRest;
     final spend = applyEnergyCost
         ? math.min(config.digEnergyCost, energy)

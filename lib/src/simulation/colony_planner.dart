@@ -2,190 +2,92 @@ import 'dart:math' as math;
 import 'package:flame/components.dart';
 import 'world_grid.dart';
 
-/// Bonus types that rooms can provide
-enum RoomBonus {
-  maturationSpeed, // Larvae mature faster
-  restRecovery, // Energy recovery faster
-  foodPreservation, // Food decays slower
-  foodGeneration, // Passive food generation
-  eggLayingSpeed, // Queen lays eggs faster
-}
-
-/// Extended room type including new functional rooms
-enum ExtendedRoomType {
-  queenChamber, // Queen's main chamber
-  nursery, // Egg/larva care
-  foodStorage, // Food stockpile
-  barracks, // Rest area
-  fungusGarden, // Passive food generation
-  trashHeap, // Dead ant disposal
-}
-
-/// A planned room with oval dimensions
-class RoomPlan {
-  RoomPlan({
-    required this.type,
-    required this.center,
-    required this.radiusX,
-    required this.radiusY,
-    required this.rotation,
+/// A planned expansion that includes both a tunnel and a room at the end
+class ExpandColonyPlan {
+  ExpandColonyPlan({
+    required this.tunnelCells,
+    required this.tunnelWidth,
+    required this.roomCenter,
+    required this.roomRadiusX,
+    required this.roomRadiusY,
+    required this.roomRotation,
+    required this.roomType,
+    required this.branchPoint,
     required this.colonyId,
   });
 
-  final RoomType type;
-  final Vector2 center;
-  final double radiusX; // Horizontal radius (wider)
-  final double radiusY; // Vertical radius (narrower)
-  final double rotation; // Rotation angle in radians
+  final List<(int, int)> tunnelCells;
+  final int tunnelWidth;
+  final Vector2 roomCenter;
+  final double roomRadiusX;
+  final double roomRadiusY;
+  final double roomRotation;
+  final RoomType roomType;
+  final Vector2 branchPoint;
   final int colonyId;
 
-  /// Get all cells that make up this oval room
-  Set<(int, int)> getCells() {
+  /// Get all cells that need to be dug for the room
+  Set<(int, int)> getRoomCells() {
     final cells = <(int, int)>{};
-    final cosR = math.cos(rotation);
-    final sinR = math.sin(rotation);
-
-    // Bounding box for the rotated ellipse
-    final maxRadius = math.max(radiusX, radiusY).ceil() + 1;
+    final cosR = math.cos(roomRotation);
+    final sinR = math.sin(roomRotation);
+    final maxRadius = math.max(roomRadiusX, roomRadiusY).ceil() + 1;
+    final cx = roomCenter.x.floor();
+    final cy = roomCenter.y.floor();
 
     for (var dy = -maxRadius; dy <= maxRadius; dy++) {
       for (var dx = -maxRadius; dx <= maxRadius; dx++) {
-        // Rotate point back to ellipse-aligned coordinates
         final rx = dx * cosR + dy * sinR;
         final ry = -dx * sinR + dy * cosR;
-
-        // Check if inside ellipse: (rx/a)² + (ry/b)² <= 1
-        final normalized = (rx * rx) / (radiusX * radiusX) +
-            (ry * ry) / (radiusY * radiusY);
-
+        final normalized = (rx * rx) / (roomRadiusX * roomRadiusX) +
+            (ry * ry) / (roomRadiusY * roomRadiusY);
         if (normalized <= 1.0) {
-          cells.add((center.x.floor() + dx, center.y.floor() + dy));
+          cells.add((cx + dx, cy + dy));
         }
       }
     }
     return cells;
   }
 
-  /// Get perimeter cells for wall building
-  Set<(int, int)> getPerimeterCells() {
-    final interior = getCells();
-    final perimeter = <(int, int)>{};
-
+  /// Get wall cells around the room
+  Set<(int, int)> getWallCells() {
+    final interior = getRoomCells();
+    final walls = <(int, int)>{};
     for (final cell in interior) {
-      // Check all 8 neighbors
       for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
           if (dx == 0 && dy == 0) continue;
           final neighbor = (cell.$1 + dx, cell.$2 + dy);
           if (!interior.contains(neighbor)) {
-            perimeter.add(neighbor);
+            walls.add(neighbor);
           }
         }
       }
     }
-    return perimeter;
+    return walls;
   }
 }
 
-/// A planned tunnel connection between rooms
-class TunnelPlan {
-  TunnelPlan({
-    required this.cells,
-    required this.width,
-    required this.fromRoom,
-    required this.toRoom,
-  });
+/// Room size configurations
+const Map<RoomType, (double, double)> roomSizes = {
+  RoomType.home: (6.0, 4.0),
+  RoomType.nursery: (7.0, 5.0),
+  RoomType.foodStorage: (5.0, 5.0),
+  RoomType.barracks: (8.0, 4.0),
+};
 
-  final List<(int, int)> cells;
-  final int width; // 1 = service tunnel, 2-3 = highway
-  final RoomPlan? fromRoom;
-  final RoomPlan? toRoom;
+/// Tunnel lengths for different room types
+const Map<RoomType, (int, int)> tunnelLengths = {
+  RoomType.nursery: (10, 15),
+  RoomType.foodStorage: (8, 12),
+  RoomType.barracks: (8, 12),
+};
 
-  /// Get all cells including width expansion
-  Set<(int, int)> getAllCells() {
-    if (width <= 1) return cells.toSet();
-
-    final expanded = <(int, int)>{};
-    for (var i = 0; i < cells.length; i++) {
-      final cell = cells[i];
-      expanded.add(cell);
-
-      if (width >= 2) {
-        // Calculate perpendicular direction
-        Vector2 perpDir;
-        if (i < cells.length - 1) {
-          final next = cells[i + 1];
-          final dir = Vector2(
-            (next.$1 - cell.$1).toDouble(),
-            (next.$2 - cell.$2).toDouble(),
-          );
-          perpDir = Vector2(-dir.y, dir.x)..normalize();
-        } else if (i > 0) {
-          final prev = cells[i - 1];
-          final dir = Vector2(
-            (cell.$1 - prev.$1).toDouble(),
-            (cell.$2 - prev.$2).toDouble(),
-          );
-          perpDir = Vector2(-dir.y, dir.x)..normalize();
-        } else {
-          perpDir = Vector2(1, 0);
-        }
-
-        // Add cells on both sides
-        for (var w = 1; w < width; w++) {
-          final offset = (w / 2).ceil();
-          if (w % 2 == 1) {
-            expanded.add((
-              cell.$1 + (perpDir.x * offset).round(),
-              cell.$2 + (perpDir.y * offset).round(),
-            ));
-          } else {
-            expanded.add((
-              cell.$1 - (perpDir.x * offset).round(),
-              cell.$2 - (perpDir.y * offset).round(),
-            ));
-          }
-        }
-      }
-    }
-    return expanded;
-  }
-}
-
-/// Colony planner that the queen uses to plan colony layout
+/// Colony planner that creates tunnel + room expansion plans
 class ColonyPlanner {
   ColonyPlanner(this._world);
 
   final WorldGrid _world;
-
-  // Room size configurations
-  static const Map<RoomType, (double, double)> _roomSizes = {
-    RoomType.home: (5.0, 4.0), // Queen chamber - medium oval
-    RoomType.nursery: (6.0, 4.0), // Nursery - wider for eggs/larvae
-    RoomType.foodStorage: (5.0, 5.0), // Food storage - more square
-    RoomType.barracks: (7.0, 4.0), // Barracks - long narrow for resting
-  };
-
-  // Room bonuses
-  static const Map<RoomType, Map<RoomBonus, double>> _roomBonuses = {
-    RoomType.home: {
-      RoomBonus.eggLayingSpeed: 1.2, // 20% faster egg laying
-    },
-    RoomType.nursery: {
-      RoomBonus.maturationSpeed: 1.3, // 30% faster maturation
-    },
-    RoomType.foodStorage: {
-      RoomBonus.foodPreservation: 0.5, // 50% slower decay
-    },
-    RoomType.barracks: {
-      RoomBonus.restRecovery: 2.0, // 2x faster rest
-    },
-  };
-
-  /// Get bonus multiplier for a room type
-  static double getBonus(RoomType type, RoomBonus bonus) {
-    return _roomBonuses[type]?[bonus] ?? 1.0;
-  }
 
   /// Determine what room type the colony needs next
   RoomType? determineNeededRoomType(
@@ -195,12 +97,10 @@ class ColonyPlanner {
     int workerCount,
     List<Room> existingRooms,
   ) {
-    final hasNursery =
-        existingRooms.any((r) => r.type == RoomType.nursery && r.colonyId == colonyId);
-    final hasFoodStorage =
-        existingRooms.any((r) => r.type == RoomType.foodStorage && r.colonyId == colonyId);
-    final hasBarracks =
-        existingRooms.any((r) => r.type == RoomType.barracks && r.colonyId == colonyId);
+    final colonyRooms = existingRooms.where((r) => r.colonyId == colonyId);
+    final hasNursery = colonyRooms.any((r) => r.type == RoomType.nursery);
+    final hasFoodStorage = colonyRooms.any((r) => r.type == RoomType.foodStorage);
+    final hasBarracks = colonyRooms.any((r) => r.type == RoomType.barracks);
 
     // Priority 1: Nursery if eggs exist but no nursery
     if (eggCount > 3 && !hasNursery) {
@@ -217,18 +117,18 @@ class ColonyPlanner {
       return RoomType.barracks;
     }
 
-    // Priority 4: Check for overcrowded rooms
-    for (final room in existingRooms) {
-      if (room.colonyId == colonyId && room.isOverCapacity) {
-        return room.type; // Build satellite of same type
+    // Priority 4: Check for overcrowded rooms (except home - only one per colony)
+    for (final room in colonyRooms) {
+      if (room.type != RoomType.home && room.isOverCapacity) {
+        return room.type;
       }
     }
 
     return null;
   }
 
-  /// Plan the next room based on colony state
-  RoomPlan? planNextRoom(
+  /// Plan the next expansion (tunnel + room) for a colony
+  ExpandColonyPlan? planExpansion(
     int colonyId,
     List<Room> existingRooms,
     int eggCount,
@@ -243,337 +143,280 @@ class ColonyPlanner {
       existingRooms,
     );
 
-    if (neededType == null) return null;
+    if (neededType == null) {
+      return null;
+    }
 
-    // Find home room as anchor
-    final homeRoom = existingRooms.firstWhere(
-      (r) => r.type == RoomType.home && r.colonyId == colonyId,
-      orElse: () => throw StateError('No home room found for colony $colonyId'),
+    // Find best branch point on existing tunnel network
+    final branchPoint = _findBestBranchPoint(colonyId, neededType, existingRooms);
+    if (branchPoint == null) {
+      return null;
+    }
+
+    // Calculate direction for new tunnel
+    final direction = _calculateBranchDirection(branchPoint, neededType, colonyId, existingRooms);
+
+    // Determine tunnel length
+    final lengths = tunnelLengths[neededType] ?? (10, 15);
+    final rng = math.Random();
+    final tunnelLength = lengths.$1 + rng.nextInt(lengths.$2 - lengths.$1 + 1);
+
+    // Generate tunnel cells
+    final tunnelCells = _generateTunnelCells(branchPoint, direction, tunnelLength);
+    if (tunnelCells.isEmpty) return null;
+
+    // Calculate room position at end of tunnel
+    final lastCell = tunnelCells.last;
+    final roomCenter = Vector2(
+      lastCell.$1.toDouble() + direction.x * 2,
+      lastCell.$2.toDouble() + direction.y * 2,
     );
 
-    // Calculate placement direction based on room type
-    final direction = _getRoomDirection(neededType, colonyId, homeRoom.center);
+    // Room rotation perpendicular to tunnel
+    final tunnelAngle = math.atan2(direction.y, direction.x);
+    final roomRotation = tunnelAngle + math.pi / 2;
 
-    // Find optimal position along that direction
-    final sizes = _roomSizes[neededType] ?? (5.0, 4.0);
-    final position = _findPositionAlongDirection(
-      origin: homeRoom.center,
-      direction: direction,
-      minDistance: 10.0,
-      maxDistance: 25.0,
-      radiusX: sizes.$1,
-      radiusY: sizes.$2,
+    // Get room size
+    final sizes = roomSizes[neededType] ?? (5.0, 4.0);
+
+    // Verify room position is valid
+    if (!_canPlaceRoom(roomCenter, sizes.$1, sizes.$2, roomRotation, colonyId, existingRooms)) {
+      return null;
+    }
+
+    return ExpandColonyPlan(
+      tunnelCells: tunnelCells,
+      tunnelWidth: 1, // Service tunnel
+      roomCenter: roomCenter,
+      roomRadiusX: sizes.$1,
+      roomRadiusY: sizes.$2,
+      roomRotation: roomRotation,
+      roomType: neededType,
+      branchPoint: branchPoint,
       colonyId: colonyId,
-      existingRooms: existingRooms,
-    );
-
-    if (position == null) return null;
-
-    // Determine oval orientation (perpendicular to tunnel approach)
-    final tunnelAngle = math.atan2(
-      position.y - homeRoom.center.y,
-      position.x - homeRoom.center.x,
-    );
-    final ovalRotation = tunnelAngle + math.pi / 2;
-
-    return RoomPlan(
-      type: neededType,
-      center: position,
-      radiusX: sizes.$1,
-      radiusY: sizes.$2,
-      rotation: ovalRotation,
-      colonyId: colonyId,
     );
   }
 
-  /// Get direction for room placement based on type
-  Vector2 _getRoomDirection(RoomType type, int colonyId, Vector2 homeCenter) {
-    // Calculate food centroid
-    final foodCentroid = _calculateFoodCentroid(homeCenter);
-    final toFood = foodCentroid - homeCenter;
-    if (toFood.length > 0.1) {
-      toFood.normalize();
-    } else {
-      toFood.setValues(0, -1); // Default: up (toward surface)
+  /// Find the best point to branch a new tunnel from
+  Vector2? _findBestBranchPoint(int colonyId, RoomType targetType, List<Room> existingRooms) {
+    final tunnels = _world.getTunnelsForColony(colonyId);
+    if (tunnels.isEmpty) {
+      // No tunnels - branch from home room center
+      final home = existingRooms.firstWhere(
+        (r) => r.type == RoomType.home && r.colonyId == colonyId,
+        orElse: () => throw StateError('No home room for colony $colonyId'),
+      );
+      return home.center.clone();
     }
 
-    switch (type) {
-      case RoomType.nursery:
-        // Opposite of food direction (deeper = safer)
-        return -toFood;
+    double bestScore = double.negativeInfinity;
+    (int, int)? bestCell;
 
-      case RoomType.foodStorage:
-        // Toward food sources
-        return toFood;
+    for (final tunnel in tunnels) {
+      for (final cell in tunnel.cells) {
+        double score = 0;
 
-      case RoomType.barracks:
-        // Perpendicular to food direction (flanking position)
-        return Vector2(-toFood.y, toFood.x);
+        // 1. Distance from existing rooms (more distance = better)
+        final minRoomDist = _minDistanceToAnyRoom(cell, colonyId, existingRooms);
+        score += minRoomDist * 2.0;
 
-      case RoomType.home:
-        // Should already exist
-        return Vector2(0, 1);
-    }
-  }
-
-  /// Calculate weighted centroid of nearby food
-  Vector2 _calculateFoodCentroid(Vector2 from) {
-    var centroid = Vector2.zero();
-    var totalWeight = 0.0;
-    const searchRadius = 100;
-
-    final fromX = from.x.floor();
-    final fromY = from.y.floor();
-
-    for (var dy = -searchRadius; dy <= searchRadius; dy++) {
-      for (var dx = -searchRadius; dx <= searchRadius; dx++) {
-        final x = fromX + dx;
-        final y = fromY + dy;
-
-        if (!_world.isInsideIndex(x, y)) continue;
-        if (_world.cellTypeAt(x, y) != CellType.food) continue;
-
-        final dist = math.sqrt(dx * dx + dy * dy);
-        final weight = 1.0 / (dist + 1);
-        centroid.x += x * weight;
-        centroid.y += y * weight;
-        totalWeight += weight;
-      }
-    }
-
-    if (totalWeight > 0) {
-      centroid.scale(1.0 / totalWeight);
-      return centroid;
-    }
-
-    // No food found - return position above (toward surface)
-    return from + Vector2(0, -20);
-  }
-
-  /// Find optimal position along a direction
-  Vector2? _findPositionAlongDirection({
-    required Vector2 origin,
-    required Vector2 direction,
-    required double minDistance,
-    required double maxDistance,
-    required double radiusX,
-    required double radiusY,
-    required int colonyId,
-    required List<Room> existingRooms,
-  }) {
-    Vector2? bestPosition;
-    var bestScore = double.negativeInfinity;
-
-    final normalizedDir = direction.normalized();
-
-    for (var dist = minDistance; dist <= maxDistance; dist += 2.0) {
-      final candidate = origin + normalizedDir * dist;
-
-      // Skip if outside world bounds
-      if (!_world.isInsideIndex(candidate.x.floor(), candidate.y.floor())) {
-        continue;
-      }
-
-      var score = 0.0;
-
-      // Prefer soft terrain (easier to dig)
-      score += _terrainSoftnessScore(candidate, radiusX) * 3;
-
-      // Avoid other rooms
-      score -= _roomProximityPenalty(candidate, radiusX, existingRooms) * 5;
-
-      // Check for blocking terrain
-      if (_hasBlockingTerrain(candidate, radiusX)) continue;
-
-      // Prefer positions that connect easily to existing air
-      score += _connectivityScore(candidate) * 2;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestPosition = candidate.clone();
-      }
-    }
-
-    return bestPosition;
-  }
-
-  /// Score terrain softness (easier to dig = higher score)
-  double _terrainSoftnessScore(Vector2 center, double radius) {
-    var score = 0.0;
-    var count = 0;
-    final r = radius.ceil();
-
-    for (var dy = -r; dy <= r; dy++) {
-      for (var dx = -r; dx <= r; dx++) {
-        final x = center.x.floor() + dx;
-        final y = center.y.floor() + dy;
-
-        if (!_world.isInsideIndex(x, y)) continue;
-        if (_world.cellTypeAt(x, y) != CellType.dirt) continue;
-
-        final dirtType = _world.dirtTypeAt(x, y);
-        // Higher score for softer terrain
-        switch (dirtType) {
-          case DirtType.softSand:
-            score += 1.0;
-          case DirtType.looseSoil:
-            score += 0.8;
-          case DirtType.packedEarth:
-            score += 0.5;
-          case DirtType.clay:
-            score += 0.2;
-          case DirtType.hardite:
-            score += 0.0;
-          case DirtType.bedrock:
-            score -= 1.0;
+        // 2. Depth preference based on room type
+        final depthScore = _depthScore(cell);
+        if (targetType == RoomType.nursery) {
+          score += depthScore * 1.5; // Deeper is better for nursery
+        } else if (targetType == RoomType.foodStorage) {
+          score -= depthScore * 1.0; // Shallower for food
         }
-        count++;
+
+        // 3. Penalty for being too close to existing branches
+        final branchDensity = _branchDensity(cell, colonyId);
+        score -= branchDensity * 3.0;
+
+        // 4. Prefer cells not at the start or end of tunnels
+        final tunnelIndex = tunnel.cells.indexOf(cell);
+        final midBonus = (tunnelIndex > 2 && tunnelIndex < tunnel.cells.length - 2) ? 2.0 : 0.0;
+        score += midBonus;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestCell = cell;
+        }
       }
     }
 
-    return count > 0 ? score / count : 0;
+    return bestCell != null ? Vector2(bestCell.$1.toDouble(), bestCell.$2.toDouble()) : null;
   }
 
-  /// Penalty for being too close to other rooms
-  double _roomProximityPenalty(
-    Vector2 center,
-    double radius,
-    List<Room> rooms,
+  /// Calculate direction for a new branch tunnel
+  Vector2 _calculateBranchDirection(
+    Vector2 branchPoint,
+    RoomType targetType,
+    int colonyId,
+    List<Room> existingRooms,
   ) {
-    var penalty = 0.0;
-    final minSpacing = radius + 3; // At least 3 cells between rooms
+    final home = existingRooms.firstWhere(
+      (r) => r.type == RoomType.home && r.colonyId == colonyId,
+      orElse: () => throw StateError('No home room for colony $colonyId'),
+    );
 
-    for (final room in rooms) {
-      final dist = center.distanceTo(room.center);
-      final minDist = minSpacing + room.radius;
+    // Base direction: away from home
+    final awayFromHome = branchPoint - home.center;
+    if (awayFromHome.length > 0.1) {
+      awayFromHome.normalize();
+    } else {
+      awayFromHome.setValues(1, 0);
+    }
 
+    // Rotate based on room type for variety
+    final rng = math.Random();
+    double rotationAngle;
+    switch (targetType) {
+      case RoomType.nursery:
+        // Nursery: Continue deeper (small rotation)
+        rotationAngle = (rng.nextDouble() - 0.5) * 0.5;
+        break;
+      case RoomType.foodStorage:
+        // Food storage: Perpendicular to main direction
+        rotationAngle = (rng.nextBool() ? 1 : -1) * (math.pi / 2 + (rng.nextDouble() - 0.5) * 0.5);
+        break;
+      case RoomType.barracks:
+        // Barracks: Other perpendicular
+        rotationAngle = (rng.nextBool() ? 1 : -1) * (math.pi / 2 + (rng.nextDouble() - 0.5) * 0.5);
+        break;
+      case RoomType.home:
+        rotationAngle = 0;
+    }
+
+    final cos = math.cos(rotationAngle);
+    final sin = math.sin(rotationAngle);
+    return Vector2(
+      awayFromHome.x * cos - awayFromHome.y * sin,
+      awayFromHome.x * sin + awayFromHome.y * cos,
+    );
+  }
+
+  /// Generate cells for a tunnel path
+  List<(int, int)> _generateTunnelCells(Vector2 start, Vector2 direction, int length) {
+    final cells = <(int, int)>[];
+    final rng = math.Random();
+
+    var currentX = start.x;
+    var currentY = start.y;
+
+    for (var i = 0; i < length; i++) {
+      // Add organic wobble
+      final wobbleX = (rng.nextDouble() - 0.5) * 0.3;
+      final wobbleY = (rng.nextDouble() - 0.5) * 0.3;
+
+      currentX += direction.x + wobbleX;
+      currentY += direction.y + wobbleY;
+
+      final cellX = currentX.floor();
+      final cellY = currentY.floor();
+
+      if (!_world.isInsideIndex(cellX, cellY)) break;
+      if (_world.cellTypeAt(cellX, cellY) == CellType.rock) break;
+
+      cells.add((cellX, cellY));
+    }
+
+    return cells;
+  }
+
+  /// Check if a room can be placed at a position
+  bool _canPlaceRoom(
+    Vector2 center,
+    double radiusX,
+    double radiusY,
+    double rotation,
+    int colonyId,
+    List<Room> existingRooms,
+  ) {
+    final cx = center.x.floor();
+    final cy = center.y.floor();
+    final maxRadius = math.max(radiusX, radiusY).ceil();
+
+    // Check bounds
+    if (cx - maxRadius < 5 || cy - maxRadius < 5 ||
+        cx + maxRadius > _world.cols - 5 || cy + maxRadius > _world.rows - 5) {
+      return false;
+    }
+
+    // Check not overlapping other rooms
+    for (final room in existingRooms) {
+      if (room.colonyId != colonyId) continue;
+      final dist = (room.center - center).length;
+      final minDist = math.max(room.radiusX, room.radiusY) + maxRadius + 2;
       if (dist < minDist) {
-        penalty += (minDist - dist) / minDist;
+        return false;
       }
     }
 
-    return penalty;
-  }
-
-  /// Check if position has blocking terrain (rock/bedrock)
-  bool _hasBlockingTerrain(Vector2 center, double radius) {
-    final r = radius.ceil();
-
-    for (var dy = -r; dy <= r; dy++) {
-      for (var dx = -r; dx <= r; dx++) {
-        final x = center.x.floor() + dx;
-        final y = center.y.floor() + dy;
-
-        if (!_world.isInsideIndex(x, y)) return true;
-
-        final cellType = _world.cellTypeAt(x, y);
-        if (cellType == CellType.rock) return true;
-
-        if (cellType == CellType.dirt) {
-          final dirtType = _world.dirtTypeAt(x, y);
-          if (dirtType == DirtType.bedrock) return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  /// Score connectivity to existing air/tunnels
-  double _connectivityScore(Vector2 center) {
-    var score = 0.0;
-    const searchRadius = 15;
-
-    for (var dy = -searchRadius; dy <= searchRadius; dy++) {
-      for (var dx = -searchRadius; dx <= searchRadius; dx++) {
-        final x = center.x.floor() + dx;
-        final y = center.y.floor() + dy;
-
+    // Check no rock in the way
+    for (var dy = -maxRadius; dy <= maxRadius; dy++) {
+      for (var dx = -maxRadius; dx <= maxRadius; dx++) {
+        final x = cx + dx;
+        final y = cy + dy;
         if (!_world.isInsideIndex(x, y)) continue;
-
-        if (_world.cellTypeAt(x, y) == CellType.air) {
-          final dist = math.sqrt(dx * dx + dy * dy);
-          score += 1.0 / (dist + 1);
+        if (_world.cellTypeAt(x, y) == CellType.rock) {
+          return false;
         }
       }
     }
 
-    return score;
+    return true;
   }
 
-  /// Plan a tunnel from one point to another using BFS
-  TunnelPlan? planTunnel(
-    Vector2 from,
-    Vector2 to, {
-    int width = 1,
-    RoomPlan? fromRoom,
-    RoomPlan? toRoom,
-  }) {
-    final startX = from.x.floor();
-    final startY = from.y.floor();
-    final endX = to.x.floor();
-    final endY = to.y.floor();
+  /// Calculate minimum distance from a cell to any room
+  double _minDistanceToAnyRoom((int, int) cell, int colonyId, List<Room> rooms) {
+    double minDist = double.infinity;
+    for (final room in rooms) {
+      if (room.colonyId != colonyId) continue;
+      final dist = math.sqrt(
+        math.pow(cell.$1 - room.center.x, 2) +
+        math.pow(cell.$2 - room.center.y, 2),
+      );
+      if (dist < minDist) {
+        minDist = dist;
+      }
+    }
+    return minDist;
+  }
 
-    // BFS to find path
-    final queue = <(int, int, List<(int, int)>)>[];
-    final visited = <(int, int)>{};
+  /// Calculate depth score (distance from map edge)
+  double _depthScore((int, int) cell) {
+    final distFromEdge = math.min(
+      math.min(cell.$1, _world.cols - cell.$1),
+      math.min(cell.$2, _world.rows - cell.$2),
+    );
+    return distFromEdge.toDouble();
+  }
 
-    queue.add((startX, startY, [(startX, startY)]));
-    visited.add((startX, startY));
-
-    while (queue.isNotEmpty) {
-      final (x, y, path) = queue.removeAt(0);
-
-      // Reached destination
-      if (x == endX && y == endY) {
-        return TunnelPlan(
-          cells: path,
-          width: width,
-          fromRoom: fromRoom,
-          toRoom: toRoom,
+  /// Calculate branch density near a cell
+  double _branchDensity((int, int) cell, int colonyId) {
+    int branchCount = 0;
+    final tunnels = _world.getTunnelsForColony(colonyId);
+    for (final tunnel in tunnels) {
+      for (final c in tunnel.cells) {
+        final dist = math.sqrt(
+          math.pow(c.$1 - cell.$1, 2) + math.pow(c.$2 - cell.$2, 2),
         );
-      }
-
-      // Check neighbors (4-directional for cleaner tunnels)
-      for (final (dx, dy) in [(0, -1), (1, 0), (0, 1), (-1, 0)]) {
-        final nx = x + dx;
-        final ny = y + dy;
-        final neighbor = (nx, ny);
-
-        if (visited.contains(neighbor)) continue;
-        if (!_world.isInsideIndex(nx, ny)) continue;
-
-        // Skip bedrock
-        if (_world.cellTypeAt(nx, ny) == CellType.dirt) {
-          if (_world.dirtTypeAt(nx, ny) == DirtType.bedrock) continue;
+        if (dist < 5) {
+          branchCount++;
         }
-
-        visited.add(neighbor);
-        queue.add((nx, ny, [...path, neighbor]));
       }
-
-      // Limit search to prevent infinite loops
-      if (visited.length > 5000) break;
     }
-
-    return null;
+    return branchCount.toDouble();
   }
 
-  /// Get cells that should be reinforced (walls) around a room
-  Set<(int, int)> getWallCells(RoomPlan plan) {
-    final perimeter = plan.getPerimeterCells();
-    final walls = <(int, int)>{};
-
-    for (final cell in perimeter) {
-      if (!_world.isInsideIndex(cell.$1, cell.$2)) continue;
-
-      final cellType = _world.cellTypeAt(cell.$1, cell.$2);
-      // Only reinforce dirt cells (not air, food, or rock)
-      if (cellType == CellType.dirt) {
-        walls.add(cell);
-      }
-    }
-
-    return walls;
+  /// Legacy compatibility: Plan next room (returns expansion plan as RoomPlan-like data)
+  ExpandColonyPlan? planNextRoom(
+    int colonyId,
+    List<Room> existingRooms,
+    int eggCount,
+    int foodCount,
+    int workerCount,
+  ) {
+    return planExpansion(colonyId, existingRooms, eggCount, foodCount, workerCount);
   }
 }
