@@ -31,8 +31,11 @@ flutter build macos             # For macOS app
 flutter build windows           # For Windows app
 flutter build linux             # For Linux app
 
-# Run tests
+# Run all tests
 flutter test
+
+# Run a single test file
+flutter test test/simulation/room_blueprint_test.dart
 
 # Analyze code
 flutter analyze
@@ -151,6 +154,28 @@ AntWorldGame
 - Tracks milestones: food_milestone, day_milestone
 - Tracks user actions: speed_changed, brush_used, game_saved
 
+**`MotherNatureService`** (`lib/src/services/mother_nature_service.dart`)
+- Environmental event system that makes the world dynamic
+- **Seasons**: Spring, Summer, Fall, Winter cycle based on `daysPassed`
+- **Random events**: Food blooms, tunnel collapses, rock falls, predator raids, earthquakes, hidden chambers
+- Event probabilities vary by season (more food in summer, collapses in winter)
+- Frame-distributed event processing via `_pendingEvents` queue (1 event per frame)
+- Emits events via `GameEventBus` for UI notifications
+
+**`ColonyPlanner`** (`lib/src/simulation/colony_planner.dart`)
+- Generates `ExpandColonyPlan` objects for new rooms with tunnels
+- All rooms are ovals (not circles) with `roomRadiusX` and `roomRadiusY`
+- Room sizes defined in `roomSizes` map per `RoomType`
+- Calculates tunnel paths from branch points to new room centers
+- `getRoomCells()` and `getWallCells()` for builder task assignment
+
+**`RoomBlueprintManager`** (`lib/src/simulation/room_blueprint.dart`)
+- Manages player-painted room blueprints via `RoomPainterState`
+- `RoomBlueprint` tracks: cells, connectionPath, center, status
+- `RoomBlueprintStatus`: pending → queued → digging → complete
+- Minimum/maximum cell counts per room type for validation
+- Builders assigned via `constructingBlueprint` task to carve painted rooms
+
 ### Data Structures
 
 **Grid Storage**: Single flat `Uint8List` for cells, indexed by `y * cols + x`
@@ -160,13 +185,16 @@ AntWorldGame
 - Separate `Float32List` arrays for each pheromone type
 
 **Pheromone System**: Per-colony pheromone overlays
-- Food pheromones: deposited by ants carrying food (strength 0.5), colored per colony
-- Home pheromones: deposited by foraging ants (strength 0.2), colored per colony
-- Separate layers per colony: `foodPheromones0/1`, `homePheromones0/1`
+- Food pheromones: deposited by ants carrying food (strength 0.4), colored per colony
+- Home pheromones: deposited by foraging ants (strength 0.35), colored per colony
+- **Trail pheromones**: ALL ants deposit trail pheromones as they walk (strength 0.12), creates emergent highways
+- Separate layers per colony: `foodPheromones0/1`, `homePheromones0/1`, `trailPheromones0/1`
 - `foodPheromoneOwner0/1` tracks which colony deposited each pheromone
 - Ants only sense their own colony's pheromones
+- Trail pheromones influence steering via `trailSenseWeight` (2.5)
+- `minTrailToDig` (0.25): Ants avoid digging through heavily-trafficked trails
 - Nest center always has max home pheromone (1.0)
-- Decay factor: 0.985 per frame (configurable)
+- Decay factor: dynamically calculated based on map size for proper round-trip persistence
 - **Food scent**: Separate BFS-based diffusion from food cells, spreads 0.97x per cell distance
 
 **Ant Sensing**: 3 sensors reach out from ant's position
@@ -208,10 +236,22 @@ AntWorldGame
 **Princess/Breeding System**: Colony succession
 - Queens lay eggs every 45 seconds (`_eggLayInterval`)
 - Eggs hatch after 20 seconds, larvae mature after 60 seconds
-- Princess threshold: 75 food units (`_foodForPrincess`)
-- Max 2 princesses per colony (`_maxPrincessesPerColony`)
+- Princess threshold: 40 food units (`_foodForPrincess`)
+- Max 4 princesses per colony (`_maxPrincessesPerColony`)
 - Princess stats: 300 HP, 0.4x speed, no combat aggression
 - Automatic succession: Princess promotes to queen when current queen dies
+
+**Tunnel System**: Colony infrastructure
+- `Tunnel` class tracks: id, cells (ordered path), width, colonyId, fromRoomId, toRoomId
+- Width levels: 1 (service), 2 (standard), 3 (highway)
+- `getAllCells()` expands path perpendicular to direction based on width
+- Tunnels connect rooms or lead from surface entrances
+
+**Event Bus**: Cross-system communication (`lib/src/core/`)
+- `GameEventBus`: Broadcast stream for typed events via `emit()` and `on<T>()`
+- Event types: `FoodCollectedEvent`, `AntBornEvent`, `DayAdvancedEvent`, `SeasonChangedEvent`
+- Nature events: `FoodBloomEvent`, `TunnelCollapseEvent`, `PredatorRaidEvent`, etc.
+- UI subscribes to events for notifications and toast messages
 
 ## Code Patterns
 
@@ -292,7 +332,8 @@ This codebase follows a clear separation between:
 - **UI layer** (lib/src/ui/) - Flutter widgets, overlays (includes AntHud and AntGalleryPage)
 - **Visuals** (lib/src/visuals/) - Ant sprite rendering with LOD levels and visual components
 - **Persistence** (lib/src/state/) - Save/load functionality
-- **Services** (lib/src/services/) - Firebase analytics and other services
+- **Services** (lib/src/services/) - Firebase analytics, Mother Nature events, cosmetics
+- **Core** (lib/src/core/) - GameEventBus for cross-system communication
 
 The simulation can run headless for testing. The game layer is a thin rendering wrapper with LOD optimization. The UI is stateless and driven by ValueNotifiers from the simulation.
 
