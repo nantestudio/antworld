@@ -1,42 +1,36 @@
 # AntWorld
 
-A real-time ant colony simulation built with Flutter and Flame. This was an experiment to see how far I could build a game using only [Claude Code](https://claude.ai/code) as the developer.
+A real-time ant colony simulation built with Flutter and Flame—an experiment in building a game entirely with [Claude Code](https://claude.ai/code).
 
-## The Experiment
+## The Vision
 
-The dream was ambitious: an ant-based civilization game meets Cities Skylines meets Mini Motorways. I wanted to test an iteration loop where Claude Code would implement features, then somehow verify if the result matched what we wanted to build.
+I wanted to create something like Cities Skylines meets Mini Motorways, but with ants. The goal was to test whether Claude Code could handle full game development through an iterative build-and-verify loop.
 
-### What I Learned
+## What I Learned
 
-**Limitations for production games with Claude Code:**
-- Can't debug performance issues well - without game engine knowledge, it's hard to make things super performant
-- Got stuck trying to make it into a production-ready game with a fun game loop
+**The hard parts:**
+- Performance debugging is tough without deep game engine knowledge
+- Couldn't crack the "production-ready fun game loop" problem
 
-**What worked:**
-- People liked the concept - the simulation + ant colony theme resonated
-- I personally enjoyed watching ants grow their pheromone paths and enlarge their colony
-- The emergent behavior is genuinely satisfying to watch
+**The good parts:**
+- The simulation + ant colony theme resonated with people
+- Watching ants organically form pheromone highways and expand their colony is genuinely satisfying
+- Emergent behavior from simple rules actually works
 
-This was a study project. I'd like to come back to it someday.
+This started as a study project. I'd like to revisit it someday.
 
-Sharing the code because a redditor asked to see it.
+*Sharing because a redditor asked to see the code.*
 
-## What It Does
+## How It Works
 
-Each ant follows simple rules:
-- Sense pheromone trails with 3 sensors
-- Move toward stronger signals
-- Drop pheromones while traveling
-- Pick up food and return home
-
-From these behaviors, colonies self-organize into foraging highways, adapt to terrain changes, and compete for resources.
+Each ant follows simple rules: sense pheromones with 3 sensors, move toward stronger signals, drop pheromones, collect food, return home. From this, colonies self-organize into foraging highways and adapt to terrain changes.
 
 ## Features
 
-- **Multiple colonies** (1-4) with unique pheromone trails and tribe names
-- **Ant castes**: Worker, Soldier, Nurse, Queen, Princess, Builder, Egg, Larva
-- **Mother Nature events**: Food blooms, tunnel collapses, predator raids, seasons
-- **Sandbox mode**: Dig tunnels, place food, watch your colony grow
+- **1-4 competing colonies** with unique pheromone trails
+- **Castes**: Worker, Soldier, Nurse, Queen, Princess, Builder, Egg, Larva
+- **Environmental events**: Food blooms, tunnel collapses, predator raids, seasons
+- **Sandbox tools**: Dig tunnels, place food, shape the world
 
 ## Quick Start
 
@@ -45,19 +39,12 @@ flutter pub get
 flutter run
 ```
 
-Supports iOS, Android, macOS, Windows, Linux, and Web.
+Runs on iOS, Android, macOS, Windows, Linux, and Web.
 
 ## Why Flutter + Flame?
 
-I chose this stack because:
-1. **I knew Flutter** - Comfortable with it from app development
-2. **100% code-based** - Unlike Godot or Unity which require visual editors for scenes/UI, Flutter + Flame is purely code. Claude Code could handle everything without me touching any GUI tools.
-
-## Tech
-
-- [Flutter](https://flutter.dev) + [Flame](https://flame-engine.org)
-- Firebase Analytics
-- Pure Dart simulation (can run headless)
+1. **Familiar territory** — I already knew Flutter from app development
+2. **Pure code** — Unlike Godot or Unity, no visual editors required. Claude Code could handle 100% of the work.
 
 ## License
 
