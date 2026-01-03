@@ -4,7 +4,20 @@ A real-time ant colony simulation built with Flutter and Flame. This was an expe
 
 ## The Experiment
 
-I wanted to test an iteration loop where Claude Code would implement features, then somehow verify if the result matched what we wanted to build. The loop didn't fully succeed, but the game itself turned out pretty interesting.
+The dream was ambitious: an ant-based civilization game meets Cities Skylines meets Mini Motorways. I wanted to test an iteration loop where Claude Code would implement features, then somehow verify if the result matched what we wanted to build.
+
+### What I Learned
+
+**Limitations for production games with Claude Code:**
+- Can't debug performance issues well - without game engine knowledge, it's hard to make things super performant
+- Got stuck trying to make it into a production-ready game with a fun game loop
+
+**What worked:**
+- People liked the concept - the simulation + ant colony theme resonated
+- I personally enjoyed watching ants grow their pheromone paths and enlarge their colony
+- The emergent behavior is genuinely satisfying to watch
+
+This was a study project. I'd like to come back to it someday.
 
 Sharing the code because a redditor asked to see it.
 
