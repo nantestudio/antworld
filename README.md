@@ -34,6 +34,12 @@ flutter run
 
 Supports iOS, Android, macOS, Windows, Linux, and Web.
 
+## Why Flutter + Flame?
+
+I chose this stack because:
+1. **I knew Flutter** - Comfortable with it from app development
+2. **100% code-based** - Unlike Godot or Unity which require visual editors for scenes/UI, Flutter + Flame is purely code. Claude Code could handle everything without me touching any GUI tools.
+
 ## Tech
 
 - [Flutter](https://flutter.dev) + [Flame](https://flame-engine.org)
